@@ -14,6 +14,13 @@ interface GoogleProfile {
   picture: string
 }
 
+interface ConversaResumo {
+  session_id: string
+  titulo: string
+  updated_at?: string
+  total_mensagens: number
+}
+
 declare global {
   interface Window {
     google?: any
@@ -42,15 +49,41 @@ export default function Home() {
   const [pesquisarWeb, setPesquisarWeb] = useState(false)
   const [googleToken, setGoogleToken] = useState('')
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
+  const [conversas, setConversas] = useState<ConversaResumo[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+
+  const authHeaders = (token = googleToken) => ({
+    Authorization: `Bearer ${token}`,
+  })
+
+  const carregarConversas = async (token = googleToken) => {
+    if (!token) return
+
+    try {
+      setHistoryLoading(true)
+      const response = await fetch(`${apiUrl}/conversas`, {
+        headers: authHeaders(token),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
+      setConversas(data.conversas || [])
+    } catch (error) {
+      console.error('Erro ao carregar conversas', error)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
     if (savedToken) {
       setGoogleToken(savedToken)
       setProfile(decodeJwtProfile(savedToken))
+      carregarConversas(savedToken)
     }
   }, [])
 
@@ -65,6 +98,7 @@ export default function Home() {
         setGoogleToken(token)
         setProfile(decoded)
         window.localStorage.setItem('helpus_google_token', token)
+        carregarConversas(token)
       },
     })
 
@@ -82,9 +116,59 @@ export default function Home() {
   const sair = () => {
     setGoogleToken('')
     setProfile(null)
+    setConversas([])
     window.localStorage.removeItem('helpus_google_token')
     setMessages([])
     setSessionId('')
+  }
+
+  const carregarHistorico = async (id: string) => {
+    if (!googleToken) return
+
+    try {
+      setLoading(true)
+      const response = await fetch(`${apiUrl}/historico/${id}`, {
+        headers: authHeaders(),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
+
+      setSessionId(id)
+      setMessages(data.mensagens || [])
+      setSidebarOpen(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: `Erro ao carregar historico: ${message}` },
+      ])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const apagarConversa = async (id: string) => {
+    if (!googleToken) return
+    const confirmar = window.confirm('Apagar esta conversa?')
+    if (!confirmar) return
+
+    try {
+      const response = await fetch(`${apiUrl}/conversa/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
+
+      if (sessionId === id) {
+        setMessages([])
+        setSessionId('')
+      }
+      await carregarConversas()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      alert(`Erro ao apagar conversa: ${message}`)
+    }
   }
 
   const enviarMensagem = async () => {
@@ -94,10 +178,7 @@ export default function Home() {
     if (!googleToken) {
       setMessages(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          content: 'Entre com sua conta Google para usar o HelpUS.',
-        },
+        { role: 'assistant', content: 'Entre com sua conta Google para usar o HelpUS.' },
       ])
       return
     }
@@ -139,14 +220,13 @@ export default function Home() {
           fontes: data.fontes || [],
         },
       ])
+
+      await carregarConversas()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido'
       setMessages(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          content: `Erro ao conectar com o servidor: ${message}`,
-        },
+        { role: 'assistant', content: `Erro ao conectar com o servidor: ${message}` },
       ])
     } finally {
       setLoading(false)
@@ -170,12 +250,20 @@ export default function Home() {
     <main className="min-h-screen bg-slate-100 text-slate-900">
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">HelpUS</h1>
-              <p className="text-sm text-slate-500">Seu Assistente Inteligente</p>
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900">HelpUS</h1>
+                <p className="text-sm text-slate-500">Seu Assistente Inteligente</p>
+              </div>
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 lg:hidden"
+              >
+                Historico
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -214,120 +302,182 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="flex-1 overflow-y-auto px-4 py-6">
-          {messages.length === 0 && (
-            <div className="mx-auto mt-16 max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-              <p className="text-3xl font-bold text-slate-900">Como posso ajudar?</p>
-              <p className="mt-3 text-slate-500">
-                Entre com Google e pergunte algo ao HelpUS.
-              </p>
-              {!profile && (
-                <p className="mt-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
-                  Login Google obrigatorio para usar o assistente.
-                </p>
-              )}
-              <div className="mt-6 grid gap-2 text-left text-sm text-slate-600 sm:grid-cols-2">
-                <button
-                  onClick={() => setInput('Quem e voce?')}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
-                >
-                  Quem e voce?
-                </button>
-                <button
-                  onClick={() => setInput('Explique em poucas palavras como este assistente funciona.')}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
-                >
-                  Como funciona?
-                </button>
-              </div>
+        <div className="flex flex-1 overflow-hidden">
+          <aside
+            className={`${sidebarOpen ? 'block' : 'hidden'} w-full border-r border-slate-200 bg-white p-4 lg:block lg:w-80`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-bold text-slate-800">Minhas conversas</h2>
+              <button
+                onClick={() => carregarConversas()}
+                disabled={!profile || historyLoading}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-50"
+              >
+                Atualizar
+              </button>
             </div>
-          )}
 
-          <div className="space-y-5">
-            {messages.map((msg, index) => (
-              <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <article
-                  className={`max-w-[92%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[78%] ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'border border-slate-200 bg-white text-slate-900'
+            {!profile && (
+              <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+                Entre com Google para ver seu historico.
+              </p>
+            )}
+
+            {profile && conversas.length === 0 && (
+              <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                Nenhuma conversa salva ainda.
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {conversas.map((conv) => (
+                <div
+                  key={conv.session_id}
+                  className={`rounded-xl border p-3 ${
+                    sessionId === conv.session_id
+                      ? 'border-blue-200 bg-blue-50'
+                      : 'border-slate-200 bg-slate-50'
                   }`}
                 >
-                  <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}`}>
-                    {msg.role === 'user' ? 'Voce' : 'Assistente'}
-                  </div>
-
-                  <div className="whitespace-pre-wrap text-sm leading-7 sm:text-base">
-                    {msg.content}
-                  </div>
-
-                  {msg.fontes && msg.fontes.length > 0 && (
-                    <div className="mt-4 border-t border-slate-200 pt-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Fontes consultadas
-                      </p>
-                      <div className="space-y-1">
-                        {msg.fontes.map((fonte, i) => (
-                          <a
-                            key={i}
-                            href={fonte.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block truncate text-sm text-blue-600 hover:underline"
-                          >
-                            {i + 1}. {fonte.titulo} ({fonte.fonte})
-                          </a>
-                        ))}
-                      </div>
+                  <button
+                    onClick={() => carregarHistorico(conv.session_id)}
+                    className="block w-full text-left"
+                  >
+                    <div className="truncate text-sm font-semibold text-slate-800">
+                      {conv.titulo || 'Nova conversa'}
                     </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {conv.total_mensagens} mensagens
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => apagarConversa(conv.session_id)}
+                    className="mt-2 text-xs font-semibold text-red-500 hover:text-red-700"
+                  >
+                    Apagar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <section className="flex min-w-0 flex-1 flex-col">
+            <div className="flex-1 overflow-y-auto px-4 py-6">
+              {messages.length === 0 && (
+                <div className="mx-auto mt-16 max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                  <p className="text-3xl font-bold text-slate-900">Como posso ajudar?</p>
+                  <p className="mt-3 text-slate-500">
+                    Entre com Google e pergunte algo ao HelpUS.
+                  </p>
+                  {!profile && (
+                    <p className="mt-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+                      Login Google obrigatorio para usar o assistente.
+                    </p>
                   )}
-                </article>
-              </div>
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-3 text-sm text-slate-500">
-                    <div className="flex gap-1">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
-                    </div>
-                    Pensando...
+                  <div className="mt-6 grid gap-2 text-left text-sm text-slate-600 sm:grid-cols-2">
+                    <button
+                      onClick={() => setInput('Quem e voce?')}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
+                    >
+                      Quem e voce?
+                    </button>
+                    <button
+                      onClick={() => setInput('Explique em poucas palavras como este assistente funciona.')}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
+                    >
+                      Como funciona?
+                    </button>
                   </div>
                 </div>
+              )}
+
+              <div className="space-y-5">
+                {messages.map((msg, index) => (
+                  <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <article
+                      className={`max-w-[92%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[78%] ${
+                        msg.role === 'user'
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-slate-200 bg-white text-slate-900'
+                      }`}
+                    >
+                      <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}`}>
+                        {msg.role === 'user' ? 'Voce' : 'Assistente'}
+                      </div>
+
+                      <div className="whitespace-pre-wrap text-sm leading-7 sm:text-base">
+                        {msg.content}
+                      </div>
+
+                      {msg.fontes && msg.fontes.length > 0 && (
+                        <div className="mt-4 border-t border-slate-200 pt-3">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Fontes consultadas
+                          </p>
+                          <div className="space-y-1">
+                            {msg.fontes.map((fonte, i) => (
+                              <a
+                                key={i}
+                                href={fonte.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block truncate text-sm text-blue-600 hover:underline"
+                              >
+                                {i + 1}. {fonte.titulo} ({fonte.fonte})
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <div className="flex items-center gap-3 text-sm text-slate-500">
+                        <div className="flex gap-1">
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
+                        </div>
+                        Pensando...
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </section>
+            </div>
 
-        <footer className="sticky bottom-0 border-t border-slate-200 bg-white p-4">
-          <div className="mx-auto flex max-w-6xl gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={profile ? "Digite sua pergunta... Enter para enviar" : "Entre com Google para usar o HelpUS"}
-              className="min-h-[48px] flex-1 resize-none rounded-xl border border-slate-300 p-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              rows={1}
-              disabled={loading || !profile}
-            />
-            <button
-              onClick={enviarMensagem}
-              disabled={loading || !input.trim() || !profile}
-              className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:px-7"
-            >
-              {loading ? '...' : 'Enviar'}
-            </button>
-          </div>
+            <footer className="border-t border-slate-200 bg-white p-4">
+              <div className="mx-auto flex max-w-6xl gap-2">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={profile ? 'Digite sua pergunta... Enter para enviar' : 'Entre com Google para usar o HelpUS'}
+                  className="min-h-[48px] flex-1 resize-none rounded-xl border border-slate-300 p-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  rows={1}
+                  disabled={loading || !profile}
+                />
+                <button
+                  onClick={enviarMensagem}
+                  disabled={loading || !input.trim() || !profile}
+                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:px-7"
+                >
+                  {loading ? '...' : 'Enviar'}
+                </button>
+              </div>
 
-          {sessionId && (
-            <p className="mx-auto mt-2 max-w-6xl text-xs text-slate-400">
-              Sessao: {sessionId.slice(0, 8)}...
-            </p>
-          )}
-        </footer>
+              {sessionId && (
+                <p className="mx-auto mt-2 max-w-6xl text-xs text-slate-400">
+                  Sessao: {sessionId.slice(0, 8)}...
+                </p>
+              )}
+            </footer>
+          </section>
+        </div>
       </div>
     </main>
   )
