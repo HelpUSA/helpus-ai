@@ -3,7 +3,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'HelpUS',
-  description: 'HelpUS Independente - 100% próprio',
+  description: 'HelpUS - Seu Assistente Inteligente',
 }
 
 export default function RootLayout({
@@ -17,4 +17,3 @@ export default function RootLayout({
     </html>
   )
 }
-
