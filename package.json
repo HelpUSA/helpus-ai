@@ -1,0 +1,11 @@
+{
+  "name": "helpus-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:frontend": "npm --prefix frontend install",
+    "build": "npm --prefix frontend run build",
+    "dev": "npm --prefix frontend run dev",
+    "start": "npm --prefix frontend run start"
+  }
+}
