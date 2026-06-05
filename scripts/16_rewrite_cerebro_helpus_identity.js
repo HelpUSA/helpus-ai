@@ -1,4 +1,12 @@
-# -*- coding: utf-8 -*-
+﻿const fs = require("fs");
+const path = require("path");
+const cp = require("child_process");
+
+const root = "D:/dev/ai";
+const backend = path.join(root, "backend");
+const file = path.join(backend, "cerebro.py");
+
+const content = `# -*- coding: utf-8 -*-
 import asyncio
 import time
 from typing import List, Dict, Tuple
@@ -52,18 +60,18 @@ class CerebroIA:
         ]
 
         if historico:
-            partes.append("\nHistorico recente:")
+            partes.append("\\nHistorico recente:")
             for msg in historico[-6:]:
                 partes.append(f"{msg.get('role', 'user')}: {msg.get('content', '')}")
 
         if contexto_busca:
-            partes.append("\nContexto de pesquisa:")
+            partes.append("\\nContexto de pesquisa:")
             partes.append(contexto_busca)
 
-        partes.append("\nPergunta:")
+        partes.append("\\nPergunta:")
         partes.append(pergunta)
 
-        return "\n".join(partes)
+        return "\\n".join(partes)
 
     async def pensar(
         self,
@@ -100,3 +108,16 @@ class CerebroIA:
         tokens = resultado.get("usage", {}).get("completion_tokens", 0)
         tempo = round(time.time() - inicio, 2)
         return texto, tokens, tempo
+`;
+
+fs.writeFileSync(file, content, "utf8");
+
+console.log("[identity] Rewrote backend/cerebro.py with HelpUS identity");
+
+cp.execFileSync("python -m py_compile config.py banco.py cerebro.py buscador.py main.py", {
+  cwd: backend,
+  stdio: "inherit",
+  shell: true,
+});
+
+console.log("[identity] Compile OK");
