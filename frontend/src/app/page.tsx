@@ -12,7 +12,7 @@ export default function Home() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState('')
-  const [pesquisarWeb, setPesquisarWeb] = useState(true)
+  const [pesquisarWeb, setPesquisarWeb] = useState(false)
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
   const enviarMensagem = async () => {
@@ -95,7 +95,7 @@ export default function Home() {
               onChange={(e) => setPesquisarWeb(e.target.checked)}
               className="rounded"
             />
-            Pesquisar na web
+            Pesquisar na web quando necessario
           </label>
           <button
             onClick={limparChat}
