@@ -31,3 +31,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Env files
+backend/.env
+frontend/.env.local
+# Runtime/build
+frontend/.next/
+frontend/node_modules/
+backend/.venv/
