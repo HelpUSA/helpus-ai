@@ -11,7 +11,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from config import DEBUG
+from config import DEBUG, CORS_ORIGINS
 from banco import BancoDados
 from cerebro import CerebroIA
 from buscador import MotorBusca
@@ -72,7 +72,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

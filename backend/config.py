@@ -23,3 +23,13 @@ MODEL_CONFIG = {
 SEARCH_CONFIG = {'user_agent': 'HelpUS/1.0', 'timeout': 15.0, 'max_results': 5}
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 DEBUG = ENVIRONMENT == 'development'
+
+
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "https://ai.helpusbr.com,https://helpus-ai.vercel.app,http://localhost:3000"
+    ).split(",")
+    if origin.strip()
+]
