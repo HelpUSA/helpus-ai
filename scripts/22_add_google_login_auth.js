@@ -1,4 +1,120 @@
-'use client'
+﻿const fs = require("fs");
+const path = require("path");
+const cp = require("child_process");
+
+const root = "D:/dev/ai";
+const backend = path.join(root, "backend");
+const frontend = path.join(root, "frontend");
+
+function write(file, content) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content.replace(/\r\n/g, "\n"), "utf8");
+  console.log("[write]", file);
+}
+
+function run(command, cwd) {
+  console.log("\n[run] " + command);
+  cp.execSync(command, { cwd, stdio: "inherit", shell: true });
+}
+
+// Backend requirements
+const reqPath = path.join(backend, "requirements.txt");
+let req = fs.readFileSync(reqPath, "utf8");
+if (!req.includes("google-auth")) {
+  req = req.trimEnd() + "\ngoogle-auth>=2.23.0,<3.0.0\n";
+  fs.writeFileSync(reqPath, req, "utf8");
+}
+
+// Backend config
+const configPath = path.join(backend, "config.py");
+let config = fs.readFileSync(configPath, "utf8");
+
+if (!config.includes("AUTH_REQUIRED")) {
+  config += `
+
+AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower().strip() in ("1", "true", "yes", "on")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+`;
+}
+
+write(configPath, config);
+
+// Backend auth.py
+write(path.join(backend, "auth.py"), `# -*- coding: utf-8 -*-
+from typing import Optional, Dict, Any
+
+from fastapi import Header, HTTPException
+
+from config import AUTH_REQUIRED, GOOGLE_CLIENT_ID
+
+
+def verificar_google_id_token(token: str) -> Dict[str, Any]:
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID nao configurado.")
+
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests
+
+        info = id_token.verify_oauth2_token(
+            token,
+            requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token Google invalido.")
+
+    email = info.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token Google sem email.")
+
+    return {
+        "sub": info.get("sub"),
+        "email": email,
+        "name": info.get("name") or email,
+        "picture": info.get("picture") or "",
+    }
+
+
+async def obter_usuario_google(authorization: Optional[str] = Header(default=None)) -> Optional[Dict[str, Any]]:
+    if not AUTH_REQUIRED:
+        return None
+
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token ausente.")
+
+    return verificar_google_id_token(token)
+`);
+
+// Backend main.py patch
+const mainPath = path.join(backend, "main.py");
+let main = fs.readFileSync(mainPath, "utf8");
+
+main = main.replace(
+  "from fastapi import FastAPI, HTTPException",
+  "from fastapi import FastAPI, HTTPException, Depends"
+);
+
+if (!main.includes("from auth import obter_usuario_google")) {
+  main = main.replace(
+    "from buscador import MotorBusca",
+    "from buscador import MotorBusca\nfrom auth import obter_usuario_google"
+  );
+}
+
+main = main.replace(
+  "async def chat(request: MensagemRequest):",
+  "async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):"
+);
+
+write(mainPath, main);
+
+// Frontend page.tsx with Google login
+write(path.join(frontend, "src/app/page.tsx"), `'use client'
 import Script from 'next/script'
 import { useEffect, useState } from 'react'
 
@@ -107,11 +223,11 @@ export default function Home() {
     setLoading(true)
 
     try {
-      const response = await fetch(`${apiUrl}/chat`, {
+      const response = await fetch(\`\${apiUrl}/chat\`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${googleToken}`,
+          Authorization: \`Bearer \${googleToken}\`,
         },
         body: JSON.stringify({
           mensagem: texto,
@@ -123,7 +239,7 @@ export default function Home() {
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        const detail = data?.detail || `Erro HTTP ${response.status}`
+        const detail = data?.detail || \`Erro HTTP \${response.status}\`
         throw new Error(String(detail))
       }
 
@@ -145,7 +261,7 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: `Erro ao conectar com o servidor: ${message}`,
+          content: \`Erro ao conectar com o servidor: \${message}\`,
         },
       ])
     } finally {
@@ -245,15 +361,15 @@ export default function Home() {
 
           <div className="space-y-5">
             {messages.map((msg, index) => (
-              <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div key={index} className={\`flex \${msg.role === 'user' ? 'justify-end' : 'justify-start'}\`}>
                 <article
-                  className={`max-w-[92%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[78%] ${
+                  className={\`max-w-[92%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[78%] \${
                     msg.role === 'user'
                       ? 'bg-blue-600 text-white'
                       : 'border border-slate-200 bg-white text-slate-900'
-                  }`}
+                  }\`}
                 >
-                  <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}`}>
+                  <div className={\`mb-1 text-sm font-bold \${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}\`}>
                     {msg.role === 'user' ? 'Voce' : 'Assistente'}
                   </div>
 
@@ -332,3 +448,15 @@ export default function Home() {
     </main>
   )
 }
+`);
+
+// Frontend env example
+write(path.join(frontend, ".env.example"), `NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=seu-client-id.apps.googleusercontent.com
+`);
+
+// Validate
+run("python -m py_compile config.py banco.py cerebro.py buscador.py auth.py main.py", backend);
+run("npm run build", root);
+
+console.log("[auth] Google login/auth patch OK");

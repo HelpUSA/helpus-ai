@@ -33,3 +33,7 @@ CORS_ORIGINS = [
     ).split(",")
     if origin.strip()
 ]
+
+
+AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower().strip() in ("1", "true", "yes", "on")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")

@@ -3,7 +3,7 @@
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict
@@ -15,6 +15,7 @@ from config import DEBUG, CORS_ORIGINS
 from banco import BancoDados
 from cerebro import CerebroIA
 from buscador import MotorBusca
+from auth import obter_usuario_google
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -122,7 +123,7 @@ async def status():
     )
 
 @app.post("/chat", response_model=MensagemResponse)
-async def chat(request: MensagemRequest):
+async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
     """Endpoint principal de conversa"""
     if not cerebro:
         raise HTTPException(
