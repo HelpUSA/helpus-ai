@@ -178,8 +178,50 @@ class MotorBusca:
 
         return ""
 
+    def _normalizar_local_clima(self, local: str) -> str:
+        chave = (local or "").strip().lower()
+        chave = (
+            chave.replace("ã", "a")
+            .replace("á", "a")
+            .replace("à", "a")
+            .replace("â", "a")
+            .replace("é", "e")
+            .replace("ê", "e")
+            .replace("í", "i")
+            .replace("ó", "o")
+            .replace("ô", "o")
+            .replace("õ", "o")
+            .replace("ú", "u")
+            .replace("ç", "c")
+        )
+        chave = re.sub(r"\s+", " ", chave).strip()
+
+        aliases = {
+            "joao pessoa": "Joao Pessoa, Paraiba, Brazil",
+            "joao pessoa pb": "Joao Pessoa, Paraiba, Brazil",
+            "joao pessoa paraiba": "Joao Pessoa, Paraiba, Brazil",
+            "sao paulo": "Sao Paulo, Brazil",
+            "sao paulo sp": "Sao Paulo, Brazil",
+            "rio de janeiro": "Rio de Janeiro, Brazil",
+            "rio de janeiro rj": "Rio de Janeiro, Brazil",
+            "brasilia": "Brasilia, Brazil",
+            "brasília": "Brasilia, Brazil",
+            "belo horizonte": "Belo Horizonte, Brazil",
+            "salvador": "Salvador, Bahia, Brazil",
+            "recife": "Recife, Pernambuco, Brazil",
+            "fortaleza": "Fortaleza, Ceara, Brazil",
+            "curitiba": "Curitiba, Parana, Brazil",
+            "porto alegre": "Porto Alegre, Rio Grande do Sul, Brazil",
+            "manaus": "Manaus, Amazonas, Brazil",
+            "belem": "Belem, Para, Brazil",
+            "belém": "Belem, Para, Brazil",
+        }
+
+        return aliases.get(chave, local)
+
     def _buscar_clima_sync(self, local: str) -> Optional[Dict[str, str]]:
-        query = urllib.parse.quote(local)
+        local_consulta = self._normalizar_local_clima(local)
+        query = urllib.parse.quote(local_consulta)
         url = f"https://wttr.in/{query}?format=j1&lang=pt"
 
         req = urllib.request.Request(
@@ -199,7 +241,7 @@ class MotorBusca:
         current = (data.get("current_condition") or [{}])[0]
         area = (data.get("nearest_area") or [{}])[0]
 
-        nome_area = local
+        nome_area = local_consulta
         try:
             nome_area = area.get("areaName", [{}])[0].get("value") or local
         except Exception:
@@ -224,7 +266,7 @@ class MotorBusca:
 
         return {
             "titulo": f"Clima atual em {nome_area}",
-            "url": f"https://wttr.in/{urllib.parse.quote(local)}",
+            "url": f"https://wttr.in/{urllib.parse.quote(local_consulta)}",
             "snippet": snippet,
             "fonte": "wttr.in",
         }
@@ -358,3 +400,4 @@ class MotorBusca:
         if not texto:
             return ""
         return texto[:80].strip()
+
