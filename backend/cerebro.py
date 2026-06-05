@@ -1,57 +1,51 @@
-# -*- coding: utf-8 -*-
-from llama_cpp import Llama
+﻿# -*- coding: utf-8 -*-
 import asyncio
-from typing import List, Dict, Tuple
 import time
-from config import MODEL_PATH, MODEL_CONFIG, DEBUG
+from typing import List, Dict, Tuple
+from config import AI_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, MODEL_PATH, MODEL_CONFIG
 
 class CerebroIA:
-    def __init__(self, model_path: str = None):
-        self.model_path = model_path or MODEL_PATH
-        self.nome_modelo = "Mistral 7B"
-        
-        if DEBUG:
-            print(f"Ã°Å¸Â§Â  Carregando modelo...")
-        
-        self.llm = Llama(
-            model_path=self.model_path,
-            n_ctx=MODEL_CONFIG["n_ctx"],
-            n_threads=MODEL_CONFIG["n_threads"],
-            n_batch=MODEL_CONFIG["n_batch"],
-            verbose=False
-        )
-        
-        if DEBUG:
-            print("Ã¢Å“â€¦ Modelo carregado!")
-    
-    def _construir_prompt(self, pergunta: str, contexto_busca: str = "", historico: List[Dict] = None) -> str:
-        system_prompt = "Voce e o HelpUS, um assistente virtual profissional em portugues do Brasil. Seu nome e HelpUS. Responda de forma clara, amigavel e objetiva. Sempre se apresente como HelpUS quando perguntado."
-        
-        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-        
+    def __init__(self):
+        self.provider = AI_PROVIDER
+        self.nome_modelo = self.provider
+        if self.provider == 'gemini':
+            self.nome_modelo = GEMINI_MODEL
+            if not GEMINI_API_KEY:
+                raise RuntimeError('GEMINI_API_KEY nÃ£o configurada.')
+            from google import genai
+            self.client = genai.Client(api_key=GEMINI_API_KEY)
+            return
+        if self.provider == 'local':
+            self.nome_modelo = 'Local GGUF'
+            from llama_cpp import Llama
+            self.llm = Llama(model_path=MODEL_PATH, n_ctx=MODEL_CONFIG['n_ctx'], n_threads=MODEL_CONFIG['n_threads'], n_batch=MODEL_CONFIG['n_batch'], verbose=False)
+            return
+        raise RuntimeError(f'AI_PROVIDER invÃ¡lido: {self.provider}')
+
+    def _construir_prompt(self, pergunta: str, contexto_busca: str = '', historico: List[Dict] = None) -> str:
+        partes = ['VocÃª Ã© o HelpUS, um assistente virtual profissional em portuguÃªs do Brasil.', 'Responda de forma clara, amigÃ¡vel e objetiva.']
         if historico:
+            partes.append('\nHistÃ³rico recente:')
             for msg in historico[-6:]:
-                prompt += f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>\n"
-        
+                partes.append(f"{msg.get('role', 'user')}: {msg.get('content', '')}")
         if contexto_busca:
-            pergunta = f"PERGUNTA: {pergunta}\n\nCONTEXTO DE PESQUISA:\n{contexto_busca}\n\nResponda com base no contexto."
-        
-        prompt += f"<|im_start|>user\n{pergunta}<|im_end|>\n<|im_start|>assistant\n"
-        return prompt
-    
-    async def pensar(self, pergunta: str, contexto_busca: str = "", historico: List[Dict] = None, max_tokens: int = None) -> Tuple[str, int, float]:
-        prompt = self._construir_prompt(pergunta, contexto_busca, historico)
-        max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
-        
+            partes.append('\nContexto de pesquisa:')
+            partes.append(contexto_busca)
+        partes.append('\nPergunta:')
+        partes.append(pergunta)
+        return '\n'.join(partes)
+
+    async def pensar(self, pergunta: str, contexto_busca: str = '', historico: List[Dict] = None, max_tokens: int = None) -> Tuple[str, int, float]:
         inicio = time.time()
-        loop = asyncio.get_event_loop()
-        
+        prompt = self._construir_prompt(pergunta, contexto_busca, historico)
+        max_tokens = max_tokens or MODEL_CONFIG['max_tokens']
+        if self.provider == 'gemini':
+            resposta = await asyncio.to_thread(self.client.models.generate_content, model=GEMINI_MODEL, contents=prompt)
+            texto = (getattr(resposta, 'text', '') or '').strip()
+            return texto, 0, round(time.time() - inicio, 2)
         def gerar():
-            return self.llm(prompt, max_tokens=max_tokens, temperature=0.7, stop=["<|im_end|>"], echo=False)
-        
-        resultado = await loop.run_in_executor(None, gerar)
-        resposta = resultado['choices'][0]['text'].strip()
-        tokens = resultado['usage']['completion_tokens']
-        tempo = round(time.time() - inicio, 2)
-        
-        return resposta, tokens, tempo
+            return self.llm(prompt, max_tokens=max_tokens, temperature=MODEL_CONFIG['temperature'], stop=['<|im_end|>'], echo=False)
+        resultado = await asyncio.to_thread(gerar)
+        texto = resultado['choices'][0]['text'].strip()
+        tokens = resultado.get('usage', {}).get('completion_tokens', 0)
+        return texto, tokens, round(time.time() - inicio, 2)
