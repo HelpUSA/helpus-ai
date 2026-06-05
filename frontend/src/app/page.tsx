@@ -34,8 +34,13 @@ export default function Home() {
         }),
       })
 
-      const data = await response.json()
-      
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        const detail = data?.detail || `Erro HTTP ${response.status}`
+        throw new Error(String(detail))
+      }
+
       if (data.session_id && !sessionId) {
         setSessionId(data.session_id)
       }
@@ -44,16 +49,17 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: data.resposta,
-          fontes: data.fontes,
+          content: data.resposta || 'A API respondeu sem conteÃºdo.',
+          fontes: data.fontes || [],
         },
       ])
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: '? Erro ao conectar com o servidor. Verifique se a API está rodando.',
+          content: `Erro ao conectar com o servidor: ${message}`,
         },
       ])
     } finally {
@@ -78,7 +84,7 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white shadow-sm p-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-800">?? HelpUS</h1>
+          <h1 className="text-xl font-bold text-gray-800">HelpUS</h1>
           <p className="text-sm text-gray-500">Seu Assistente Inteligente</p>
         </div>
         <div className="flex items-center gap-4">
@@ -89,26 +95,25 @@ export default function Home() {
               onChange={(e) => setPesquisarWeb(e.target.checked)}
               className="rounded"
             />
-            ?? Pesquisar na web
+            Pesquisar na web
           </label>
           <button
             onClick={limparChat}
             className="text-sm text-gray-500 hover:text-red-500"
             title="Limpar conversa"
           >
-            ??? Nova conversa
+            Nova conversa
           </button>
         </div>
       </header>
 
-      {/* Área de mensagens */}
+      {/* Area de mensagens */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center text-gray-400 mt-20">
-            <p className="text-4xl mb-4">??</p>
-            <p className="text-lg">Olá! Como posso ajudar?</p>
+            <p className="text-lg">Ola! Como posso ajudar?</p>
             <p className="text-sm mt-2">
-              Digite sua pergunta abaixo para começar.
+              Digite sua pergunta abaixo para comecar.
             </p>
           </div>
         )}
@@ -126,7 +131,7 @@ export default function Home() {
               }`}
             >
               <div className="font-bold text-sm mb-1">
-                {msg.role === 'user' ? '?? Você' : '?? Assistente'}
+                {msg.role === 'user' ? 'Voce' : 'Assistente'}
               </div>
               <div className="whitespace-pre-wrap text-sm leading-relaxed">
                 {msg.content}
@@ -136,7 +141,7 @@ export default function Home() {
               {msg.fontes && msg.fontes.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-300">
                   <p className="text-xs font-semibold text-gray-500 mb-1">
-                    ?? Fontes consultadas:
+                    Fontes consultadas:
                   </p>
                   {msg.fontes.map((fonte, i) => (
                     <a
@@ -196,7 +201,7 @@ export default function Home() {
         </div>
         {sessionId && (
           <p className="text-xs text-gray-400 mt-2">
-            Sessão: {sessionId.slice(0, 8)}...
+            Sessao: {sessionId.slice(0, 8)}...
           </p>
         )}
       </div>
