@@ -1,85 +1,109 @@
-# -*- coding: utf-8 -*-
-import asyncpg
+﻿# -*- coding: utf-8 -*-
 from typing import List, Dict
-from config import DATABASE_URL, DEBUG
+from psycopg_pool import AsyncConnectionPool
+from config import DATABASE_URL
 
 class BancoDados:
     def __init__(self):
-        self.pool = None
-        
+        self.pool: AsyncConnectionPool | None = None
+
     async def conectar(self):
-        try:
-            self.pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=2,
-                max_size=10,
-                command_timeout=30
-            )
-            if DEBUG:
-                print("✅ PostgreSQL conectado")
-        except Exception as e:
-            print(f"❌ Erro ao conectar no PostgreSQL: {e}")
-            raise
-    
+        self.pool = AsyncConnectionPool(DATABASE_URL, open=False)
+        await self.pool.open()
+
+    async def fechar(self):
+        if self.pool:
+            await self.pool.close()
+
     async def criar_tabelas(self):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS conversas (
-                    id SERIAL PRIMARY KEY,
-                    session_id VARCHAR(255) NOT NULL,
-                    role VARCHAR(50) NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_conversas_session 
-                ON conversas(session_id, created_at DESC)
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS paginas_indexadas (
-                    id SERIAL PRIMARY KEY,
-                    url TEXT UNIQUE NOT NULL,
-                    titulo TEXT NOT NULL,
-                    conteudo TEXT NOT NULL,
-                    data_indexacao TIMESTAMP DEFAULT NOW()
-                )
-            """)
-    
+        if not self.pool:
+            return
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute('''
+                    CREATE TABLE IF NOT EXISTS conversas (
+                        id SERIAL PRIMARY KEY,
+                        session_id VARCHAR(255) NOT NULL,
+                        role VARCHAR(50) NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                await cur.execute('''
+                    CREATE TABLE IF NOT EXISTS paginas_indexadas (
+                        id SERIAL PRIMARY KEY,
+                        url TEXT UNIQUE NOT NULL,
+                        titulo TEXT,
+                        conteudo TEXT,
+                        data_indexacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                await conn.commit()
+
     async def salvar_mensagem(self, session_id: str, role: str, content: str):
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO conversas (session_id, role, content) VALUES ($1, $2, $3)",
-                session_id, role, content
-            )
-    
+        if not self.pool:
+            return
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    'INSERT INTO conversas (session_id, role, content) VALUES (%s, %s, %s)',
+                    (session_id, role, content)
+                )
+                await conn.commit()
+
     async def carregar_mensagens(self, session_id: str, limite: int = 20) -> List[Dict]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT role, content FROM conversas WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2",
-                session_id, limite
-            )
-            return [{"role": r['role'], "content": r['content']} for r in reversed(rows)]
-    
+        if not self.pool:
+            return []
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    'SELECT role, content FROM conversas WHERE session_id = %s ORDER BY created_at DESC LIMIT %s',
+                    (session_id, limite)
+                )
+                rows = await cur.fetchall()
+                return [{'role': r[0], 'content': r[1]} for r in reversed(rows)]
+
     async def apagar_conversa(self, session_id: str):
-        async with self.pool.acquire() as conn:
-            await conn.execute("DELETE FROM conversas WHERE session_id = $1", session_id)
-    
+        if not self.pool:
+            return
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute('DELETE FROM conversas WHERE session_id = %s', (session_id,))
+                await conn.commit()
+
     async def indexar_pagina(self, url: str, titulo: str, conteudo: str):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO paginas_indexadas (url, titulo, conteudo) VALUES ($1, $2, $3)
-                ON CONFLICT (url) DO UPDATE SET titulo = $2, conteudo = $3, data_indexacao = NOW()
-            """, url, titulo, conteudo[:10000])
-    
+        if not self.pool:
+            return
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    '''
+                    INSERT INTO paginas_indexadas (url, titulo, conteudo)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (url)
+                    DO UPDATE SET titulo = EXCLUDED.titulo, conteudo = EXCLUDED.conteudo, data_indexacao = NOW()
+                    ''',
+                    (url, titulo, conteudo[:10000])
+                )
+                await conn.commit()
+
     async def buscar_paginas(self, consulta: str, limite: int = 5) -> List[Dict]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT url, titulo, substring(conteudo, 1, 200) as trecho FROM paginas_indexadas WHERE titulo ILIKE $1 OR conteudo ILIKE $1 LIMIT $2",
-                f"%{consulta}%", limite
-            )
-            return [{"url": r['url'], "titulo": r['titulo'], "snippet": r['trecho']} for r in rows]
-    
+        if not self.pool:
+            return []
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    'SELECT url, titulo, substring(conteudo, 1, 200) as trecho FROM paginas_indexadas WHERE titulo ILIKE %s OR conteudo ILIKE %s LIMIT %s',
+                    (f'%{consulta}%', f'%{consulta}%', limite)
+                )
+                rows = await cur.fetchall()
+                return [{'url': r[0], 'titulo': r[1], 'snippet': r[2]} for r in rows]
+
     async def contar_paginas(self) -> int:
-        async with self.pool.acquire() as conn:
-            return await conn.fetchval("SELECT COUNT(*) FROM paginas_indexadas")
+        if not self.pool:
+            return 0
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute('SELECT COUNT(*) FROM paginas_indexadas')
+                row = await cur.fetchone()
+                return int(row[0]) if row else 0
