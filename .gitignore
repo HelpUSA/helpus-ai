@@ -1,0 +1,33 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Local archives / heavy models
+_archive_local_not_git/
+reports/
+backend/modelos/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Node / Next
+node_modules/
+.next/
+out/
+dist/
+.vercel/
+
+# OS / IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
