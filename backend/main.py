@@ -166,7 +166,13 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         
         # Salva pergunta
         try:
-            await banco.salvar_mensagem(session_id, "user", request.mensagem)
+            await banco.salvar_mensagem(
+            session_id,
+            "user",
+            request.mensagem,
+            user_email=usuario["email"] if usuario else None,
+            title=request.mensagem[:80],
+        )
         except:
             pass
         
@@ -179,7 +185,12 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         
         # Salva resposta
         try:
-            await banco.salvar_mensagem(session_id, "assistant", resposta)
+            await banco.salvar_mensagem(
+            session_id,
+            "assistant",
+            resposta,
+            user_email=usuario["email"] if usuario else None,
+        )
         except:
             pass
         
@@ -198,11 +209,26 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             print(f"❌ Erro no chat: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/conversas")
+async def listar_conversas(usuario = Depends(obter_usuario_google)):
+    """Lista conversas do usuario autenticado"""
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+
+    try:
+        return {
+            "conversas": await banco.listar_conversas_usuario(usuario["email"], limite=50)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/historico/{session_id}")
-async def historico(session_id: str):
+async def historico(session_id: str, usuario = Depends(obter_usuario_google)):
     """Recupera historico de uma conversa"""
     try:
-        mensagens = await banco.carregar_mensagens(session_id, limite=100)
+        mensagens = await banco.carregar_mensagens(session_id, limite=100, user_email=usuario["email"] if usuario else None)
         return {
             "session_id": session_id,
             "quantidade": len(mensagens),
@@ -212,10 +238,10 @@ async def historico(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/conversa/{session_id}")
-async def apagar_conversa(session_id: str):
+async def apagar_conversa(session_id: str, usuario = Depends(obter_usuario_google)):
     """Apaga uma conversa inteira"""
     try:
-        await banco.apagar_conversa(session_id)
+        await banco.apagar_conversa(session_id, user_email=usuario["email"] if usuario else None)
         return {"status": "apagada", "session_id": session_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
