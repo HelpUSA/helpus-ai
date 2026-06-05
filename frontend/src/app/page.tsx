@@ -165,6 +165,7 @@ export default function Home() {
         setSessionId('')
       }
       await carregarConversas()
+      setSidebarOpen(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido'
       alert(`Erro ao apagar conversa: ${message}`)
@@ -237,6 +238,7 @@ export default function Home() {
     setMessages([])
     setSessionId('')
     setInput('')
+    setSidebarOpen(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -306,16 +308,31 @@ export default function Home() {
           <aside
             className={`${sidebarOpen ? 'block' : 'hidden'} w-full border-r border-slate-200 bg-white p-4 lg:block lg:w-80`}
           >
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="font-bold text-slate-800">Minhas conversas</h2>
-              <button
-                onClick={() => carregarConversas()}
-                disabled={!profile || historyLoading}
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-50"
-              >
-                Atualizar
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 lg:hidden"
+                >
+                  Voltar ao chat
+                </button>
+                <button
+                  onClick={() => carregarConversas()}
+                  disabled={!profile || historyLoading}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-50"
+                >
+                  Atualizar
+                </button>
+              </div>
             </div>
+
+            <button
+              onClick={limparChat}
+              className="mb-3 w-full rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+            >
+              Nova conversa
+            </button>
 
             {!profile && (
               <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
