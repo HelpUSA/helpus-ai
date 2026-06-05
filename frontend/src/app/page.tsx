@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import Script from 'next/script'
 import { useEffect, useState } from 'react'
 
@@ -292,6 +293,13 @@ export default function Home() {
               ) : (
                 <div id="google-login-button" />
               )}
+
+              <Link
+                href="/admin"
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 font-medium text-slate-600 transition hover:border-blue-200 hover:text-blue-600"
+              >
+                Admin
+              </Link>
 
               <button
                 onClick={limparChat}
