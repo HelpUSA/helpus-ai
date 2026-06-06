@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ProjectRoot = "D:/dev/ai"
 )
 
@@ -68,7 +68,7 @@ WriteFile (Join-Path $backend "cerebro.py") @(
 "        if self.provider == 'gemini':",
 "            self.nome_modelo = GEMINI_MODEL",
 "            if not GEMINI_API_KEY:",
-"                raise RuntimeError('GEMINI_API_KEY não configurada.')",
+"                raise RuntimeError('GEMINI_API_KEY nÃ£o configurada.')",
 "            from google import genai",
 "            self.client = genai.Client(api_key=GEMINI_API_KEY)",
 "            return",
@@ -77,12 +77,12 @@ WriteFile (Join-Path $backend "cerebro.py") @(
 "            from llama_cpp import Llama",
 "            self.llm = Llama(model_path=MODEL_PATH, n_ctx=MODEL_CONFIG['n_ctx'], n_threads=MODEL_CONFIG['n_threads'], n_batch=MODEL_CONFIG['n_batch'], verbose=False)",
 "            return",
-"        raise RuntimeError(f'AI_PROVIDER inválido: {self.provider}')",
+"        raise RuntimeError(f'AI_PROVIDER invÃ¡lido: {self.provider}')",
 "",
 "    def _construir_prompt(self, pergunta: str, contexto_busca: str = '', historico: List[Dict] = None) -> str:",
-"        partes = ['Você é o HelpUS, um assistente virtual profissional em português do Brasil.', 'Responda de forma clara, amigável e objetiva.']",
+"        partes = ['VocÃª Ã© o HelpUS, um assistente virtual profissional em portuguÃªs do Brasil.', 'Responda de forma clara, amigÃ¡vel e objetiva.']",
 "        if historico:",
-"            partes.append('\nHistórico recente:')",
+"            partes.append('\nHistÃ³rico recente:')",
 "            for msg in historico[-6:]:",
 "                partes.append(f""{msg.get('role', 'user')}: {msg.get('content', '')}"")",
 "        if contexto_busca:",
@@ -109,7 +109,7 @@ WriteFile (Join-Path $backend "cerebro.py") @(
 )
 
 WriteFile (Join-Path $backend ".env.example") @(
-"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/assistente",
+"DATABASE_URL=postgresql://localhost:5432/assistente",
 "ENVIRONMENT=development",
 "",
 "AI_PROVIDER=gemini",
@@ -175,3 +175,4 @@ python -m py_compile `
   (Join-Path $backend "buscador.py")
 
 Write-Output "[gemini] Done."
+
