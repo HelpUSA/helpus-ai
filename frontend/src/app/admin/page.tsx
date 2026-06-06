@@ -113,11 +113,11 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
+    <main className="min-h-screen bg-white text-slate-900">
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        <header className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">
+        <header className="mb-5 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">HelpUS Admin</h1>
             <p className="text-sm text-slate-500">Status do assistente e serviços conectados</p>
@@ -162,9 +162,9 @@ export default function AdminPage() {
         </div>
 
         <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">API</p>
-            <p className="mt-2 text-3xl font-bold text-slate-900">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">API</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
               {saude?.status || 'Indisponivel'}
             </p>
             <p className="mt-2 text-sm text-slate-500">
@@ -172,9 +172,9 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Modelo</p>
-            <p className="mt-2 text-3xl font-bold text-slate-900">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Modelo</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
               {status?.modelo || '-'}
             </p>
             <p className="mt-2 text-sm text-slate-500">
@@ -182,9 +182,9 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Indexacao</p>
-            <p className="mt-2 text-3xl font-bold text-slate-900">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Indexacao</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
               {status?.paginas_indexadas ?? 0}
             </p>
             <p className="mt-2 text-sm text-slate-500">
@@ -192,8 +192,8 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Usuario</p>
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Usuario</p>
             <p className="mt-2 text-xl font-bold text-slate-900">
               {profile?.name || 'Nao logado'}
             </p>
@@ -203,13 +203,13 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Endpoints</p>
+        <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Endpoints</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-            <code className="rounded-lg bg-slate-50 p-3">GET /saude</code>
-            <code className="rounded-lg bg-slate-50 p-3">GET /status</code>
-            <code className="rounded-lg bg-slate-50 p-3">POST /chat</code>
-            <code className="rounded-lg bg-slate-50 p-3">GET /conversas</code>
+            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">GET /saude</code>
+            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">GET /status</code>
+            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">POST /chat</code>
+            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">GET /conversas</code>
           </div>
         </section>
       </div>
