@@ -254,8 +254,8 @@ export default function Home() {
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
       <div className="flex min-h-screen w-full flex-col">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900">HelpUS</h1>
@@ -296,14 +296,14 @@ export default function Home() {
 
               <Link
                 href="/admin"
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 font-medium text-slate-600 transition hover:border-blue-200 hover:text-blue-600"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
               >
                 Admin
               </Link>
 
               <button
                 onClick={limparChat}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 font-medium text-slate-600 transition hover:border-red-200 hover:text-red-600"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
                 title="Limpar conversa"
               >
                 Nova conversa
@@ -314,7 +314,7 @@ export default function Home() {
 
         <div className="flex flex-1 overflow-hidden">
           <aside
-            className={`${sidebarOpen ? 'block' : 'hidden'} w-full border-r border-slate-200 bg-white p-4 lg:block lg:w-80`}
+            className={`${sidebarOpen ? 'block' : 'hidden'} w-full border-r border-zinc-800 bg-zinc-950 p-3 text-zinc-100 lg:block lg:w-72`}
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="font-semibold text-zinc-100">Minhas conversas</h2>
@@ -337,7 +337,7 @@ export default function Home() {
 
             <button
               onClick={limparChat}
-              className="mb-3 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+              className="mb-3 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-800"
             >
               Nova conversa
             </button>
