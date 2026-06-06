@@ -119,7 +119,7 @@ async def status():
         status="online",
         modelo=cerebro.nome_modelo if cerebro else "nao carregado",
         modelo_carregado=cerebro is not None,
-        paginas_indexadas=buscador.paginas_indexadas if buscador else 0
+        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0
     )
 
 @app.post("/chat", response_model=MensagemResponse)
@@ -258,7 +258,7 @@ async def indexar_site(request: IndexarRequest):
             "status": "sucesso",
             "url": request.url,
             "paginas_indexadas": paginas,
-            "total_acumulado": buscador.paginas_indexadas
+            "total_acumulado": getattr(buscador, 'paginas_indexadas', 0)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
