@@ -241,11 +241,9 @@ class MotorBusca:
         current = (data.get("current_condition") or [{}])[0]
         area = (data.get("nearest_area") or [{}])[0]
 
+        # Usar o local normalizado solicitado, porque o nearest_area do wttr.in
+        # pode retornar bairros/regioes proximas e confundir o usuario.
         nome_area = local_consulta
-        try:
-            nome_area = area.get("areaName", [{}])[0].get("value") or local
-        except Exception:
-            pass
 
         temp_c = current.get("temp_C", "")
         sensacao_c = current.get("FeelsLikeC", "")
@@ -400,5 +398,6 @@ class MotorBusca:
         if not texto:
             return ""
         return texto[:80].strip()
+
 
 
