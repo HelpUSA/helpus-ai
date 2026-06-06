@@ -42,6 +42,8 @@ function decodeJwtProfile(token: string): GoogleProfile | null {
 }
 
 export default function AdminPage() {
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0'
+  const appCommit = process.env.NEXT_PUBLIC_APP_COMMIT || 'local'
   const [saude, setSaude] = useState<ApiSaude | null>(null)
   const [status, setStatus] = useState<ApiStatus | null>(null)
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
@@ -121,6 +123,7 @@ export default function AdminPage() {
           <div>
             <h1 className="text-2xl font-bold">HelpUS Admin</h1>
             <p className="text-sm text-slate-500">Status do assistente e serviços conectados</p>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Versao {appVersion} · commit {appCommit}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
