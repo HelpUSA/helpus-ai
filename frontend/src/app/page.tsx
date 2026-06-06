@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect, useState } from 'react'
 
@@ -139,6 +140,7 @@ function decodeJwtProfile(token: string): GoogleProfile | null {
 }
 
 export default function Home() {
+  const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -150,6 +152,15 @@ export default function Home() {
   const [conversas, setConversas] = useState<ConversaResumo[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
+
+  const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
+
+  const chatIdFromUrl = () => {
+    if (typeof window === 'undefined') return ''
+    const match = window.location.pathname.match(/^\/c\/([^\/#?]+)/)
+    if (match) return decodeURIComponent(match[1])
+    return new URLSearchParams(window.location.search).get('chat') || ''
+  }
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
@@ -178,10 +189,12 @@ export default function Home() {
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
+    const initialChatId = chatIdFromUrl()
     if (savedToken) {
       setGoogleToken(savedToken)
       setProfile(decodeJwtProfile(savedToken))
       carregarConversas(savedToken)
+      if (initialChatId) carregarHistorico(initialChatId, savedToken, false)
     }
   }, [])
 
@@ -218,20 +231,22 @@ export default function Home() {
     window.localStorage.removeItem('helpus_google_token')
     setMessages([])
     setSessionId('')
+    router.push('/')
   }
 
-  const carregarHistorico = async (id: string) => {
-    if (!googleToken) return
+  const carregarHistorico = async (id: string, token = googleToken, atualizarUrl = true) => {
+    if (!token) return
 
     try {
       setLoading(true)
       const response = await fetch(`${apiUrl}/historico/${id}`, {
-        headers: authHeaders(),
+        headers: authHeaders(token),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
 
       setSessionId(id)
+      if (atualizarUrl) router.push(chatUrl(id))
       setMessages(data.mensagens || [])
       setSidebarOpen(false)
     } catch (error) {
@@ -261,6 +276,7 @@ export default function Home() {
       if (sessionId === id) {
         setMessages([])
         setSessionId('')
+        router.push('/')
       }
       await carregarConversas()
       setSidebarOpen(false)
@@ -315,7 +331,7 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: data.resposta || 'A API respondeu sem conteudo.',
+          content: data.resposta || 'A API respondeu sem conteúdo.',
           fontes: data.fontes || [],
         },
       ])
@@ -325,7 +341,7 @@ export default function Home() {
       const message = error instanceof Error ? error.message : 'Erro desconhecido'
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em alguns instantes. Se o problema continuar, verifique a conexao ou o status do servico.', '', 'Detalhe tecnico: ' + message].join('\n') },
+        { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em alguns instantes. Se o problema continuar, verifique a conexão ou o status do serviço.', '', 'Detalhe técnico: ' + message].join('\n') },
       ])
     } finally {
       setLoading(false)
@@ -345,6 +361,7 @@ export default function Home() {
   const limparChat = () => {
     setMessages([])
     setSessionId('')
+    router.push('/')
     setInput('')
     setSidebarOpen(false)
   }
@@ -616,7 +633,7 @@ export default function Home() {
 
               {sessionId && (
                 <p className="mx-auto mt-2 max-w-3xl text-xs text-slate-400">
-                  Histórico ativo
+                  Histórico ativo · /c/{sessionId}
                 </p>
               )}
             </footer>
