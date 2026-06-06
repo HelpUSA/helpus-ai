@@ -250,11 +250,11 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
+    <main className="min-h-screen bg-white text-slate-900">
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+      <div className="flex min-h-screen w-full flex-col">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -317,18 +317,18 @@ export default function Home() {
             className={`${sidebarOpen ? 'block' : 'hidden'} w-full border-r border-slate-200 bg-white p-4 lg:block lg:w-80`}
           >
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="font-bold text-slate-800">Minhas conversas</h2>
+              <h2 className="font-semibold text-zinc-100">Minhas conversas</h2>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setSidebarOpen(false)}
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 lg:hidden"
+                  className="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 lg:hidden"
                 >
                   Voltar ao chat
                 </button>
                 <button
                   onClick={() => carregarConversas()}
                   disabled={!profile || historyLoading}
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-50"
+                  className="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                 >
                   Atualizar
                 </button>
@@ -337,19 +337,19 @@ export default function Home() {
 
             <button
               onClick={limparChat}
-              className="mb-3 w-full rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+              className="mb-3 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
             >
               Nova conversa
             </button>
 
             {!profile && (
-              <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+              <p className="rounded-lg bg-zinc-900 p-3 text-sm text-zinc-300">
                 Entre com Google para ver seu historico.
               </p>
             )}
 
             {profile && conversas.length === 0 && (
-              <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+              <p className="rounded-lg bg-zinc-900 p-3 text-sm text-zinc-400">
                 Nenhuma conversa salva ainda.
               </p>
             )}
@@ -395,7 +395,7 @@ export default function Home() {
                     Entre com Google e pergunte algo ao HelpUS.
                   </p>
                   {!profile && (
-                    <p className="mt-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+                    <p className="mt-4 rounded-lg bg-zinc-900 p-3 text-sm text-zinc-300">
                       Login Google obrigatorio para usar o assistente.
                     </p>
                   )}
@@ -475,28 +475,28 @@ export default function Home() {
               </div>
             </div>
 
-            <footer className="border-t border-slate-200 bg-white p-4">
-              <div className="mx-auto flex max-w-6xl gap-2">
+            <footer className="bg-white px-4 pb-5 pt-3">
+              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg shadow-slate-200/70">
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder={profile ? 'Digite sua pergunta... Enter para enviar' : 'Entre com Google para usar o HelpUS'}
-                  className="min-h-[48px] flex-1 resize-none rounded-xl border border-slate-300 p-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-transparent p-3 text-sm outline-none placeholder:text-slate-400"
                   rows={1}
                   disabled={loading || !profile}
                 />
                 <button
                   onClick={enviarMensagem}
                   disabled={loading || !input.trim() || !profile}
-                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:px-7"
+                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 sm:px-6"
                 >
                   {loading ? '...' : 'Enviar'}
                 </button>
               </div>
 
               {sessionId && (
-                <p className="mx-auto mt-2 max-w-6xl text-xs text-slate-400">
+                <p className="mx-auto mt-2 max-w-3xl text-xs text-slate-400">
                   Sessao: {sessionId.slice(0, 8)}...
                 </p>
               )}
