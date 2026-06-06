@@ -19,6 +19,10 @@ interface ConversaResumo {
   session_id: string
   titulo: string
   updated_at?: string
+  created_at?: string
+  createdAt?: string
+  updatedAt?: string
+  data?: string
   total_mensagens: number
 }
 
@@ -101,6 +105,25 @@ function renderMessageContent(content: string) {
   return <div className="space-y-4 text-[15px] leading-7 text-slate-800 sm:text-base">{blocks}</div>
 }
 
+
+function tituloConversa(conv: ConversaResumo) {
+  const titulo = (conv.titulo || '').trim()
+  if (titulo && titulo !== 'Nova conversa') return titulo
+  return `Conversa ${conv.session_id.slice(0, 8)}`
+}
+
+function formatarDataConversa(conv: ConversaResumo) {
+  const raw = conv.updated_at || conv.created_at || conv.updatedAt || conv.createdAt || conv.data
+  if (!raw) return 'Sem data'
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return raw
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
 function decodeJwtProfile(token: string): GoogleProfile | null {
   try {
     const payload = token.split('.')[1]
@@ -453,10 +476,12 @@ export default function Home() {
                     className="block w-full text-left"
                   >
                     <div className="truncate text-sm font-medium text-zinc-100">
-                      {conv.titulo || 'Nova conversa'}
+                      {tituloConversa(conv)}
                     </div>
                     <div className="mt-1 text-xs text-zinc-400">
-                      {conv.total_mensagens} mensagens
+                      <span>{formatarDataConversa(conv)}</span>
+                                            <span className="mx-1">·</span>
+                                            <span>{conv.total_mensagens} mensagens</span>
                     </div>
                   </button>
                   <button
