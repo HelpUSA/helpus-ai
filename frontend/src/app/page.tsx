@@ -485,8 +485,8 @@ export default function Home() {
               </div>
             </div>
 
-            <footer className="bg-white px-4 pb-5 pt-3">
-              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg shadow-slate-200/70">
+            <footer className="bg-white px-3 pb-4 pt-2">
+              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-lg shadow-slate-200/60 focus-within:border-slate-300">
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -499,15 +499,15 @@ export default function Home() {
                 <button
                   onClick={enviarMensagem}
                   disabled={loading || !input.trim() || !profile}
-                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 sm:px-6"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  {loading ? '...' : 'Enviar'}
+                  {loading ? '...' : '↑'}
                 </button>
               </div>
 
               {sessionId && (
                 <p className="mx-auto mt-2 max-w-3xl text-xs text-slate-400">
-                  Sessao: {sessionId.slice(0, 8)}...
+                  Histórico ativo
                 </p>
               )}
             </footer>
