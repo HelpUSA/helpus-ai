@@ -198,6 +198,14 @@ export default function Home() {
     }
   }, [])
 
+
+  // Sincroniza a URL com a conversa ativa
+  useEffect(() => {
+    if (!sessionId || typeof window === 'undefined') return
+    const nextUrl = chatUrl(sessionId)
+    if (window.location.pathname !== nextUrl) router.replace(nextUrl)
+  }, [sessionId, router])
+
   const inicializarGoogle = () => {
     if (!googleClientId || !window.google?.accounts?.id) return
 
