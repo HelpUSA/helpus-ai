@@ -119,6 +119,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
   const [sessionId, setSessionId] = useState('')
   const [pesquisarWeb, setPesquisarWeb] = useState(false)
   const [googleToken, setGoogleToken] = useState('')
@@ -306,6 +307,16 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function copiarMensagem(content: string, index: number) {
+    if (!navigator.clipboard) return
+
+    await navigator.clipboard.writeText(content)
+    setCopiedMessageIndex(index)
+    window.setTimeout(() => {
+      setCopiedMessageIndex(current => (current === index ? null : current))
+    }, 1800)
   }
 
   const limparChat = () => {
@@ -508,10 +519,10 @@ export default function Home() {
                       {msg.role === 'assistant' && (
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard?.writeText(msg.content)}
+                          onClick={() => copiarMensagem(msg.content, index)}
                           className="mt-3 rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
                         >
-                          Copiar
+                          {copiedMessageIndex === index ? 'Copiado' : 'Copiar'}
                         </button>
                       )}
 
