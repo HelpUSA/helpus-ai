@@ -145,6 +145,7 @@ export default function Home() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
+  const [copiedChatLink, setCopiedChatLink] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [pesquisarWeb, setPesquisarWeb] = useState(false)
   const [googleToken, setGoogleToken] = useState('')
@@ -364,6 +365,14 @@ export default function Home() {
     window.setTimeout(() => {
       setCopiedMessageIndex(current => (current === index ? null : current))
     }, 1800)
+  }
+
+  async function copiarLinkConversa() {
+    if (!sessionId || !navigator.clipboard) return
+    const link = `${window.location.origin}${chatUrl(sessionId)}`
+    await navigator.clipboard.writeText(link)
+    setCopiedChatLink(true)
+    window.setTimeout(() => setCopiedChatLink(false), 1800)
   }
 
   const limparChat = () => {
@@ -640,9 +649,16 @@ export default function Home() {
               </div>
 
               {sessionId && (
-                <p className="mx-auto mt-2 max-w-3xl text-xs text-slate-400">
-                  Histórico ativo · /c/{sessionId}
-                </p>
+                <div className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-2 text-xs text-slate-400">
+                  <span>Histórico ativo · /c/{sessionId}</span>
+                  <button
+                    type="button"
+                    onClick={copiarLinkConversa}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                  >
+                    {copiedChatLink ? 'Link copiado' : 'Copiar link'}
+                  </button>
+                </div>
               )}
             </footer>
           </section>
