@@ -430,12 +430,22 @@ export default function Home() {
                         {msg.role === 'user' ? 'Voce' : 'Assistente'}
                       </div>
 
-                      <div className="whitespace-pre-wrap text-sm leading-7 sm:text-base">
+                      <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-800 sm:text-base">
                         {msg.content}
                       </div>
 
+                      {msg.role === 'assistant' && (
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard?.writeText(msg.content)}
+                          className="mt-3 rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                        >
+                          Copiar
+                        </button>
+                      )}
+
                       {msg.fontes && msg.fontes.length > 0 && (
-                        <div className="mt-4 border-t border-slate-200 pt-3">
+                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Fontes consultadas
                           </p>
@@ -446,7 +456,7 @@ export default function Home() {
                                 href={fonte.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="block truncate text-sm text-blue-600 hover:underline"
+                                className="block truncate text-sm text-slate-700 hover:text-slate-950 hover:underline"
                               >
                                 {i + 1}. {fonte.titulo} ({fonte.fonte})
                               </a>
@@ -460,14 +470,14 @@ export default function Home() {
 
                 {loading && (
                   <div className="flex justify-start">
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm shadow-slate-100">
                       <div className="flex items-center gap-3 text-sm text-slate-500">
                         <div className="flex gap-1">
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                         </div>
-                        Pensando...
+                        HelpUS está pensando...
                       </div>
                     </div>
                   </div>
