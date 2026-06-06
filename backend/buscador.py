@@ -401,3 +401,4 @@ class MotorBusca:
             return ""
         return texto[:80].strip()
 
+
