@@ -86,3 +86,6 @@ Deploy backend:
 Deploy frontend:
 
     vercel --prod
+Smoke Node versionado:
+
+ npm run smoke:prod
