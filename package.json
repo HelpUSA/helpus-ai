@@ -6,6 +6,7 @@
     "install:frontend": "npm --prefix frontend install",
     "build": "npm --prefix frontend run build",
     "dev": "npm --prefix frontend run dev",
-    "start": "npm --prefix frontend run start"
+    "start": "npm --prefix frontend run start",
+    "smoke:prod": "node scripts/29_smoke_prod.js"
   }
 }
