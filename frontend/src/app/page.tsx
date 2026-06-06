@@ -259,7 +259,7 @@ export default function Home() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900">HelpUS</h1>
-                <p className="text-sm text-slate-500">Seu Assistente Inteligente</p>
+                <p className="text-sm text-slate-500">Seu HelpUS Inteligente</p>
               </div>
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -396,19 +396,19 @@ export default function Home() {
                   </p>
                   {!profile && (
                     <p className="mt-4 rounded-lg bg-zinc-900 p-3 text-sm text-zinc-300">
-                      Login Google obrigatorio para usar o assistente.
+                      Entre com Google para iniciar uma conversa segura com o HelpUS.
                     </p>
                   )}
-                  <div className="mt-6 grid gap-2 text-left text-sm text-slate-600 sm:grid-cols-2">
+                  <div className="mt-8 grid gap-3 text-left text-sm text-slate-700 sm:grid-cols-2">
                     <button
-                      onClick={() => setInput('Quem e voce?')}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
+                      onClick={() => setInput('Quem é você?')}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
                     >
-                      Quem e voce?
+                      Quem é você?
                     </button>
                     <button
-                      onClick={() => setInput('Explique em poucas palavras como este assistente funciona.')}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
+                      onClick={() => setInput('Explique em poucas palavras como o HelpUS funciona.')}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
                     >
                       Como funciona?
                     </button>
@@ -427,7 +427,7 @@ export default function Home() {
                       }`}
                     >
                       <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}`}>
-                        {msg.role === 'user' ? 'Voce' : 'Assistente'}
+                        {msg.role === 'user' ? 'Voce' : 'HelpUS'}
                       </div>
 
                       <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-800 sm:text-base">
@@ -491,7 +491,7 @@ export default function Home() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={profile ? 'Digite sua pergunta... Enter para enviar' : 'Entre com Google para usar o HelpUS'}
+                  placeholder={profile ? 'Pergunte alguma coisa ao HelpUS' : 'Entre com Google para usar o HelpUS'}
                   className="min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-transparent p-3 text-sm outline-none placeholder:text-slate-400"
                   rows={1}
                   disabled={loading || !profile}
