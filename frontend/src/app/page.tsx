@@ -344,7 +344,7 @@ export default function Home() {
 
             {!profile && (
               <p className="rounded-lg bg-zinc-900 p-3 text-sm text-zinc-300">
-                Entre com Google para ver seu historico.
+                Entre com Google para ver seu histórico.
               </p>
             )}
 
@@ -358,26 +358,26 @@ export default function Home() {
               {conversas.map((conv) => (
                 <div
                   key={conv.session_id}
-                  className={`rounded-xl border p-3 ${
+                  className={`group rounded-xl border p-3 transition hover:bg-zinc-800 ${
                     sessionId === conv.session_id
-                      ? 'border-blue-200 bg-blue-50'
-                      : 'border-slate-200 bg-slate-50'
+                      ? 'border-zinc-600 bg-zinc-800'
+                      : 'border-transparent bg-zinc-900'
                   }`}
                 >
                   <button
                     onClick={() => carregarHistorico(conv.session_id)}
                     className="block w-full text-left"
                   >
-                    <div className="truncate text-sm font-semibold text-slate-800">
+                    <div className="truncate text-sm font-medium text-zinc-100">
                       {conv.titulo || 'Nova conversa'}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs text-zinc-400">
                       {conv.total_mensagens} mensagens
                     </div>
                   </button>
                   <button
                     onClick={() => apagarConversa(conv.session_id)}
-                    className="mt-2 text-xs font-semibold text-red-500 hover:text-red-700"
+                    className="mt-2 text-xs font-medium text-zinc-500 opacity-80 hover:text-red-300 group-hover:opacity-100"
                   >
                     Apagar
                   </button>
