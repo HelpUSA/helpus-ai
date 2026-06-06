@@ -28,6 +28,79 @@ declare global {
   }
 }
 
+function renderInlineMarkdown(text: string) {
+  return text.split(/(`[^`]+`)/g).map((part, index) =>
+    part.startsWith('`') && part.endsWith('`')
+      ? <code key={index} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-slate-800">{part.slice(1, -1)}</code>
+      : <span key={index}>{part}</span>
+  )
+}
+
+function renderMessageContent(content: string) {
+  const lines = content.split('\n')
+  const blocks: JSX.Element[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+
+    if (line.trim().startsWith('```')) {
+      index += 1
+      const code: string[] = []
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        code.push(lines[index])
+        index += 1
+      }
+      if (index < lines.length) index += 1
+      blocks.push(
+        <pre key={blocks.length} className="overflow-x-auto rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">
+          <code>{code.join('\n')}</code>
+        </pre>
+      )
+      continue
+    }
+
+    if (line.trim().startsWith('- ')) {
+      const items: string[] = []
+      while (index < lines.length && lines[index].trim().startsWith('- ')) {
+        items.push(lines[index].trim().slice(2))
+        index += 1
+      }
+      blocks.push(
+        <ul key={blocks.length} className="list-disc space-y-1 pl-6">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>
+      )
+      continue
+    }
+
+    if (line.trim() === '') {
+      index += 1
+      continue
+    }
+
+    const paragraph: string[] = [line]
+    index += 1
+    while (
+      index < lines.length &&
+      lines[index].trim() !== '' &&
+      !lines[index].trim().startsWith('- ') &&
+      !lines[index].trim().startsWith('```')
+    ) {
+      paragraph.push(lines[index])
+      index += 1
+    }
+
+    blocks.push(
+      <p key={blocks.length}>{renderInlineMarkdown(paragraph.join(' '))}</p>
+    )
+  }
+
+  return <div className="space-y-4 text-[15px] leading-7 text-slate-800 sm:text-base">{blocks}</div>
+}
+
 function decodeJwtProfile(token: string): GoogleProfile | null {
   try {
     const payload = token.split('.')[1]
@@ -430,9 +503,7 @@ export default function Home() {
                         {msg.role === 'user' ? 'Voce' : 'HelpUS'}
                       </div>
 
-                      <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-800 sm:text-base">
-                        {msg.content}
-                      </div>
+                      <section>{renderMessageContent(msg.content)}</section>
 
                       {msg.role === 'assistant' && (
                         <button
