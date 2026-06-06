@@ -302,7 +302,7 @@ export default function Home() {
       const message = error instanceof Error ? error.message : 'Erro desconhecido'
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: `Erro ao conectar com o servidor: ${message}` },
+        { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em alguns instantes. Se o problema continuar, verifique a conexao ou o status do servico.', '', 'Detalhe tecnico: ' + message].join('\n') },
       ])
     } finally {
       setLoading(false)
@@ -507,7 +507,9 @@ export default function Home() {
                       className={`max-w-[92%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[78%] ${
                         msg.role === 'user'
                           ? 'bg-blue-600 text-white'
-                          : 'border border-slate-200 bg-white text-slate-900'
+                          : msg.content.startsWith('Erro ')
+                            ? 'border border-rose-200 bg-rose-50 text-rose-950'
+                            : 'border border-slate-200 bg-white text-slate-900'
                       }`}
                     >
                       <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}`}>
