@@ -10,6 +10,11 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localho
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'gemini').lower().strip()
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash-lite')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openrouter/auto')
+AI_REVIEW_ENABLED = os.getenv('AI_REVIEW_ENABLED', 'false').lower().strip() in ('1', 'true', 'yes', 'on')
+AI_REVIEW_PROVIDER = os.getenv('AI_REVIEW_PROVIDER', 'openrouter').lower().strip()
+AI_REVIEW_TIMEOUT = float(os.getenv('AI_REVIEW_TIMEOUT', '12'))
 MODEL_PATH = os.getenv('MODEL_PATH', str(BASE_DIR / 'modelos' / 'qwen2.5-3b-instruct-q4_k_m.gguf'))
 
 MODEL_CONFIG = {
