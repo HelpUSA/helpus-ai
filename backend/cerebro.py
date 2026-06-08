@@ -90,6 +90,8 @@ class CerebroIA:
                 if DEBUG:
                     print("Gemini falhou; tentando OpenRouter fallback.")
                 try:
+                    if not app_config.OPENROUTER_API_KEY:
+                        raise RuntimeError('OPENROUTER_API_KEY ausente')
                     payload = dict(model=app_config.OPENROUTER_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
                     headers = dict(Authorization="Bearer " + app_config.OPENROUTER_API_KEY)
                     async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
@@ -97,6 +99,8 @@ class CerebroIA:
                         resposta.raise_for_status()
                         dados = resposta.json()
                 except Exception:
+                    if not app_config.DEEPSEEK_API_KEY:
+                        raise RuntimeError('DEEPSEEK_API_KEY ausente')
                     payload = dict(model=app_config.DEEPSEEK_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
                     headers = dict(Authorization="Bearer " + app_config.DEEPSEEK_API_KEY)
                     async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
