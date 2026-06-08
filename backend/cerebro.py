@@ -77,14 +77,28 @@ class CerebroIA:
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
 
         if self.provider == "gemini":
-            resposta = await asyncio.to_thread(
-                self.client.models.generate_content,
-                model=GEMINI_MODEL,
-                contents=prompt,
-            )
-            texto = (getattr(resposta, "text", "") or "").strip()
-            tempo = round(time.time() - inicio, 2)
-            return texto, 0, tempo
+            try:
+                resposta = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=GEMINI_MODEL,
+                    contents=prompt,
+                )
+                texto = (getattr(resposta, "text", "") or "").strip()
+                tempo = round(time.time() - inicio, 2)
+                return texto, 0, tempo
+            except Exception:
+                if DEBUG:
+                    print("Gemini falhou; tentando OpenRouter fallback.")
+                payload = dict(model=app_config.OPENROUTER_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
+                headers = dict(Authorization="Bearer " + app_config.OPENROUTER_API_KEY)
+                async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
+                    resposta = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                    resposta.raise_for_status()
+                    dados = resposta.json()
+                texto = dados["choices"][0]["message"]["content"].strip()
+                tokens = dados.get("usage", {}).get("completion_tokens", 0)
+                tempo = round(time.time() - inicio, 2)
+                return texto, tokens, tempo
 
         def gerar():
             return self.llm(
