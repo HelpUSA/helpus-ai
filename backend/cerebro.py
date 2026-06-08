@@ -89,12 +89,20 @@ class CerebroIA:
             except Exception:
                 if DEBUG:
                     print("Gemini falhou; tentando OpenRouter fallback.")
-                payload = dict(model=app_config.OPENROUTER_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
-                headers = dict(Authorization="Bearer " + app_config.OPENROUTER_API_KEY)
-                async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
-                    resposta = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-                    resposta.raise_for_status()
-                    dados = resposta.json()
+                try:
+                    payload = dict(model=app_config.OPENROUTER_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
+                    headers = dict(Authorization="Bearer " + app_config.OPENROUTER_API_KEY)
+                    async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
+                        resposta = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                        resposta.raise_for_status()
+                        dados = resposta.json()
+                except Exception:
+                    payload = dict(model=app_config.DEEPSEEK_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
+                    headers = dict(Authorization="Bearer " + app_config.DEEPSEEK_API_KEY)
+                    async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
+                        resposta = await client.post(app_config.DEEPSEEK_API_URL, headers=headers, json=payload)
+                        resposta.raise_for_status()
+                        dados = resposta.json()
                 texto = dados["choices"][0]["message"]["content"].strip()
                 tokens = dados.get("usage", {}).get("completion_tokens", 0)
                 tempo = round(time.time() - inicio, 2)
