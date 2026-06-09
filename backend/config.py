@@ -27,6 +27,9 @@ MODEL_CONFIG = {
 
 SEARCH_CONFIG = {'user_agent': 'HelpUS/1.0', 'timeout': 15.0, 'max_results': 5}
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
+APP_VERSION = os.getenv('APP_VERSION', '1.0.0')
+BUILD_COMMIT = os.getenv('BUILD_COMMIT', '')
+
 DEBUG = ENVIRONMENT == 'development'
 
 

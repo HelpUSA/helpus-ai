@@ -97,6 +97,10 @@ class StatusResponse(BaseModel):
     modelo: str
     modelo_carregado: bool
     paginas_indexadas: int
+    app_version: str
+    build_commit: str = ''
+    auth_required: bool = False
+    provider_order: List[str] = []
 
 class IndexarRequest(BaseModel):
     url: str
@@ -119,7 +123,11 @@ async def status():
         status="online",
         modelo=cerebro.nome_modelo if cerebro else "nao carregado",
         modelo_carregado=cerebro is not None,
-        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0
+        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0,
+        app_version=app_config.APP_VERSION,
+        build_commit=app_config.BUILD_COMMIT,
+        auth_required=app_config.AUTH_REQUIRED,
+        provider_order=app_config.AI_PROVIDER_ORDER
     )
 
 @app.post("/chat", response_model=MensagemResponse)
