@@ -11,6 +11,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+import config as app_config
 from config import DEBUG, CORS_ORIGINS
 from banco import BancoDados
 from cerebro import CerebroIA
