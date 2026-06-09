@@ -47,3 +47,7 @@ POST anonimo para https://helpus-api-production.up.railway.app/chat retornou HTT
 6. Atualizar PRODUCTION_CHECKLIST.md com itens de providers.
 7. Adicionar versao/commit no /status ou /admin.
 8. Criar testes unitarios de fallback com mocks.
+
+## Status endpoint metadata - 2026-06-08
+
+Commit 680745a adds safe metadata to /status: app_version, build_commit, auth_required, and provider_order. These fields help verify deployed version and provider configuration without exposing API keys, bearer tokens, prompts, or full provider responses. Production may briefly show the old /status shape until deploy propagation completes.
