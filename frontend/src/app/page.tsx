@@ -346,12 +346,28 @@ export default function Home() {
       ])
 
       await carregarConversas()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em alguns instantes. Se o problema continuar, verifique a conexão ou o status do serviço.', '', 'Detalhe técnico: ' + message].join('\n') },
-      ])
+ } catch (error) {
+ const message = error instanceof Error ? error.message : "Erro desconhecido"
+ const normalized = message.toLowerCase()
+ const authExpired = normalized.includes("token google") || normalized.includes("login google") || normalized.includes("token ausente") || normalized.includes("401")
+ if (authExpired) {
+ setGoogleToken("")
+ setProfile(null)
+ setConversas([])
+ if (typeof window !== "undefined") {
+ window.localStorage.removeItem("helpus_google_token")
+ }
+ setInput(texto)
+ setMessages(prev => [
+ ...prev,
+ { role: "assistant", content: ["Sua sessão expirou ou perdeu validade.", "", "Entre novamente com o Google para continuar. Mantive sua pergunta na caixa de texto para você reenviar depois do login."].join("\n") },
+ ])
+ return
+ }
+ setMessages(prev => [
+ ...prev,
+ { role: "assistant", content: ["Erro ao conectar com o servidor.", "", "Tente novamente em alguns instantes. Se o problema continuar, verifique a conexão ou o status do serviço.", "", "Detalhe técnico: " + message].join("\n") },
+ ])
     } finally {
       setLoading(false)
     }

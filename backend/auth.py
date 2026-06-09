@@ -20,11 +20,11 @@ def verificar_google_id_token(token: str) -> Dict[str, Any]:
             GOOGLE_CLIENT_ID,
         )
     except Exception:
-        raise HTTPException(status_code=401, detail="Token Google invalido.")
+        raise HTTPException(status_code=401, detail={"error": "invalid_google_token", "message": "Sessao expirada ou invalida. Faca login novamente."})
 
     email = info.get("email")
     if not email:
-        raise HTTPException(status_code=401, detail="Token Google sem email.")
+        raise HTTPException(status_code=401, detail={"error": "invalid_google_token", "message": "Token Google sem email. Faca login novamente."})
 
     return {
         "sub": info.get("sub"),
@@ -39,10 +39,10 @@ async def obter_usuario_google(authorization: Optional[str] = Header(default=Non
         return None
 
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+        raise HTTPException(status_code=401, detail={"error": "auth_required", "message": "Login Google obrigatorio."})
 
     token = authorization.split(" ", 1)[1].strip()
     if not token:
-        raise HTTPException(status_code=401, detail="Token ausente.")
+        raise HTTPException(status_code=401, detail={"error": "missing_google_token", "message": "Token ausente. Faca login novamente."})
 
     return verificar_google_id_token(token)
