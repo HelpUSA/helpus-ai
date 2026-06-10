@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -103,7 +103,7 @@ function renderMessageContent(content: string) {
     )
   }
 
-  return <div className="space-y-4 text-[15px] leading-7 text-zinc-100 sm:text-base">{blocks}</div>
+  return <div className="space-y-4 text-[15px] leading-7 text-inherit sm:text-base">{blocks}</div>
 }
 
 
@@ -143,6 +143,7 @@ export default function Home() {
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const [loading, setLoading] = useState(false)
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
   const [copiedChatLink, setCopiedChatLink] = useState(false)
@@ -266,6 +267,7 @@ export default function Home() {
       ])
     } finally {
       setLoading(false)
+      setTimeout(() => inputRef.current?.focus(), 0)
     }
   }
 
@@ -300,6 +302,7 @@ export default function Home() {
     if (!texto || loading) return
 
     if (!googleToken) {
+      setTimeout(() => inputRef.current?.focus(), 0)
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: 'Entre com sua conta Google para usar o HelpUS.' },
@@ -309,6 +312,7 @@ export default function Home() {
 
     setMessages(prev => [...prev, { role: 'user', content: texto }])
     setInput('')
+    setTimeout(() => inputRef.current?.focus(), 0)
     setLoading(true)
 
     try {
@@ -414,11 +418,11 @@ export default function Home() {
   }
 
   return (
-    <main className="helpus-dark-shell min-h-screen bg-[#212121] text-zinc-100">
+    <main className="helpus-dark-shell h-screen overflow-hidden bg-[#212121] text-zinc-100">
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
-      <div className="flex min-h-screen w-full flex-col">
-        <header className="sticky top-0 z-40 border-b border-white/10 bg-[#212121]/95 px-3 py-2 backdrop-blur">
+      <div className="flex h-full w-full flex-col overflow-hidden">
+        <header className="z-40 flex-none border-b border-white/10 bg-[#212121]/95 px-3 py-2 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <button
@@ -451,7 +455,7 @@ export default function Home() {
           <div id="google-login-button" className="hidden" />
         </header>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
             className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w-[85vw] lg:static lg:z-auto' : 'hidden'} border-r border-zinc-800 bg-zinc-950/98 p-3 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur`}
           >
@@ -531,8 +535,8 @@ export default function Home() {
             </div>
           </aside>
 
-          <section className="flex min-w-0 flex-1 flex-col">
-            <div className="flex-1 overflow-y-auto px-4 py-6">
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
               {messages.length === 0 && (
                 <div className="min-h-[28vh]" aria-hidden="true" />
               )}
@@ -610,6 +614,7 @@ export default function Home() {
               <div className="mx-auto max-w-4xl">
                 <div className="flex items-end gap-2 rounded-[2rem] border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl shadow-black/30 focus-within:border-white/20">
                   <textarea
+                    ref={inputRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
