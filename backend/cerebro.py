@@ -73,6 +73,8 @@ class CerebroIA:
         max_tokens: int = None,
     ) -> Tuple[str, int, float]:
         inicio = time.time()
+        self.last_provider_used = self.provider
+        self.last_fallback_reason = None
         prompt = self._construir_prompt(pergunta, contexto_busca, historico)
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
 
@@ -85,6 +87,8 @@ class CerebroIA:
                 )
                 texto = (getattr(resposta, "text", "") or "").strip()
                 tempo = round(time.time() - inicio, 2)
+                self.last_provider_used = "gemini"
+                self.last_fallback_reason = None
                 return texto, 0, tempo
             except Exception:
                 if DEBUG:
@@ -98,6 +102,8 @@ class CerebroIA:
                         resposta = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
                         resposta.raise_for_status()
                         dados = resposta.json()
+                        self.last_provider_used = "openrouter"
+                        self.last_fallback_reason = "gemini_failed"
                 except Exception:
                     if not app_config.DEEPSEEK_API_KEY:
                         raise RuntimeError('DEEPSEEK_API_KEY ausente')
@@ -107,6 +113,8 @@ class CerebroIA:
                         resposta = await client.post(app_config.DEEPSEEK_API_URL, headers=headers, json=payload)
                         resposta.raise_for_status()
                         dados = resposta.json()
+                        self.last_provider_used = "deepseek"
+                        self.last_fallback_reason = "gemini_failed_openrouter_failed"
                 texto = dados["choices"][0]["message"]["content"].strip()
                 tokens = dados.get("usage", {}).get("completion_tokens", 0)
                 tempo = round(time.time() - inicio, 2)
@@ -123,6 +131,8 @@ class CerebroIA:
 
         resultado = await asyncio.to_thread(gerar)
         texto = resultado["choices"][0]["text"].strip()
+        self.last_provider_used = self.provider
+        self.last_fallback_reason = None
         tokens = resultado.get("usage", {}).get("completion_tokens", 0)
         tempo = round(time.time() - inicio, 2)
         return texto, tokens, tempo

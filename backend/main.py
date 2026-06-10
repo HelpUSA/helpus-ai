@@ -213,8 +213,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             fontes=fontes,
             tempo_total=tempo_total,
             tokens_gerados=tokens,
-            provider_used=getattr(cerebro, "provider", ""),
-            fallback_reason=None
+            provider_used=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
+            fallback_reason=getattr(cerebro, "last_fallback_reason", None)
         )
         
     except Exception as e:
