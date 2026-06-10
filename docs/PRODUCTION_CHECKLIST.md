@@ -104,7 +104,7 @@ Smoke Node versionado:
 
 ## Multi-provider fallback status - 2026-06-08
 
-Implemented fallback Gemini -> OpenRouter -> DeepSeek. Default AI_PROVIDER_ORDER=gemini,openrouter,deepseek. Added scripts/30_smoke_ai_providers.py and npm run smoke:providers. Added docs/AI_PROVIDER_FALLBACK.md and provider key guards. Validated py_compile, smoke:providers, smoke:prod, and git diff --check. Anonymous production /chat returned expected HTTP 401 because Google ID token auth is required. Pending: finalize scripts/31_smoke_prod_chat.js, publish smoke:chat, test with token, add provider_used and fallback_reason observability, refactor fallback loop from AI_PROVIDER_ORDER, fix backend/main.py encoding, and keep docs updated.
+Implemented fallback Gemini -> OpenRouter -> DeepSeek. Default AI_PROVIDER_ORDER=gemini,openrouter,deepseek. Added scripts/30_smoke_ai_providers.py and npm run smoke:providers. Added scripts/31_smoke_prod_chat.js and npm run smoke:chat. Validated py_compile, smoke:providers, smoke:prod, smoke:chat without token, and git diff --check. Anonymous production /chat returned expected HTTP 401 because Google ID token auth is required. Added safe /chat response metadata provider_used and fallback_reason. Encoding for backend/main.py, backend/cerebro.py and backend/config.py was verified clean on 2026-06-10. Pending: run smoke:chat with valid HELPUS_GOOGLE_ID_TOKEN, refactor fallback loop from AI_PROVIDER_ORDER, add detailed fallback_reason on real fallback, and keep docs updated.
 
 ## Status endpoint metadata checklist - 2026-06-08
 
