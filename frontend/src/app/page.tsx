@@ -36,7 +36,7 @@ declare global {
 function renderInlineMarkdown(text: string) {
   return text.split(/(`[^`]+`)/g).map((part, index) =>
     part.startsWith('`') && part.endsWith('`')
-      ? <code key={index} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-slate-800">{part.slice(1, -1)}</code>
+      ? <code key={index} className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[13px] text-zinc-100">{part.slice(1, -1)}</code>
       : <span key={index}>{part}</span>
   )
 }
@@ -58,7 +58,7 @@ function renderMessageContent(content: string) {
       }
       if (index < lines.length) index += 1
       blocks.push(
-        <pre key={blocks.length} className="overflow-x-auto rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">
+        <pre key={blocks.length} className="overflow-x-auto rounded-2xl border border-white/10 bg-zinc-950 p-4 font-mono text-sm text-zinc-100 shadow-inner shadow-black/30">
           <code>{code.join('\n')}</code>
         </pre>
       )
@@ -72,7 +72,7 @@ function renderMessageContent(content: string) {
         index += 1
       }
       blocks.push(
-        <ul key={blocks.length} className="list-disc space-y-1 pl-6">
+        <ul key={blocks.length} className="list-disc space-y-1.5 pl-6 marker:text-zinc-500">
           {items.map((item, itemIndex) => (
             <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
           ))}
@@ -103,7 +103,7 @@ function renderMessageContent(content: string) {
     )
   }
 
-  return <div className="space-y-4 text-[15px] leading-7 text-slate-800 sm:text-base">{blocks}</div>
+  return <div className="space-y-4 text-[15px] leading-7 text-zinc-100 sm:text-base">{blocks}</div>
 }
 
 
