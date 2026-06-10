@@ -39,8 +39,8 @@ POST anonimo para https://helpus-api-production.up.railway.app/chat retornou HTT
 
 ## Proximas atividades
 
-1. Publicar smoke:chat opcional no package.json.
-2. Rodar smoke:chat com HELPUS_GOOGLE_ID_TOKEN valido.
+1. smoke:chat publicado no package.json e validado sem token em 2026-06-10.
+2. Rodar smoke:chat com HELPUS_GOOGLE_ID_TOKEN valido quando houver token operacional.
 3. Melhorar logs seguros com provider_used e fallback_reason.
 4. Refatorar fallback para loop baseado em AI_PROVIDER_ORDER.
 5. Corrigir encoding quebrado em backend/main.py.

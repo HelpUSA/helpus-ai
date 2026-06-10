@@ -96,7 +96,7 @@ Smoke Node versionado:
 - Confirm GEMINI, OPENROUTER and DEEPSEEK keys are configured in production.
 - Run npm run smoke:providers before deploy validation.
 - Run npm run smoke:prod after deploy.
-- Run npm run smoke:chat with HELPUS_GOOGLE_ID_TOKEN when an authenticated token is available.
+- npm run smoke:chat is published. Without HELPUS_GOOGLE_ID_TOKEN it must print CHAT_SMOKE_SKIPPED_AUTH_REQUIRED and exit 0; with a valid token, run it to validate authenticated /chat.
 - Treat anonymous /chat HTTP 401 as expected when AUTH_REQUIRED=true.
 - Do not log API keys, prompts, full provider responses, or bearer tokens.
 
