@@ -8,7 +8,7 @@
     "dev": "npm --prefix frontend run dev",
     "start": "npm --prefix frontend run start",
     "smoke:prod": "node scripts/29_smoke_prod.js",
- "smoke:providers": "python scripts/30_smoke_ai_providers.py",
- "smoke:chat": "node scripts/31_smoke_prod_chat.js"
+    "smoke:providers": "python scripts/30_smoke_ai_providers.py",
+    "smoke:chat": "node scripts/31_smoke_prod_chat.js"
   }
 }
