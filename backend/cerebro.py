@@ -81,46 +81,62 @@ class CerebroIA:
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
 
         if self.provider == "gemini":
-            try:
-                resposta = await asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=GEMINI_MODEL,
-                    contents=prompt,
-                )
-                texto = (getattr(resposta, "text", "") or "").strip()
-                tempo = round(time.time() - inicio, 2)
-                self.last_provider_used = "gemini"
-                self.last_fallback_reason = None
-                return texto, 0, tempo
-            except Exception:
-                if DEBUG:
-                    print("Gemini falhou; tentando OpenRouter fallback.")
+            falhas = []
+            provider_order = app_config.AI_PROVIDER_ORDER or ["gemini", "openrouter", "deepseek"]
+
+            for provider in provider_order:
                 try:
-                    if not app_config.OPENROUTER_API_KEY:
-                        raise RuntimeError('OPENROUTER_API_KEY ausente')
-                    payload = dict(model=app_config.OPENROUTER_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
-                    headers = dict(Authorization="Bearer " + app_config.OPENROUTER_API_KEY)
-                    async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
-                        resposta = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-                        resposta.raise_for_status()
-                        dados = resposta.json()
+                    if provider == "gemini":
+                        resposta = await asyncio.to_thread(
+                            self.client.models.generate_content,
+                            model=GEMINI_MODEL,
+                            contents=prompt,
+                        )
+                        texto = (getattr(resposta, "text", "") or "").strip()
+                        self.last_provider_used = "gemini"
+                        self.last_fallback_reason = None
+                        tempo = round(time.time() - inicio, 2)
+                        return texto, 0, tempo
+
+                    if provider == "openrouter":
+                        if not app_config.OPENROUTER_API_KEY:
+                            raise RuntimeError("OPENROUTER_API_KEY ausente")
+                        payload = dict(model=app_config.OPENROUTER_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
+                        headers = dict(Authorization="Bearer " + app_config.OPENROUTER_API_KEY)
+                        async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
+                            resposta = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                            resposta.raise_for_status()
+                            dados = resposta.json()
+                        texto = dados["choices"][0]["message"]["content"].strip()
+                        tokens = dados.get("usage", {}).get("completion_tokens", 0)
                         self.last_provider_used = "openrouter"
-                        self.last_fallback_reason = "gemini_failed"
-                except Exception:
-                    if not app_config.DEEPSEEK_API_KEY:
-                        raise RuntimeError('DEEPSEEK_API_KEY ausente')
-                    payload = dict(model=app_config.DEEPSEEK_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
-                    headers = dict(Authorization="Bearer " + app_config.DEEPSEEK_API_KEY)
-                    async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
-                        resposta = await client.post(app_config.DEEPSEEK_API_URL, headers=headers, json=payload)
-                        resposta.raise_for_status()
-                        dados = resposta.json()
+                        self.last_fallback_reason = "_".join(f"{p}_failed" for p in falhas) or None
+                        tempo = round(time.time() - inicio, 2)
+                        return texto, tokens, tempo
+
+                    if provider == "deepseek":
+                        if not app_config.DEEPSEEK_API_KEY:
+                            raise RuntimeError("DEEPSEEK_API_KEY ausente")
+                        payload = dict(model=app_config.DEEPSEEK_MODEL, messages=[dict(role="user", content=prompt)], max_tokens=max_tokens, temperature=MODEL_CONFIG["temperature"])
+                        headers = dict(Authorization="Bearer " + app_config.DEEPSEEK_API_KEY)
+                        async with httpx.AsyncClient(timeout=app_config.AI_REVIEW_TIMEOUT) as client:
+                            resposta = await client.post(app_config.DEEPSEEK_API_URL, headers=headers, json=payload)
+                            resposta.raise_for_status()
+                            dados = resposta.json()
+                        texto = dados["choices"][0]["message"]["content"].strip()
+                        tokens = dados.get("usage", {}).get("completion_tokens", 0)
                         self.last_provider_used = "deepseek"
-                        self.last_fallback_reason = "gemini_failed_openrouter_failed"
-                texto = dados["choices"][0]["message"]["content"].strip()
-                tokens = dados.get("usage", {}).get("completion_tokens", 0)
-                tempo = round(time.time() - inicio, 2)
-                return texto, tokens, tempo
+                        self.last_fallback_reason = "_".join(f"{p}_failed" for p in falhas) or None
+                        tempo = round(time.time() - inicio, 2),
+                        return texto, tokens, tempo
+
+                    raise RuntimeError(f"AI_PROVIDER_ORDER invalido: {provider}")
+                except Exception:
+                    falhas.append(provider)
+                    if DEBUG:
+                        print(f"{provider} falhou; tentando proximo provider.")
+
+            raise RuntimeError("Todos os providers de IA falharam: " + ",".join(falhas))
 
         def gerar():
             return self.llm(
