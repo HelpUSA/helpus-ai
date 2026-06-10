@@ -157,6 +157,7 @@ export default function Home() {
   const [accountPanel, setAccountPanel] = useState<'personalizacao' | 'configuracoes' | 'ajuda' | null>(null)
   const [chatSearch, setChatSearch] = useState('')
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [sidebarNotice, setSidebarNotice] = useState('')
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
 
@@ -305,10 +306,12 @@ export default function Home() {
         router.push('/')
       }
       await carregarConversas()
+      setSidebarNotice('Conversa apagada.')
+      setTimeout(() => setSidebarNotice(''), 3000)
       setSidebarOpen(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      alert(`Erro ao apagar conversa: ${message}`)
+      setSidebarNotice(`Nao foi possivel apagar a conversa: ${message}`)
     }
   }
 
@@ -582,6 +585,12 @@ export default function Home() {
                 <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                   Chats recentes
                 </div>
+
+                {sidebarNotice && (
+                  <p className="mb-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-zinc-300">
+                    {sidebarNotice}
+                  </p>
+                )}
 
                 {!profile && (
                   <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
