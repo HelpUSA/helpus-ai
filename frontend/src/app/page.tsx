@@ -606,38 +606,45 @@ export default function Home() {
               </div>
             </div>
 
-            <footer className="border-t border-white/10 bg-[#212121]/95 px-3 pb-4 pt-2 backdrop-blur">
-              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl shadow-black/30 focus-within:border-white/20">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={profile ? 'Pergunte alguma coisa ao HelpUS' : 'Entre com Google para usar o HelpUS'}
-                  className="min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-transparent p-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
-                  rows={1}
-                  disabled={loading || !profile}
-                />
-                <button
-                  onClick={enviarMensagem}
-                  disabled={loading || !input.trim() || !profile}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  {loading ? '...' : '↑'}
-                </button>
-              </div>
-
-              {sessionId && (
-                <div className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-2 text-xs text-zinc-500">
-                  <span>Histórico ativo · /c/{sessionId}</span>
+            <footer className="border-t border-white/10 bg-[#212121]/95 px-3 pb-4 pt-3 backdrop-blur">
+              <div className="mx-auto max-w-4xl">
+                <div className="flex items-end gap-2 rounded-[2rem] border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl shadow-black/30 focus-within:border-white/20">
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={profile ? 'Envie uma mensagem ao HelpUS' : 'Entre com Google para usar o HelpUS'}
+                    className="max-h-32 min-h-[52px] flex-1 resize-none rounded-2xl border-0 bg-transparent px-3 py-3.5 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
+                    rows={1}
+                    disabled={loading || !profile}
+                  />
                   <button
-                    type="button"
-                    onClick={copiarLinkConversa}
-                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+                    onClick={enviarMensagem}
+                    disabled={loading || !input.trim() || !profile}
+                    className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                    aria-label="Enviar mensagem"
                   >
-                    {copiedChatLink ? 'Link copiado' : 'Copiar link'}
+                    {loading ? '...' : '↑'}
                   </button>
                 </div>
-              )}
+
+                <p className="mt-2 text-center text-xs text-zinc-500">
+                  O HelpUS pode consultar fontes e a web automaticamente quando necessário.
+                </p>
+
+                {sessionId && (
+                  <div className="mx-auto mt-2 flex max-w-4xl items-center justify-center gap-2 text-xs text-zinc-500">
+                    <span>Histórico ativo · /c/{sessionId}</span>
+                    <button
+                      type="button"
+                      onClick={copiarLinkConversa}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+                    >
+                      {copiedChatLink ? 'Link copiado' : 'Copiar link'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </footer>
           </section>
         </div>
