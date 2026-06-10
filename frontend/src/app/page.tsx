@@ -154,6 +154,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [accountPanel, setAccountPanel] = useState<'personalizacao' | 'configuracoes' | 'ajuda' | null>(null)
   const [chatSearch, setChatSearch] = useState('')
   const [historyLoading, setHistoryLoading] = useState(false)
 
@@ -248,6 +249,7 @@ export default function Home() {
   const sair = () => {
     setActionsMenuOpen(false)
     setAccountMenuOpen(false)
+    setAccountPanel(null)
     setGoogleToken('')
     setProfile(null)
     setConversas([])
@@ -645,9 +647,16 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="my-1 h-px bg-white/10" />
-                  <button className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10">Personalizacao</button>
-                  <button className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10">Configuracoes</button>
-                  <button className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10">Ajuda</button>
+                  <button onClick={() => setAccountPanel('personalizacao')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'personalizacao' ? 'bg-white/10 text-white' : ''}`}>Personalizacao</button>
+                  <button onClick={() => setAccountPanel('configuracoes')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'configuracoes' ? 'bg-white/10 text-white' : ''}`}>Configuracoes</button>
+                  <button onClick={() => setAccountPanel('ajuda')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'ajuda' ? 'bg-white/10 text-white' : ''}`}>Ajuda</button>
+                  {accountPanel && (
+                    <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs leading-5 text-zinc-400">
+                      {accountPanel === 'personalizacao' && 'Preferencias de tema, modelo e atalhos serao adicionadas nesta area.'}
+                      {accountPanel === 'configuracoes' && 'Em breve, voce podera ajustar conta, privacidade e integracoes.'}
+                      {accountPanel === 'ajuda' && 'Esta area vai concentrar documentacao, atalhos e contato de suporte.'}
+                    </div>
+                  )}
                   <div className="my-1 h-px bg-white/10" />
                   {profile ? (
                     <button onClick={sair} className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10">Sair</button>
@@ -655,6 +664,7 @@ export default function Home() {
                     <button
                       onClick={() => {
                         setAccountMenuOpen(false)
+                        setAccountPanel(null)
                         window.google?.accounts?.id?.prompt()
                       }}
                       className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
