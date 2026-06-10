@@ -33,3 +33,5 @@ button,
 input {
   font: inherit;
 }
+/* HelpUS dark shell */
+.helpus-dark-shell{min-height:100vh;background:#212121;color:#f4f4f5}.helpus-dark-shell .bg-white,.helpus-dark-shell .bg-slate-50{background-color:#2f2f2f!important}.helpus-dark-shell input,.helpus-dark-shell textarea{background:#2f2f2f!important;color:#f4f4f5!important}.helpus-dark-shell header{position:sticky;top:0;z-index:30}

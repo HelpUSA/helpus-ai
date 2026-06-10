@@ -407,27 +407,27 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
+    <main className="helpus-dark-shell min-h-screen bg-[#212121] text-zinc-100">
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
       <div className="flex min-h-screen w-full flex-col">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-white/10 bg-[#212121]/95 px-3 py-2 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900">HelpUS</h1>
-                <p className="text-sm text-slate-500">Seu HelpUS Inteligente</p>
+                <h1 className="text-base font-semibold tracking-tight text-zinc-100">HelpUS</h1>
+                <p className="text-xs text-zinc-400">Seu HelpUS Inteligente</p>
               </div>
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 lg:hidden"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10 lg:hidden"
               >
                 Historico
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
+            <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+              <label className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-zinc-200">
                 <input
                   type="checkbox"
                   checked={pesquisarWeb}
@@ -438,11 +438,11 @@ export default function Home() {
               </label>
 
               {profile ? (
-                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2">
+                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
                   {profile.picture && (
                     <img src={profile.picture} alt={profile.name} className="h-6 w-6 rounded-full" />
                   )}
-                  <span className="max-w-[160px] truncate text-slate-700">{profile.name}</span>
+                  <span className="max-w-[160px] truncate text-zinc-200">{profile.name}</span>
                   <button onClick={sair} className="font-semibold text-slate-500 hover:text-red-600">
                     Sair
                   </button>
@@ -453,14 +453,14 @@ export default function Home() {
 
               <Link
                 href="/admin"
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
               >
                 Admin
               </Link>
 
               <button
                 onClick={limparChat}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
                 title="Limpar conversa"
               >
                 Nova conversa
@@ -548,9 +548,9 @@ export default function Home() {
           <section className="flex min-w-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto px-4 py-6">
               {messages.length === 0 && (
-                <div className="mx-auto mt-16 max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                  <p className="text-3xl font-bold text-slate-900">Como posso ajudar?</p>
-                  <p className="mt-3 text-slate-500">
+                <div className="mx-auto mt-16 max-w-2xl rounded-2xl border border-white/10 bg-[#2f2f2f] p-8 text-center shadow-2xl shadow-black/20">
+                  <p className="text-3xl font-bold text-zinc-100">Como posso ajudar?</p>
+                  <p className="mt-3 text-zinc-400">
                     Entre com Google e pergunte algo ao HelpUS.
                   </p>
                   {!profile && (
@@ -558,16 +558,16 @@ export default function Home() {
                       Entre com Google para iniciar uma conversa segura com o HelpUS.
                     </p>
                   )}
-                  <div className="mt-8 grid gap-3 text-left text-sm text-slate-700 sm:grid-cols-2">
+                  <div className="mt-8 grid gap-3 text-left text-sm text-zinc-300 sm:grid-cols-2">
                     <button
                       onClick={() => setInput('Quem é você?')}
-                      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
+                      className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left text-zinc-200 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md"
                     >
                       Quem é você?
                     </button>
                     <button
                       onClick={() => setInput('Explique em poucas palavras como o HelpUS funciona.')}
-                      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
+                      className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left text-zinc-200 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md"
                     >
                       Como funciona?
                     </button>
@@ -584,10 +584,10 @@ export default function Home() {
                           ? 'bg-blue-600 text-white'
                           : msg.content.startsWith('Erro ')
                             ? 'border border-rose-200 bg-rose-50 text-rose-950'
-                            : 'border border-slate-200 bg-white text-slate-900'
+                            : 'border border-white/10 bg-[#2f2f2f] text-zinc-100'
                       }`}
                     >
-                      <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-slate-900'}`}>
+                      <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-zinc-100'}`}>
                         {msg.role === 'user' ? 'Voce' : 'HelpUS'}
                       </div>
 
@@ -597,14 +597,14 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => copiarMensagem(msg.content, index)}
-                          className="mt-3 rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                          className="mt-3 rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
                         >
                           {copiedMessageIndex === index ? 'Copiado' : 'Copiar'}
                         </button>
                       )}
 
                       {msg.fontes && msg.fontes.length > 0 && (
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Fontes consultadas
                           </p>
@@ -615,7 +615,7 @@ export default function Home() {
                                 href={fonte.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="block truncate text-sm text-slate-700 hover:text-slate-950 hover:underline"
+                                className="block truncate text-sm text-zinc-300 hover:text-white hover:underline"
                               >
                                 {i + 1}. {fonte.titulo} ({fonte.fonte})
                               </a>
@@ -629,8 +629,8 @@ export default function Home() {
 
                 {loading && (
                   <div className="flex justify-start">
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm shadow-slate-100">
-                      <div className="flex items-center gap-3 text-sm text-slate-500">
+                    <div className="rounded-2xl border border-white/10 bg-[#2f2f2f] px-4 py-3 shadow-sm shadow-black/20">
+                      <div className="flex items-center gap-3 text-xs text-zinc-400">
                         <div className="flex gap-1">
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
@@ -644,33 +644,33 @@ export default function Home() {
               </div>
             </div>
 
-            <footer className="bg-white px-3 pb-4 pt-2">
-              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-lg shadow-slate-200/60 focus-within:border-slate-300">
+            <footer className="border-t border-white/10 bg-[#212121]/95 px-3 pb-4 pt-2 backdrop-blur">
+              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl shadow-black/30 focus-within:border-white/20">
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder={profile ? 'Pergunte alguma coisa ao HelpUS' : 'Entre com Google para usar o HelpUS'}
-                  className="min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-transparent p-3 text-sm outline-none placeholder:text-slate-400"
+                  className="min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-transparent p-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
                   rows={1}
                   disabled={loading || !profile}
                 />
                 <button
                   onClick={enviarMensagem}
                   disabled={loading || !input.trim() || !profile}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  {loading ? '...' : '↑'}
+                  {loading ? '...' : 'â†‘'}
                 </button>
               </div>
 
               {sessionId && (
-                <div className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-2 text-xs text-slate-400">
+                <div className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-2 text-xs text-zinc-500">
                   <span>Histórico ativo · /c/{sessionId}</span>
                   <button
                     type="button"
                     onClick={copiarLinkConversa}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
                   >
                     {copiedChatLink ? 'Link copiado' : 'Copiar link'}
                   </button>
