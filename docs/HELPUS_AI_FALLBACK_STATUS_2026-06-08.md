@@ -40,7 +40,7 @@ POST anonimo para https://helpus-api-production.up.railway.app/chat retornou HTT
 ## Proximas atividades
 
 1. smoke:chat publicado no package.json e validado sem token em 2026-06-10.
-2. Rodar smoke:chat com HELPUS_GOOGLE_ID_TOKEN valido quando houver token operacional.
+2. smoke:chat autenticado com HELPUS_GOOGLE_ID_TOKEN valido executado em 2026-06-10: CHAT_STATUS 200, HELPUS_CHAT_SMOKE_OK, provider_used=gemini, fallback_reason=null.
 3. provider_used e fallback_reason detalhados no contrato de resposta /chat em 2026-06-10; fallback_reason marca gemini_failed e gemini_failed_openrouter_failed nos fallbacks reais.
 4. Fallback refatorado em 2026-06-10 para loop baseado em AI_PROVIDER_ORDER no commit 12cff4c.
 5. Encoding de backend/main.py, backend/cerebro.py e backend/config.py verificado em 2026-06-10 sem caracteres quebrados.
