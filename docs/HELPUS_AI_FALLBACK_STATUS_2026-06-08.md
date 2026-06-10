@@ -26,7 +26,7 @@ Default atual: AI_PROVIDER_ORDER=gemini,openrouter,deepseek.
 
 Publicado: scripts/30_smoke_ai_providers.py via npm run smoke:providers.
 
-Pendente local: scripts/31_smoke_prod_chat.js deve ser publicado como smoke:chat. Sem HELPUS_GOOGLE_ID_TOKEN ele deve imprimir CHAT_SMOKE_SKIPPED_AUTH_REQUIRED e sair 0. Com token valido, deve executar POST /chat e validar resposta e session_id.
+Publicado: scripts/31_smoke_prod_chat.js via npm run smoke:chat. Sem HELPUS_GOOGLE_ID_TOKEN ele imprime CHAT_SMOKE_SKIPPED_AUTH_REQUIRED e sai 0. Com token valido, executa POST /chat e valida resposta/session_id.
 
 ## Teste real do chat
 
