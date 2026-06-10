@@ -374,7 +374,10 @@ export default function Home() {
   }
 
   async function copiarMensagem(content: string, index: number) {
-    if (!navigator.clipboard) return
+    if (!navigator.clipboard) {
+      console.warn('Clipboard indisponivel para copiar mensagem')
+      return
+    }
 
     await navigator.clipboard.writeText(content)
     setCopiedMessageIndex(index)
@@ -384,7 +387,11 @@ export default function Home() {
   }
 
   async function copiarLinkConversa() {
-    if (!sessionId || !navigator.clipboard) return
+    if (!sessionId) return
+    if (!navigator.clipboard) {
+      console.warn('Clipboard indisponivel para copiar link')
+      return
+    }
     const link = `${window.location.origin}${chatUrl(sessionId)}`
     await navigator.clipboard.writeText(link)
     setCopiedChatLink(true)
