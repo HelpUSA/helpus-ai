@@ -115,27 +115,27 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
+    <main className="min-h-screen bg-[#212121] text-zinc-100">
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
       <div className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">
-        <header className="mb-5 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60 sm:flex-row sm:items-center sm:justify-between">
+        <header className="mb-5 flex flex-col gap-4 rounded-3xl border border-white/10 bg-[#2f2f2f] p-4 shadow-2xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">HelpUS Admin</h1>
-            <p className="text-sm text-slate-500">Status do assistente e serviços conectados</p>
-            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Versao {appVersion} · commit {appCommit}</p>
+            <p className="text-sm text-zinc-400">Status do assistente e serviços conectados</p>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Versao {appVersion} · commit {appCommit}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/"
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/10"
             >
               Voltar ao chat
             </Link>
 
             {profile ? (
-              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm">
+              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200">
                 {profile.picture && <img src={profile.picture} alt={profile.name} className="h-6 w-6 rounded-full" />}
                 <span className="max-w-[180px] truncate">{profile.name}</span>
                 <button onClick={sair} className="font-semibold text-red-500 hover:text-red-700">
@@ -149,7 +149,7 @@ export default function AdminPage() {
         </header>
 
         {erro && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/40 p-4 text-sm text-red-200">
             {erro}
           </div>
         )}
@@ -158,61 +158,61 @@ export default function AdminPage() {
           <button
             onClick={carregarStatus}
             disabled={loading}
-            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-white disabled:opacity-50"
           >
             {loading ? 'Atualizando...' : 'Atualizar status'}
           </button>
         </div>
 
         <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">API</p>
-            <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+          <div className="rounded-3xl border border-white/10 bg-[#2f2f2f] p-5 shadow-2xl shadow-black/20">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">API</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-zinc-50">
               {saude?.status || 'Indisponivel'}
             </p>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-zinc-400">
               Modelo OK: {saude?.modelo_ok ? 'sim' : 'nao'}
             </p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Modelo</p>
-            <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+          <div className="rounded-3xl border border-white/10 bg-[#2f2f2f] p-5 shadow-2xl shadow-black/20">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Modelo</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-zinc-50">
               {status?.modelo || '-'}
             </p>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-zinc-400">
               Carregado: {status?.modelo_carregado ? 'sim' : 'nao'}
             </p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Indexacao</p>
-            <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+          <div className="rounded-3xl border border-white/10 bg-[#2f2f2f] p-5 shadow-2xl shadow-black/20">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Indexacao</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight text-zinc-50">
               {status?.paginas_indexadas ?? 0}
             </p>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-zinc-400">
               paginas indexadas no backend
             </p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Usuario</p>
-            <p className="mt-2 text-xl font-bold text-slate-900">
+          <div className="rounded-3xl border border-white/10 bg-[#2f2f2f] p-5 shadow-2xl shadow-black/20">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Usuario</p>
+            <p className="mt-2 text-xl font-bold text-zinc-50">
               {profile?.name || 'Nao logado'}
             </p>
-            <p className="mt-2 truncate text-sm text-slate-500">
+            <p className="mt-2 truncate text-sm text-zinc-400">
               {profile?.email || 'Entre com Google para identificar o operador.'}
             </p>
           </div>
         </section>
 
-        <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Endpoints</p>
-          <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">GET /saude</code>
-            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">GET /status</code>
-            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">POST /chat</code>
-            <code className="rounded-xl border border-slate-200 bg-slate-50 p-3">GET /conversas</code>
+        <section className="mt-4 rounded-3xl border border-white/10 bg-[#2f2f2f] p-5 shadow-2xl shadow-black/20">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Endpoints</p>
+          <div className="mt-3 grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
+            <code className="rounded-xl border border-white/10 bg-zinc-950 p-3 text-zinc-100">GET /saude</code>
+            <code className="rounded-xl border border-white/10 bg-zinc-950 p-3 text-zinc-100">GET /status</code>
+            <code className="rounded-xl border border-white/10 bg-zinc-950 p-3 text-zinc-100">POST /chat</code>
+            <code className="rounded-xl border border-white/10 bg-zinc-950 p-3 text-zinc-100">GET /conversas</code>
           </div>
         </section>
       </div>
