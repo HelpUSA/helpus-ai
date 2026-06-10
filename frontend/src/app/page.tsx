@@ -359,7 +359,7 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: data.resposta || 'A API respondeu sem conteÃºdo.',
+          content: data.resposta || 'A API respondeu sem conteudo.',
           fontes: data.fontes || [],
         },
       ])
@@ -379,13 +379,13 @@ export default function Home() {
  setInput(texto)
  setMessages(prev => [
  ...prev,
- { role: "assistant", content: ["Sua sessÃ£o expirou ou perdeu validade.", "", "Entre novamente com o Google para continuar. Mantive sua pergunta na caixa de texto para vocÃª reenviar depois do login."].join("\n") },
+  { role: 'assistant', content: ['Sua sessao expirou ou perdeu validade.', '', 'Entre novamente com o Google para continuar. Mantive sua pergunta na caixa de texto para voce reenviar depois do login.'].join(String.fromCharCode(10)) },
  ])
  return
  }
  setMessages(prev => [
  ...prev,
- { role: "assistant", content: ["Erro ao conectar com o servidor.", "", "Tente novamente em alguns instantes. Se o problema continuar, verifique a conexÃ£o ou o status do serviÃ§o.", "", "Detalhe tÃ©cnico: " + message].join("\n") },
+  { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em aluns instantes. Se o problema continuar, verifique a conexao ou o status do servico.', '', 'Detalhe tecnico: ' + message].join(String.fromCharCode(10)) },
  ])
     } finally {
       setLoading(false)
@@ -445,7 +445,7 @@ export default function Home() {
                 className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10"
                 aria-label="Abrir ou recolher menu"
               >
-                âˆ±
+                Menu
               </button>
               <div>
                 <h1 className="text-base font-semibold tracking-tight text-zinc-100">Projeto Geral</h1>
@@ -542,7 +542,7 @@ export default function Home() {
                   disabled
                   className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-500"
                 >
-                  <span className="w-5 text-center">â–¦</span>
+                  <span className="w-5 text-center">[]</span>
                   <span>Biblioteca</span>
                 </button>
               </nav>
@@ -744,7 +744,7 @@ export default function Home() {
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                         </div>
-                        HelpUS estÃ¡ pensando...
+                        HelpUS esta pensando...
                       </div>
                     </div>
                   </div>
@@ -771,17 +771,17 @@ export default function Home() {
                     className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                     aria-label="Enviar mensagem"
                   >
-                    {loading ? '...' : 'â†‘'}
+                    {loading ? '...' : '->'}
                   </button>
                 </div>
 
                 <p className="mt-2 text-center text-xs text-zinc-500">
-                  O HelpUS pode consultar fontes e a web automaticamente quando necessÃ¡rio.
+                  O HelpUS pode consultar fontes e a web automaticamente quando necessario.
                 </p>
 
                 {sessionId && (
                   <div className="mx-auto mt-2 flex max-w-4xl items-center justify-center gap-2 text-xs text-zinc-500">
-                    <span>HistÃ³rico ativo Â· /c/{sessionId}</span>
+                    <span>Historico ativo - /c/{sessionId}</span>
                     <button
                       type="button"
                       onClick={copiarLinkConversa}
