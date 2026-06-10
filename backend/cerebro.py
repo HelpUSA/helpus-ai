@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import time
+import httpx
 from typing import List, Dict, Tuple
 
+import config as app_config
 from config import (
     AI_PROVIDER,
     GEMINI_API_KEY,
