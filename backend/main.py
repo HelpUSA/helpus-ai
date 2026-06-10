@@ -92,6 +92,8 @@ class MensagemResponse(BaseModel):
     fontes: List[Dict[str, str]] = []
     tempo_total: float = 0.0
     tokens_gerados: int = 0
+    provider_used: str = ""
+    fallback_reason: Optional[str] = None
 
 class StatusResponse(BaseModel):
     status: str
@@ -210,7 +212,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             session_id=session_id,
             fontes=fontes,
             tempo_total=tempo_total,
-            tokens_gerados=tokens
+            tokens_gerados=tokens,
+            provider_used=getattr(cerebro, "provider", ""),
+            fallback_reason=None
         )
         
     except Exception as e:
