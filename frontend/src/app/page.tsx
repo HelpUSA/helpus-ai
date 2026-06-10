@@ -418,62 +418,37 @@ export default function Home() {
       <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
 
       <div className="flex min-h-screen w-full flex-col">
-        <header className="sticky top-0 z-30 border-b border-white/10 bg-[#212121]/95 px-3 py-2 backdrop-blur">
+        <header className="sticky top-0 z-40 border-b border-white/10 bg-[#212121]/95 px-3 py-2 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h1 className="text-base font-semibold tracking-tight text-zinc-100">HelpUS</h1>
-                <p className="text-xs text-zinc-400">Seu HelpUS Inteligente</p>
-              </div>
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10 lg:hidden"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10"
+                aria-label="Abrir ou recolher menu"
               >
-                Historico
+                ∱
               </button>
+              <div>
+                <h1 className="text-base font-semibold tracking-tight text-zinc-100">HelpUS</h1>
+                <p className="text-xs text-zinc-400">Assistente inteligente</p>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-              <label className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-zinc-200">
-                <input
-                  type="checkbox"
-                  checked={pesquisarWeb}
-                  onChange={(e) => setPesquisarWeb(e.target.checked)}
-                  className="h-4 w-4 rounded"
-                />
-                Pesquisar na web
-              </label>
-
-              {profile ? (
-                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
-                  {profile.picture && (
-                    <img src={profile.picture} alt={profile.name} className="h-6 w-6 rounded-full" />
-                  )}
-                  <span className="max-w-[160px] truncate text-zinc-200">{profile.name}</span>
-                  <button onClick={sair} className="font-semibold text-slate-500 hover:text-red-600">
-                    Sair
-                  </button>
-                </div>
-              ) : (
-                <div id="google-login-button" />
-              )}
-
-              <Link
-                href="/admin"
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
-              >
-                Admin
-              </Link>
-
+            <div className="flex items-center gap-2">
+              <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 sm:flex">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                Sistema operacional
+              </span>
               <button
                 onClick={limparChat}
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
-                title="Limpar conversa"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
+                title="Nova conversa"
               >
-                Nova conversa
+                + Nova conversa
               </button>
             </div>
           </div>
+          <div id="google-login-button" className="hidden" />
         </header>
 
         <div className="flex flex-1 overflow-hidden">
@@ -555,31 +530,7 @@ export default function Home() {
           <section className="flex min-w-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto px-4 py-6">
               {messages.length === 0 && (
-                <div className="mx-auto mt-16 max-w-2xl rounded-2xl border border-white/10 bg-[#2f2f2f] p-8 text-center shadow-2xl shadow-black/20">
-                  <p className="text-3xl font-bold text-zinc-100">Como posso ajudar?</p>
-                  <p className="mt-3 text-zinc-400">
-                    Entre com Google e pergunte algo ao HelpUS.
-                  </p>
-                  {!profile && (
-                    <p className="mt-4 rounded-lg bg-zinc-900 p-3 text-sm text-zinc-300">
-                      Entre com Google para iniciar uma conversa segura com o HelpUS.
-                    </p>
-                  )}
-                  <div className="mt-8 grid gap-3 text-left text-sm text-zinc-300 sm:grid-cols-2">
-                    <button
-                      onClick={() => setInput('Quem é você?')}
-                      className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left text-zinc-200 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md"
-                    >
-                      Quem é você?
-                    </button>
-                    <button
-                      onClick={() => setInput('Explique em poucas palavras como o HelpUS funciona.')}
-                      className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left text-zinc-200 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md"
-                    >
-                      Como funciona?
-                    </button>
-                  </div>
-                </div>
+                <div className="min-h-[28vh]" aria-hidden="true" />
               )}
 
               <div className="space-y-5">
