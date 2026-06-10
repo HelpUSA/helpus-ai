@@ -154,6 +154,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [chatSearch, setChatSearch] = useState('')
   const [historyLoading, setHistoryLoading] = useState(false)
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
@@ -167,6 +168,15 @@ export default function Home() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+
+  const chatSearchTerm = chatSearch.trim().toLowerCase()
+  const conversasFiltradas = chatSearchTerm
+    ? conversas.filter((conv) => {
+        const titulo = tituloConversa(conv).toLowerCase()
+        const data = formatarDataConversa(conv).toLowerCase()
+        return titulo.includes(chatSearchTerm) || data.includes(chatSearchTerm)
+      })
+    : conversas
 
   const authHeaders = (token = googleToken) => ({
     Authorization: `Bearer ${token}`,
@@ -517,14 +527,15 @@ export default function Home() {
                   <span className="w-5 text-center">+</span>
                   <span>Nova conversa</span>
                 </button>
-                <button
-                  disabled={!profile || historyLoading}
-                  onClick={() => carregarConversas()}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <span className="w-5 text-center">âŒ•</span>
-                  <span>Buscar chats</span>
-                </button>
+                <label className="flex w-full items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 text-left text-zinc-300 ring-1 ring-white/10 transition focus-within:ring-white/20">
+                  <span className="w-5 text-center text-zinc-500">?</span>
+                  <input
+                    value={chatSearch}
+                    onChange={(event) => setChatSearch(event.target.value)}
+                    placeholder="Buscar chats"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+                  />
+                </label>
                 <button
                   disabled
                   className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-500"
@@ -582,8 +593,14 @@ export default function Home() {
                   </p>
                 )}
 
+                {profile && conversas.length > 0 && conversasFiltradas.length === 0 && (
+                  <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
+                    Nenhum chat encontrado.
+                  </p>
+                )}
+
                 <div className="space-y-1">
-                  {conversas.map((conv) => (
+                  {conversasFiltradas.map((conv) => (
                     <button
                       key={conv.session_id}
                       onClick={() => carregarHistorico(conv.session_id)}
