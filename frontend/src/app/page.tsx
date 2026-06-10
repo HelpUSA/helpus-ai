@@ -195,8 +195,10 @@ export default function Home() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
       setConversas(data.conversas || [])
+      setSidebarNotice('')
     } catch (error) {
-      console.error('Erro ao carregar conversas', error)
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      setSidebarNotice(`Nao foi possivel carregar o historico: ${message}`)
     } finally {
       setHistoryLoading(false)
     }
