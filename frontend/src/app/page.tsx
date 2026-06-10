@@ -560,21 +560,21 @@ export default function Home() {
                     <span>Novo projeto</span>
                     <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-500">em breve</span>
                   </button>
-                  <div className="rounded-xl bg-white/10 px-3 py-2 text-zinc-100">
+                  <button onClick={() => setChatSearch('')} className="w-full rounded-xl bg-white/10 px-3 py-2 text-left text-zinc-100 transition hover:bg-white/15" title="Mostrar todos os chats">
                     <div className="flex items-center gap-3">
                       <span className="h-2 w-2 rounded-full bg-emerald-400" />
                       <span className="truncate">Projeto Geral</span>
                     </div>
-                  </div>
-                  <div className="rounded-xl px-3 py-2 text-zinc-400">
+                  </button>
+                  <button onClick={() => setChatSearch('HelpUSAI')} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
                     <div className="truncate">WS EUA HelpUSAI Status</div>
-                  </div>
-                  <div className="rounded-xl px-3 py-2 text-zinc-400">
+                  </button>
+                  <button onClick={() => setChatSearch('AI Bridge')} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
                     <div className="truncate">WS EUA AI Bridge</div>
-                  </div>
-                  <div className="rounded-xl px-3 py-2 text-zinc-400">
+                  </button>
+                  <button onClick={() => setChatSearch('Watcher')} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
                     <div className="truncate">WS EUA Watcher Ativo</div>
-                  </div>
+                  </button>
                 </div>
               </div>
 
