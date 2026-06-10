@@ -46,7 +46,7 @@ POST anonimo para https://helpus-api-production.up.railway.app/chat retornou HTT
 5. Encoding de backend/main.py, backend/cerebro.py e backend/config.py verificado em 2026-06-10 sem caracteres quebrados.
 6. Atualizar PRODUCTION_CHECKLIST.md com itens de providers.
 7. Adicionar versao/commit no /status ou /admin.
-8. Criar testes unitarios de fallback com mocks.
+8. Testes unitarios de fallback com mocks criados em 2026-06-10 via scripts/32_test_fallback_order.py e npm run test:fallback; validam ordem AI_PROVIDER_ORDER, provider_used e fallback_reason.
 
 ## Status endpoint metadata - 2026-06-08
 
