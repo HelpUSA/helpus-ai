@@ -453,30 +453,34 @@ export default function Home() {
 
         <div className="flex flex-1 overflow-hidden">
           <aside
-            className={`${sidebarOpen ? 'block' : 'hidden'} w-full border-r border-zinc-800 bg-zinc-950 p-3 text-zinc-100 lg:block lg:w-72`}
+            className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w-[85vw] lg:static lg:z-auto' : 'hidden'} border-r border-zinc-800 bg-zinc-950/98 p-3 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur`}
           >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="font-semibold text-zinc-100">Minhas conversas</h2>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div>
+                <h2 className="font-semibold text-zinc-100">Conversas</h2>
+                <p className="text-xs text-zinc-500">Abra e continue seus chats.</p>
+              </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setSidebarOpen(false)}
-                  className="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 lg:hidden"
-                >
-                  Voltar ao chat
-                </button>
                 <button
                   onClick={() => carregarConversas()}
                   disabled={!profile || historyLoading}
-                  className="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                  className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                  title="Atualizar conversas"
                 >
-                  Atualizar
+                  ↕
+                </button>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                >
+                  Recolher
                 </button>
               </div>
             </div>
 
             <button
               onClick={limparChat}
-              className="mb-3 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-800"
+              className="mb-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-100 transition hover:bg-white/10"
             >
               Nova conversa
             </button>
@@ -497,7 +501,7 @@ export default function Home() {
               {conversas.map((conv) => (
                 <div
                   key={conv.session_id}
-                  className={`group rounded-xl border p-3 transition hover:bg-zinc-800 ${
+                  className={`group rounded-2xl border p-3 transition hover:bg-white/5 ${
                     sessionId === conv.session_id
                       ? 'border-zinc-600 bg-zinc-800'
                       : 'border-transparent bg-zinc-900'
