@@ -385,7 +385,7 @@ export default function Home() {
  }
  setMessages(prev => [
  ...prev,
-  { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em aluns instantes. Se o problema continuar, verifique a conexao ou o status do servico.', '', 'Detalhe tecnico: ' + message].join(String.fromCharCode(10)) },
+  { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em alguns instantes. Se o problema continuar, verifique a conexao ou o status do servico.', '', 'Detalhe tecnico: ' + message].join(String.fromCharCode(10)) },
  ])
     } finally {
       setLoading(false)
