@@ -1,5 +1,4 @@
 'use client'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect, useRef, useState } from 'react'
@@ -153,6 +152,8 @@ export default function Home() {
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
   const [conversas, setConversas] = useState<ConversaResumo[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
@@ -235,6 +236,8 @@ export default function Home() {
   }
 
   const sair = () => {
+    setActionsMenuOpen(false)
+    setAccountMenuOpen(false)
     setGoogleToken('')
     setProfile(null)
     setConversas([])
@@ -344,7 +347,7 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: data.resposta || 'A API respondeu sem conteúdo.',
+          content: data.resposta || 'A API respondeu sem conteÃºdo.',
           fontes: data.fontes || [],
         },
       ])
@@ -364,13 +367,13 @@ export default function Home() {
  setInput(texto)
  setMessages(prev => [
  ...prev,
- { role: "assistant", content: ["Sua sessão expirou ou perdeu validade.", "", "Entre novamente com o Google para continuar. Mantive sua pergunta na caixa de texto para você reenviar depois do login."].join("\n") },
+ { role: "assistant", content: ["Sua sessÃ£o expirou ou perdeu validade.", "", "Entre novamente com o Google para continuar. Mantive sua pergunta na caixa de texto para vocÃª reenviar depois do login."].join("\n") },
  ])
  return
  }
  setMessages(prev => [
  ...prev,
- { role: "assistant", content: ["Erro ao conectar com o servidor.", "", "Tente novamente em alguns instantes. Se o problema continuar, verifique a conexão ou o status do serviço.", "", "Detalhe técnico: " + message].join("\n") },
+ { role: "assistant", content: ["Erro ao conectar com o servidor.", "", "Tente novamente em alguns instantes. Se o problema continuar, verifique a conexÃ£o ou o status do serviÃ§o.", "", "Detalhe tÃ©cnico: " + message].join("\n") },
  ])
     } finally {
       setLoading(false)
@@ -430,11 +433,11 @@ export default function Home() {
                 className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10"
                 aria-label="Abrir ou recolher menu"
               >
-                ∱
+                âˆ±
               </button>
               <div>
-                <h1 className="text-base font-semibold tracking-tight text-zinc-100">HelpUS</h1>
-                <p className="text-xs text-zinc-400">Assistente inteligente</p>
+                <h1 className="text-base font-semibold tracking-tight text-zinc-100">Projeto Geral</h1>
+                <p className="text-xs text-zinc-400">HelpUS!AI</p>
               </div>
             </div>
 
@@ -443,13 +446,42 @@ export default function Home() {
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
                 Sistema operacional
               </span>
-              <button
-                onClick={limparChat}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
-                title="Nova conversa"
-              >
-                + Nova conversa
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setActionsMenuOpen(!actionsMenuOpen)}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
+                  aria-haspopup="menu"
+                  aria-expanded={actionsMenuOpen}
+                  title="Opcoes"
+                >
+                  ...
+                </button>
+                <div className={actionsMenuOpen ? "absolute right-0 top-10 z-50 w-64 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-2 text-sm text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur" : "hidden"} role="menu">
+                  <button onClick={() => { setActionsMenuOpen(false); limparChat() }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
+                    <span>Nova conversa</span>
+                    <span className="text-zinc-500">+</span>
+                  </button>
+                  <button disabled className="flex w-full cursor-not-allowed items-center justify-between rounded-xl px-3 py-2.5 text-left text-zinc-500" role="menuitem">
+                    <span>Projetos</span>
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">em breve</span>
+                  </button>
+                  <div className="my-2 h-px bg-white/10" />
+                  {profile ? (
+                    <button onClick={sair} className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10" role="menuitem">Sair da conta Google</button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setActionsMenuOpen(false)
+                        window.google?.accounts?.id?.prompt()
+                      }}
+                      className="block w-full rounded-xl px-3 py-2.5 text-left text-zinc-100 transition hover:bg-white/10"
+                      role="menuitem"
+                    >
+                      Entrar com Google
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
           <div id="google-login-button" className="hidden" />
@@ -457,81 +489,164 @@ export default function Home() {
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
-            className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w-[85vw] lg:static lg:z-auto' : 'hidden'} border-r border-zinc-800 bg-zinc-950/98 p-3 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur`}
+            className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w[85vw]' : 'hidden'} border-r border-white/10 bg[-#171717] p-2 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur lg:static lg:z-auto lg:block lg:w-72 lg:max-w-none lg:flex-none`}
           >
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div>
-                <h2 className="font-semibold text-zinc-100">Conversas</h2>
-                <p className="text-xs text-zinc-500">Abra e continue seus chats.</p>
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="flex h-full flex-col">
+              <div className="mb-2 flex items-center justify-between px-2 py-2">
                 <button
-                  onClick={() => carregarConversas()}
-                  disabled={!profile || historyLoading}
-                  className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                  title="Atualizar conversas"
+                  onClick={limparChat}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-zinc-100 transition hover:bg-white/10"
                 >
-                  ↕
+                  <span className="text-base">+</span>
+                  Nova conversa
                 </button>
                 <button
                   onClick={() => setSidebarOpen(false)}
-                  className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                  className="rounded-xl px-3 py-2 text-sm text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 lg:hidden"
+                  aria-label="Fechar menu"
                 >
-                  Recolher
+                  x
                 </button>
               </div>
-            </div>
 
-            <button
-              onClick={limparChat}
-              className="mb-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-100 transition hover:bg-white/10"
-            >
-              Nova conversa
-            </button>
-
-            {!profile && (
-              <p className="rounded-lg bg-zinc-900 p-3 text-sm text-zinc-300">
-                Entre com Google para ver seu histórico.
-              </p>
-            )}
-
-            {profile && conversas.length === 0 && (
-              <p className="rounded-lg bg-zinc-900 p-3 text-sm text-zinc-400">
-                Nenhuma conversa salva ainda.
-              </p>
-            )}
-
-            <div className="space-y-2">
-              {conversas.map((conv) => (
-                <div
-                  key={conv.session_id}
-                  className={`group rounded-2xl border p-3 transition hover:bg-white/5 ${
-                    sessionId === conv.session_id
-                      ? 'border-zinc-600 bg-zinc-800'
-                      : 'border-transparent bg-zinc-900'
-                  }`}
+              <nav className="space-y-1 px-2 text-sm">
+                <button
+                  onClick={limparChat}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-100 transition hover:bg-white/10"
                 >
-                  <button
-                    onClick={() => carregarHistorico(conv.session_id)}
-                    className="block w-full text-left"
-                  >
-                    <div className="truncate text-sm font-medium text-zinc-100">
-                      {tituloConversa(conv)}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-400">
-                      <span>{formatarDataConversa(conv)}</span>
-                                            <span className="mx-1">·</span>
-                                            <span>{conv.total_mensagens} mensagens</span>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => apagarConversa(conv.session_id)}
-                    className="mt-2 text-xs font-medium text-zinc-500 opacity-80 hover:text-red-300 group-hover:opacity-100"
-                  >
-                    Apagar
-                  </button>
+                  <span className="w-5 text-center">+</span>
+                  <span>Nova conversa</span>
+                </button>
+                <button
+                  disabled={!profile || historyLoading}
+                  onClick={() => carregarConversas()}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="w-5 text-center">âŒ•</span>
+                  <span>Buscar chats</span>
+                </button>
+                <button
+                  disabled
+                  className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-500"
+                >
+                  <span className="w-5 text-center">â–¦</span>
+                  <span>Biblioteca</span>
+                </button>
+              </nav>
+
+              <div className="mt-4 px-2">
+                <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  Projetos
                 </div>
-              ))}
+                <div className="space-y-1 text-sm">
+                  <button
+                    disabled
+                    className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2 text-left text-zinc-500"
+                  >
+                    <span className="w-5 text-center">+</span>
+                    <span>Novo projeto</span>
+                    <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-500">em breve</span>
+                  </button>
+                  <div className="rounded-xl bg-white/10 px-3 py-2 text-zinc-100">
+                    <div className="flex items-center gap-3">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                      <span className="truncate">Projeto Geral</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl px-3 py-2 text-zinc-400">
+                    <div className="truncate">WS EUA HelpUSAI Status</div>
+                  </div>
+                  <div className="rounded-xl px-3 py-2 text-zinc-400">
+                    <div className="truncate">WS EUA AI Bridge</div>
+                  </div>
+                  <div className="rounded-xl px-3 py-2 text-zinc-400">
+                    <div className="truncate">WS EUA Watcher Ativo</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex-1 overflow-y-auto px-2 pr-1">
+                <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  Chats recentes
+                </div>
+
+                {!profile && (
+                  <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
+                    Entre com Google para ver seu historico.
+                  </p>
+                )}
+
+                {profile && conversas.length === 0 && (
+                  <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
+                    Nenhuma conversa salva ainda.
+                  </p>
+                )}
+
+                <div className="space-y-1">
+                  {conversas.map((conv) => (
+                    <button
+                      key={conv.session_id}
+                      onClick={() => carregarHistorico(conv.session_id)}
+                      className={`block w-full rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10 ${sessionId === conv.session_id ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
+                    >
+                      <div className="truncate font-medium">{tituloConversa(conv)}</div>
+                      <div className="mt-0.5 truncate text-xs text-zinc-500">
+                        {formatarDataConversa(conv)} - {conv.total_mensagens} mensagens
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative mt-3 border-t border-white/10 px-2 pt-3">
+                <button
+                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                >
+                  {profile?.picture ? (
+                    <img src={profile.picture} alt="" className="h-8 w-8 rounded-full" />
+                  ) : (
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
+                      H
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-zinc-100">{profile?.name || 'HelpUS'}</span>
+                    <span className="block truncate text-xs text-zinc-500">{profile?.email || 'Entrar com Google'}</span>
+                  </span>
+                  <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[11px] font-medium text-violet-200">Plus</span>
+                </button>
+
+                <div className={accountMenuOpen ? "absolute bottom-16 left-2 right-2 z-50 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-2 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur" : "hidden"}>
+                  <div className="flex items-center gap-3 px-3 py-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
+                      H
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{profile?.name || 'HelpUS'}</div>
+                      <div className="truncate text-xs text-zinc-500">{profile?.email || 'Conta Google'}</div>
+                    </div>
+                  </div>
+                  <div className="my-1 h-px bg-white/10" />
+                  <button className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10">Personalizacao</button>
+                  <button className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10">Configuracoes</button>
+                  <button className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10">Ajuda</button>
+                  <div className="my-1 h-px bg-white/10" />
+                  {profile ? (
+                    <button onClick={sair} className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10">Sair</button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setAccountMenuOpen(false)
+                        window.google?.accounts?.id?.prompt()
+                      }}
+                      className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                    >
+                      Entrar com Google
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </aside>
 
@@ -602,7 +717,7 @@ export default function Home() {
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                           <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
                         </div>
-                        HelpUS está pensando...
+                        HelpUS estÃ¡ pensando...
                       </div>
                     </div>
                   </div>
@@ -629,17 +744,17 @@ export default function Home() {
                     className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                     aria-label="Enviar mensagem"
                   >
-                    {loading ? '...' : '↑'}
+                    {loading ? '...' : 'â†‘'}
                   </button>
                 </div>
 
                 <p className="mt-2 text-center text-xs text-zinc-500">
-                  O HelpUS pode consultar fontes e a web automaticamente quando necessário.
+                  O HelpUS pode consultar fontes e a web automaticamente quando necessÃ¡rio.
                 </p>
 
                 {sessionId && (
                   <div className="mx-auto mt-2 flex max-w-4xl items-center justify-center gap-2 text-xs text-zinc-500">
-                    <span>Histórico ativo · /c/{sessionId}</span>
+                    <span>HistÃ³rico ativo Â· /c/{sessionId}</span>
                     <button
                       type="button"
                       onClick={copiarLinkConversa}
