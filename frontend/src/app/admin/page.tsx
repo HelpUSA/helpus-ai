@@ -14,20 +14,50 @@ interface StatusData {
   provider_order?: string[]
 }
 
+function decodeJwtEmail(token: string) {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return ''
+    const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    return String(decoded.email || '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 export default function AdminPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+  const [googleToken, setGoogleToken] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
   const [statusData, setStatusData] = useState<StatusData | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
 
   useEffect(() => {
+    const token = window.localStorage.getItem('helpus_google_token') || ''
+    setGoogleToken(token)
+    setProfileEmail(token ? decodeJwtEmail(token) : '')
+  }, [])
+
+  const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
+
+  useEffect(() => {
     let mounted = true
 
     const carregarStatus = async () => {
+      if (!googleToken || !isAdminAllowed) {
+        setLoading(false)
+        return
+      }
+
       try {
         setLoading(true)
         setErro('')
-        const response = await fetch(`${apiUrl}/status`, { cache: 'no-store' })
+        const response = await fetch(`${apiUrl}/status`, { cache: 'no-store', headers: { Authorization: `Bearer ${googleToken}` } })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
         if (mounted) setStatusData(data)
@@ -43,7 +73,37 @@ export default function AdminPage() {
     return () => {
       mounted = false
     }
-  }, [apiUrl])
+  }, [apiUrl, googleToken, isAdminAllowed])
+
+  if (!googleToken) {
+    return (
+      <main className="min-h-screen bg-[#212121] px-4 py-6 text-zinc-100">
+        <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col justify-center">
+          <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-8 shadow-2xl shadow-black/30">
+            <p className="mb-3 text-sm font-medium text-zinc-400">HelpUS Admin</p>
+            <h1 className="text-2xl font-semibold text-white">Acesso restrito</h1>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">Entre com Google no chat principal antes de abrir o painel operacional.</p>
+            <Link href="/" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-semibold text-zinc-950">Ir para o chat</Link>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  if (!isAdminAllowed) {
+    return (
+      <main className="min-h-screen bg-[#212121] px-4 py-6 text-zinc-100">
+        <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col justify-center">
+          <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-8 shadow-2xl shadow-black/30">
+            <p className="mb-3 text-sm font-medium text-zinc-400">HelpUS Admin</p>
+            <h1 className="text-2xl font-semibold text-white">Sem permissao de admin</h1>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">Conta atual: {profileEmail || 'nao identificada'}.</p>
+            <Link href="/" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-semibold text-zinc-950">Voltar ao chat</Link>
+          </div>
+        </div>
+      </main>
+    )
+  }
 
   const cards = [
     ['Status', statusData?.status || (loading ? 'Carregando' : 'Indisponivel')],
