@@ -1,154 +1,230 @@
-# HelpUS AI - Documento principal de operacao
+# HelpUS AI - Operacoes e proximas atividades
 
-Data-base: 2026-06-11
+Atualizado em: 2026-06-11 18:52:30
 
-Este e o documento principal de estado operacional e validacao do HelpUS AI. Os demais arquivos em docs ficam como historico, planejamento ou detalhe auxiliar.
+Este e o documento principal da frente HelpUS AI. Os demais documentos markdown antigos da pasta docs foram movidos para docs/legacy para preservar historico sem fragmentar a operacao.
 
 ## Estado atual
 
-- Producao ativa no frontend Vercel: https://ai.helpusbr.com.
-- Backend ativo no Railway: https://helpus-api-production.up.railway.app.
-- Banco de dados: Postgres no Railway.
-- Autenticacao: AUTH_REQUIRED=true.
-- Login Google obrigatorio para uso normal do chat.
-- Admin dashboard ativo em /admin e protegido por conta Google admin.
-- Endpoint publico de status ativo em /status.
-- Provider principal: DeepSeek.
-- Fallback configurado: Gemini e OpenRouter.
-- O backend ja retorna provider_used e fallback_reason nas respostas de chat.
-- O frontend oculta o badge de provider por padrao e aparece apenas em modo debug.
-- Conversas persistem por session_id.
-- Projetos sao suportados no frontend por project_id.
+- Frontend em producao: Vercel.
+- Dominio publico: https://ai.helpusbr.com.
+- Backend em producao: Railway.
+- Backend publico: https://helpus-api-production.up.railway.app.
+- Banco: Railway Postgres.
+- Autenticacao: login Google obrigatorio para /chat.
+- AUTH_REQUIRED=true em producao.
+- Provider primario: DeepSeek.
+- Fallback: Gemini e OpenRouter.
+- Ordem de providers: deepseek,gemini,openrouter.
+- Admin dashboard ativo em /admin.
+- provider_used e fallback_reason ja existem no backend.
+- Badge de provider existe no frontend, mas fica oculto por padrao e so aparece com debug local.
+- Endpoint interno smoke-chat foi criado em backend/main.py e depende de INTERNAL_SMOKE_TOKEN.
+- Documento principal: docs/HELPUS_AI_OPERATIONS.md.
+- Docs historicos: docs/legacy.
 
-## Provider e fallback
+## Commits recentes importantes
 
-Objetivo operacional atual:
+- 3cc08a0 Hide HelpUS provider badge by default
+- 6aab764 Show HelpUS AI provider on responses
+- 84966ef Protect HelpUS admin status endpoint
+- f217cc6 Gate HelpUS admin dashboard by Google account
+- ad307f3 Add HelpUS admin entrypoint to actions menu
+- 5ef8375 Add HelpUS internal smoke chat and operations docs
 
-1. Usar DeepSeek como provider principal.
-2. Manter Gemini e OpenRouter como fallback.
-3. Expor observabilidade suficiente para confirmar:
-   - provider configurado;
-   - provider usado;
-   - motivo de fallback;
-   - modelo;
-   - latencia.
+## Arquitetura
 
-Campos relevantes:
+Usuario -> Frontend Vercel -> Backend Railway -> Providers IA -> Postgres Railway.
 
-- provider_configured
-- provider_used
-- fallback_reason
-- model
-- latency_ms
+Providers:
+1. DeepSeek
+2. Gemini
+3. OpenRouter
 
-## Endpoint interno smoke-chat
+Fluxo normal:
+1. Usuario entra com Google.
+2. Frontend salva helpus_google_token no navegador.
+3. Frontend chama /chat com Authorization Bearer.
+4. Backend valida token Google.
+5. Backend chama provider IA.
+6. Resposta retorna conteudo, provider_used e fallback_reason.
 
-Ha um patch local pendente de revisao, ainda sem commit e sem deploy, adicionando:
+Fluxo tecnico:
+1. Watcher chama /internal/smoke-chat.
+2. Envia header x-internal-smoke-token.
+3. Backend compara com INTERNAL_SMOKE_TOKEN.
+4. Backend chama provider IA.
+5. Retorna provider_configured, provider_used, fallback_reason, model e latency_ms.
 
-- rota: POST /internal/smoke-chat
-- header: x-internal-smoke-token
-- env esperada: INTERNAL_SMOKE_TOKEN
-- comportamento esperado: HTTP 401 se env ausente, token ausente ou token invalido
-- resposta esperada: ok, resposta, provider_configured, provider_used, fallback_reason, model e latency_ms
+## Variaveis de ambiente Railway
 
-Antes de usar em producao, configurar INTERNAL_SMOKE_TOKEN no Railway e validar o endpoint com token real. O token nao deve ser logado nem exposto no frontend.
+Obrigatorias ou relevantes:
 
-## Admin dashboard
+- AUTH_REQUIRED=true
+- GOOGLE_CLIENT_ID
+- ADMIN_EMAILS
+- AI_PROVIDER
+- AI_PROVIDER_ORDER=deepseek,gemini,openrouter
+- DEEPSEEK_API_KEY
+- DEEPSEEK_MODEL=deepseek-chat
+- DEEPSEEK_API_URL=https://api.deepseek.com/chat/completions
+- GEMINI_API_KEY
+- OPENROUTER_API_KEY
+- INTERNAL_SMOKE_TOKEN
 
-O admin dashboard deve exibir ou consumir metricas de provider retornadas pelo backend:
+Regras:
+- Nunca imprimir tokens.
+- Nunca colar token Google no chat.
+- Nunca expor chaves em logs.
+- Confirmar presenca de INTERNAL_SMOKE_TOKEN sem mostrar valor.
 
-- provider configurado;
-- provider usado;
-- fallback_reason;
-- modelo;
-- latencia.
+## Variaveis de ambiente Vercel
 
-Status atual: o backend local no patch pendente passa a retornar metricas de provider em /status e /admin/status. A UI mais visual do admin pode receber melhoria especifica se necessario.
+- NEXT_PUBLIC_API_URL=https://helpus-api-production.up.railway.app
+- NEXT_PUBLIC_GOOGLE_CLIENT_ID
+- NEXT_PUBLIC_ADMIN_EMAILS
 
-## Runbook de validacao
+## Endpoints
+
+Publicos:
+- GET /
+- GET /saude
+- GET /status
+
+Com Google:
+- POST /chat
+- GET /admin/status
+
+Interno:
+- POST /internal/smoke-chat
+
+O endpoint interno deve:
+- retornar 401 sem token;
+- retornar 401 se INTERNAL_SMOKE_TOKEN nao estiver configurado;
+- retornar 401 com token invalido;
+- nao logar token;
+- nao salvar PII;
+- retornar ok, resposta, provider_configured, provider_used, fallback_reason, model e latency_ms.
+
+## Debug do provider no frontend
+
+Ativar:
+
+```js
+localStorage.setItem('helpus_provider_debug', '1')
+```
+
+Desativar:
+
+```js
+localStorage.removeItem('helpus_provider_debug')
+```
+
+## Validacao obrigatoria
 
 Antes de commit:
 
-```bash
+```powershell
 git status -sb
-python -m py_compile backend/config.py backend/banco.py backend/cerebro.py backend/buscador.py backend/auth.py backend/main.py
+python -m py_compile backend/main.py backend/auth.py backend/config.py backend/cerebro.py
 npm --prefix frontend run build
-git diff --check
 npm run smoke:prod
+git diff --check
 git diff --stat
 ```
 
-Antes de deploy:
+## Deploy backend Railway
 
-```bash
-git log --oneline -10
+```powershell
+railway status
+railway up -y -d --service helpus-api --environment production
+Start-Sleep -Seconds 90
 railway status
 npm run smoke:prod
 ```
 
-Depois de deploy:
+## Deploy frontend Vercel
 
-```bash
+Executar somente se houver mudanca de frontend ou env publica:
+
+```powershell
+npm --prefix frontend run build
+vercel --prod
 npm run smoke:prod
 ```
 
-Conferir manualmente:
+## Smoke interno via watcher
 
-- https://ai.helpusbr.com
-- https://ai.helpusbr.com/admin
-- https://helpus-api-production.up.railway.app/status
+1. Confirmar que INTERNAL_SMOKE_TOKEN existe no Railway sem imprimir valor.
+2. Chamar /internal/smoke-chat sem token e esperar 401.
+3. Chamar /internal/smoke-chat com token e esperar ok=true.
+4. Confirmar provider_used=deepseek.
+5. Confirmar fallback_reason=null ou documentar fallback.
+6. Confirmar latency_ms presente.
 
-## Smoke de producao
+## Status conhecido
 
-Arquivo:
-
-```text
-scripts/29_smoke_prod.js
-```
-
-Comando:
-
-```bash
-npm run smoke:prod
-```
-
-Saida esperada:
-
-```text
-OK saude
-OK status
-OK front
-OK admin
-HELPUS_SMOKE_OK
-```
-
-## Regras de mudanca
-
-- Aplicar sempre o menor patch possivel.
-- Reportar git diff --stat e resumo do diff antes de commit.
-- Nao commitar sem validacoes.
-- Nao fazer deploy sem aprovacao explicita.
-- Nunca adicionar chaves reais ao repositorio.
-- Nao expor tokens em logs, frontend ou docs publicas.
-- Smoke interno deve evitar PII e dados sensiveis.
+- helpus-api online.
+- Frontend online.
+- Smoke prod OK em validacoes recentes.
+- Railway pode mostrar deploy failed antigo no recurso postgres-volume. Monitorar, mas nao tratar como falha se backend e smoke estiverem OK.
 
 ## Proximas atividades
 
-1. Revisar o patch local do endpoint interno POST /internal/smoke-chat.
-2. Configurar INTERNAL_SMOKE_TOKEN no Railway somente quando o patch for aprovado para deploy.
-3. Criar ou atualizar smoke automatizado para validar o endpoint interno com token.
-4. Confirmar em producao que provider_used=deepseek quando DeepSeek responder corretamente.
-5. Melhorar a visualizacao das metricas de provider no admin, se necessario.
-6. Registrar metricas agregadas de uso por provider sem PII.
-7. Revisar documentos antigos em docs e arquivar apenas depois de aprovacao explicita.
+Prioridade 1:
+- Configurar ou confirmar INTERNAL_SMOKE_TOKEN no Railway.
+- Fazer deploy Railway do commit com endpoint interno.
+- Testar 401 sem token.
+- Testar OK com token.
+- Confirmar provider_used=deepseek.
 
-## Documentos auxiliares
+Prioridade 2:
+- Melhorar admin dashboard com metricas de provider:
+  - provider configurado;
+  - provider usado;
+  - fallback_reason;
+  - model;
+  - latency_ms;
+  - status do smoke interno sem expor token.
 
-- HELPUS_AI_OVERVIEW.md: visao geral historica.
-- HELPUS_AI_ROADMAP.md: roadmap.
-- AI_PROVIDER_FALLBACK.md: detalhes do fallback.
-- HELPUS_AI_FALLBACK_STATUS_2026-06-08.md: status historico datado.
-- PRODUCTION_CHECKLIST.md: checklist historico de producao.
-- MULTI_AI_PROVIDER_PLAN.md: plano antigo/resumido de multi-provider.
+Prioridade 3:
+- Persistir metricas por request:
+  - data;
+  - provider;
+  - latencia;
+  - sucesso;
+  - fallback_reason;
+  - tokens se disponiveis.
 
-Documento antigo ou redundante identificado: MULTI_AI_PROVIDER_PLAN.md. Ele e curto e coberto por AI_PROVIDER_FALLBACK.md e por este documento principal. Nao foi removido neste patch para evitar perda de historico sem aprovacao explicita.
+Prioridade 4:
+- Criar feedback de resposta:
+  - util;
+  - nao util;
+  - comentario;
+  - motivo.
+
+Prioridade 5:
+- Implementar RAG com documentos HelpUS, FAQs, politicas e base de conhecimento.
+
+Prioridade 6:
+- Memoria persistente por usuario e projeto com controles de privacidade.
+
+## Politica de docs
+
+- HELPUS_AI_OPERATIONS.md e o unico documento principal em docs.
+- Outros markdowns ficam em docs/legacy.
+- Nao apagar historico sem aprovacao explicita.
+- Toda decisao operacional relevante deve ser atualizada aqui.
+
+## Checklist final de frente pronta
+
+- git status limpo;
+- build OK;
+- smoke OK;
+- Railway online;
+- Vercel online se alterado;
+- internal smoke 401 sem token;
+- internal smoke OK com token;
+- provider_used deepseek confirmado;
+- docs atualizados;
+- nenhum segredo exposto.
