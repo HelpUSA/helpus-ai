@@ -40,18 +40,6 @@ class CerebroIA:
                 raise RuntimeError("OPENROUTER_API_KEY nao configurada.")
             return
 
-        if self.provider == "deepseek":
-         self.nome_modelo = app_config.DEEPSEEK_MODEL
-         if not app_config.DEEPSEEK_API_KEY:
-          raise RuntimeError("DEEPSEEK_API_KEY nao configurada.")
-         return
-
-        if self.provider == "openrouter":
-         self.nome_modelo = app_config.OPENROUTER_MODEL
-         if not app_config.OPENROUTER_API_KEY:
-          raise RuntimeError("OPENROUTER_API_KEY nao configurada.")
-         return
-
         if self.provider == "local":
             self.nome_modelo = "Local GGUF"
             from llama_cpp import Llama
