@@ -40,7 +40,6 @@ class CerebroIA:
                 raise RuntimeError("OPENROUTER_API_KEY nao configurada.")
             return
 
-            raise RuntimeError("AI providers failed: " + ",".join(falhas))
 
         if self.provider == "local":
             self.nome_modelo = "Local GGUF"
@@ -94,7 +93,7 @@ class CerebroIA:
         prompt = self._construir_prompt(pergunta, contexto_busca, historico)
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
 
-        if self.provider == "gemini":
+        if self.provider in ("gemini", "openrouter", "deepseek"):
             falhas = []
             provider_order = app_config.AI_PROVIDER_ORDER or ["gemini", "openrouter", "deepseek"]
 
@@ -159,11 +158,8 @@ class CerebroIA:
 
             raise RuntimeError("Todos os providers de IA falharam: " + ",".join(falhas))
 
-        raise RuntimeError("AI providers failed: " + ",".join(falhas))
 
-        raise RuntimeError("AI providers failed: " + ",".join(falhas))
 
-        raise RuntimeError("AI providers failed: " + ",".join(falhas))
 
         def gerar():
             return self.llm(
