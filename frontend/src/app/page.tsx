@@ -727,10 +727,30 @@ export default function Home() {
                   <button onClick={() => setAccountPanel('configuracoes')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'configuracoes' ? 'bg-white/10 text-white' : ''}`}>Configuracoes</button>
                   <button onClick={() => setAccountPanel('ajuda')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'ajuda' ? 'bg-white/10 text-white' : ''}`}>Ajuda</button>
                   {accountPanel && (
-                    <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs leading-5 text-zinc-400">
-                      {accountPanel === 'personalizacao' && 'Preferencias de tema, modelo e atalhos serao adicionadas nesta area.'}
-                      {accountPanel === 'configuracoes' && 'Em breve, voce podera ajustar conta, privacidade e integracoes.'}
-                      {accountPanel === 'ajuda' && 'Esta area vai concentrar documentacao, atalhos e contato de suporte.'}
+                    <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs leading-5 text-zinc-400">
+                      {accountPanel === 'personalizacao' && (
+                        <div className="space-y-1">
+                          <div className="font-medium text-zinc-200">Personalizacao</div>
+                          <p>Tema escuro ativo, atalhos de projetos no menu lateral e busca de chats integrada.</p>
+                          <p>Modelo e preferencias avancadas serao conectados ao perfil quando a API de configuracoes estiver disponivel.</p>
+                        </div>
+                      )}
+                      {accountPanel === 'configuracoes' && (
+                        <div className="space-y-1">
+                          <div className="font-medium text-zinc-200">Configuracoes</div>
+                          <p>Conta Google conectada: {profile?.email || 'nao conectado'}.</p>
+                          <p>Historico, projetos e biblioteca usam a mesma sessao autenticada.</p>
+                          <p>Privacidade: conversas ficam associadas ao email autenticado.</p>
+                        </div>
+                      )}
+                      {accountPanel === 'ajuda' && (
+                        <div className="space-y-1">
+                          <div className="font-medium text-zinc-200">Ajuda</div>
+                          <p>Use Nova conversa para iniciar um atendimento limpo.</p>
+                          <p>Use Projetos para filtrar frentes de trabalho e Biblioteca para organizar materiais de apoio.</p>
+                          <p>Se a sessao expirar, entre novamente com Google e reenvie a pergunta preservada na caixa.</p>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="my-1 h-px bg-white/10" />
