@@ -57,7 +57,7 @@ export default function AdminPage() {
       try {
         setLoading(true)
         setErro('')
-        const response = await fetch(`${apiUrl}/status`, { cache: 'no-store', headers: { Authorization: `Bearer ${googleToken}` } })
+        const response = await fetch(`${apiUrl}/admin/status`, { cache: 'no-store', headers: { Authorization: `Bearer ${googleToken}` } })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
         if (mounted) setStatusData(data)
@@ -164,7 +164,7 @@ export default function AdminPage() {
                 Commit: {statusData?.build_commit || 'Nao informado'}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
-                Fonte de dados: {apiUrl}/status
+                Fonte de dados: {apiUrl}/admin/status
               </p>
             </div>
           </div>

@@ -16,7 +16,7 @@ from config import DEBUG, CORS_ORIGINS
 from banco import BancoDados
 from cerebro import CerebroIA
 from buscador import MotorBusca
-from auth import obter_usuario_google
+from auth import obter_usuario_google, obter_admin_google
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -123,6 +123,21 @@ async def raiz():
 
 @app.get("/status", response_model=StatusResponse)
 async def status():
+    """Verifica o status de todos os servicos"""
+    return StatusResponse(
+        status="online",
+        modelo=cerebro.nome_modelo if cerebro else "nao carregado",
+        modelo_carregado=cerebro is not None,
+        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0,
+        app_version=app_config.APP_VERSION,
+        build_commit=app_config.BUILD_COMMIT,
+        auth_required=app_config.AUTH_REQUIRED,
+        provider_order=app_config.AI_PROVIDER_ORDER
+    )
+
+
+@app.get("/admin/status", response_model=StatusResponse)
+async def admin_status(usuario = Depends(obter_admin_google)):
     """Verifica o status de todos os servicos"""
     return StatusResponse(
         status="online",

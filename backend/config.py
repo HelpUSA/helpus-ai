@@ -45,6 +45,7 @@ CORS_ORIGINS = [
 
 AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower().strip() in ("1", "true", "yes", "on")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+ADMIN_EMAILS = [email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "").split(",") if email.strip()]
 
 # Multi-provider fallback
 AI_PROVIDER_ORDER = [p.strip().lower() for p in os.getenv('AI_PROVIDER_ORDER', 'gemini,openrouter,deepseek').split(',') if p.strip()]
