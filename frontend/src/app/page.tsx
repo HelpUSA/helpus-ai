@@ -176,6 +176,7 @@ export default function Home() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  const providerBadgeDebugEnabled = typeof window !== 'undefined' && window.localStorage.getItem('helpus_provider_debug') === '1'
 
   const projectLabels: Record<string, string> = {
     general: 'Projeto Geral',
@@ -804,7 +805,7 @@ export default function Home() {
                       </div>
 
                       <section>{renderMessageContent(msg.content)}</section>
-                      {msg.provider_used && (
+                      {providerBadgeDebugEnabled && msg.provider_used && (
                         <div className="mt-3 rounded-lg border border-white/5 bg-white/[0.02] px-2 py-1 text-[11px] text-zinc-500">
                           Provider: {msg.provider_used}{msg.fallback_reason ? ` (${msg.fallback_reason})` : ''}
                         </div>
