@@ -40,6 +40,8 @@ class CerebroIA:
                 raise RuntimeError("OPENROUTER_API_KEY nao configurada.")
             return
 
+            raise RuntimeError("AI providers failed: " + ",".join(falhas))
+
         if self.provider == "local":
             self.nome_modelo = "Local GGUF"
             from llama_cpp import Llama
@@ -99,8 +101,15 @@ class CerebroIA:
             for provider in provider_order:
                 try:
                     if provider == "gemini":
+                        client_gemini = getattr(self, "client", None)
+                        if client_gemini is None:
+                            if not GEMINI_API_KEY:
+                             raise RuntimeError("GEMINI_API_KEY ausente")
+                            from google import genai
+                            client_gemini = genai.Client(api_key=GEMINI_API_KEY)
+                            self.client = client_gemini
                         resposta = await asyncio.to_thread(
-                            self.client.models.generate_content,
+                            client_gemini.models.generate_content,
                             model=GEMINI_MODEL,
                             contents=prompt,
                         )
