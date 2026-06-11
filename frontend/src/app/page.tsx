@@ -158,6 +158,7 @@ export default function Home() {
   const [chatSearch, setChatSearch] = useState('')
   const [historyLoading, setHistoryLoading] = useState(false)
   const [sidebarNotice, setSidebarNotice] = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState('')
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
 
@@ -291,8 +292,6 @@ export default function Home() {
 
   const apagarConversa = async (id: string) => {
     if (!googleToken) return
-    const confirmar = window.confirm('Apagar esta conversa?')
-    if (!confirmar) return
 
     try {
       const response = await fetch(`${apiUrl}/conversa/${id}`, {
@@ -308,6 +307,7 @@ export default function Home() {
         router.push('/')
       }
       await carregarConversas()
+      setDeleteConfirmId('')
       setSidebarNotice('Conversa apagada.')
       setTimeout(() => setSidebarNotice(''), 3000)
       setSidebarOpen(false)
@@ -614,16 +614,38 @@ export default function Home() {
 
                 <div className="space-y-1">
                   {conversasFiltradas.map((conv) => (
-                    <button
+                    <div
                       key={conv.session_id}
-                      onClick={() => carregarHistorico(conv.session_id)}
-                      className={`block w-full rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10 ${sessionId === conv.session_id ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
+                      className={`rounded-xl transition hover:bg-white/10 ${sessionId === conv.session_id ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
                     >
-                      <div className="truncate font-medium">{tituloConversa(conv)}</div>
-                      <div className="mt-0.5 truncate text-xs text-zinc-500">
-                        {formatarDataConversa(conv)} - {conv.total_mensagens} mensagens
+                      <div className="flex items-start gap-2 px-3 py-2.5">
+                        <button
+                          onClick={() => carregarHistorico(conv.session_id)}
+                          className="min-w-0 flex-1 text-left text-sm"
+                        >
+                          <div className="truncate font-medium">{tituloConversa(conv)}</div>
+                          <div className="mt-0.5 truncate text-xs text-zinc-500">
+                            {formatarDataConversa(conv)} - {conv.total_mensagens} mensagens
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(deleteConfirmId === conv.session_id ? '' : conv.session_id)}
+                          className="rounded-lg px-2 py-1 text-xs text-zinc-500 transition hover:bg-white/10 hover:text-rose-200"
+                          title="Apagar conversa"
+                        >
+                          x
+                        </button>
                       </div>
-                    </button>
+                      {deleteConfirmId === conv.session_id && (
+                        <div className="mx-3 mb-2 rounded-xl border border-rose-500/20 bg-rose-500/10 p-2 text-xs text-rose-100">
+                          <div className="mb-2">Apagar esta conversa?</div>
+                          <div className="flex gap-2">
+                            <button onClick={() => apagarConversa(conv.session_id)} className="rounded-lg bg-rose-500/20 px-2 py-1 text-rose-100 transition hover:bg-rose-500/30">Apagar</button>
+                            <button onClick={() => setDeleteConfirmId('')} className="rounded-lg px-2 py-1 text-zinc-300 transition hover:bg-white/10">Cancelar</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
