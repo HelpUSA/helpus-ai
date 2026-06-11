@@ -85,10 +85,12 @@ class MensagemRequest(BaseModel):
     mensagem: str
     session_id: Optional[str] = None
     pesquisar_web: bool = True
+    project_id: Optional[str] = 'general'
 
 class MensagemResponse(BaseModel):
     resposta: str
     session_id: str
+    project_id: str = 'general'
     fontes: List[Dict[str, str]] = []
     tempo_total: float = 0.0
     tokens_gerados: int = 0
@@ -144,6 +146,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
+    project_id = (request.project_id or 'general')[:80]
     
     try:
         # Carrega historico
@@ -182,6 +185,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             "user",
             request.mensagem,
             user_email=usuario["email"] if usuario else None,
+            project_id=project_id,
             title=request.mensagem[:80],
         )
         except:
@@ -201,6 +205,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             "assistant",
             resposta,
             user_email=usuario["email"] if usuario else None,
+            project_id=project_id,
         )
         except:
             pass
@@ -210,6 +215,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         return MensagemResponse(
             resposta=resposta,
             session_id=session_id,
+            project_id=project_id,
             fontes=fontes,
             tempo_total=tempo_total,
             tokens_gerados=tokens,

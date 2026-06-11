@@ -24,6 +24,7 @@ interface ConversaResumo {
   updatedAt?: string
   data?: string
   total_mensagens: number
+  project_id?: string
 }
 
 declare global {
@@ -160,6 +161,7 @@ export default function Home() {
   const [sidebarNotice, setSidebarNotice] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState('')
   const [sidebarPanel, setSidebarPanel] = useState<'projects' | 'library' | null>(null)
+  const [activeProjectId, setActiveProjectId] = useState('general')
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
 
@@ -173,9 +175,20 @@ export default function Home() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
 
+  const projectLabels: Record<string, string> = {
+    general: 'Projeto Geral',
+    helpusai: 'WS EUA HelpUSAI Status',
+    ai_bridge: 'WS EUA AI Bridge',
+    watcher: 'WS EUA Watcher Ativo',
+  }
+  const activeProjectLabel = projectLabels[activeProjectId] || 'Projeto Geral'
+  const projectFilteredConversas = activeProjectId === 'general'
+    ? conversas
+    : conversas.filter((conv) => (conv.project_id || 'general') === activeProjectId)
+
   const chatSearchTerm = chatSearch.trim().toLowerCase()
   const conversasFiltradas = chatSearchTerm
-    ? conversas.filter((conv) => {
+    ? projectFilteredConversas.filter((conv) => {
         const titulo = tituloConversa(conv).toLowerCase()
         const data = formatarDataConversa(conv).toLowerCase()
         return titulo.includes(chatSearchTerm) || data.includes(chatSearchTerm)
@@ -347,6 +360,7 @@ export default function Home() {
           mensagem: texto,
           session_id: sessionId || undefined,
           pesquisar_web: pesquisarWeb,
+          project_id: activeProjectId,
         }),
       })
 
@@ -567,9 +581,9 @@ export default function Home() {
                     <div className="space-y-2 text-xs leading-5 text-zinc-400">
                       <p>Use os atalhos abaixo para filtrar conversas por frente de trabalho.</p>
                       <div className="flex flex-wrap gap-2">
-                        <button onClick={() => setChatSearch('HelpUSAI')} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">HelpUSAI</button>
-                        <button onClick={() => setChatSearch('AI Bridge')} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">AI Bridge</button>
-                        <button onClick={() => setChatSearch('Watcher')} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">Watcher</button>
+                        <button onClick={() => { setChatSearch(''); setActiveProjectId('helpusai') }} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">HelpUSAI</button>
+                        <button onClick={() => { setChatSearch(''); setActiveProjectId('ai_bridge') }} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">AI Bridge</button>
+                        <button onClick={() => { setChatSearch(''); setActiveProjectId('watcher') }} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">Watcher</button>
                       </div>
                     </div>
                   ) : (
@@ -600,13 +614,13 @@ export default function Home() {
                       <span className="truncate">Projeto Geral</span>
                     </div>
                   </button>
-                  <button onClick={() => setChatSearch('HelpUSAI')} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
+                  <button onClick={() => { setChatSearch(''); setActiveProjectId('helpusai') }} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
                     <div className="truncate">WS EUA HelpUSAI Status</div>
                   </button>
-                  <button onClick={() => setChatSearch('AI Bridge')} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
+                  <button onClick={() => { setChatSearch(''); setActiveProjectId('ai_bridge') }} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
                     <div className="truncate">WS EUA AI Bridge</div>
                   </button>
-                  <button onClick={() => setChatSearch('Watcher')} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
+                  <button onClick={() => { setChatSearch(''); setActiveProjectId('watcher') }} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
                     <div className="truncate">WS EUA Watcher Ativo</div>
                   </button>
                 </div>
@@ -614,7 +628,7 @@ export default function Home() {
 
               <div className="mt-4 flex-1 overflow-y-auto px-2 pr-1">
                 <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Chats recentes
+                  Chats recentes - {activeProjectLabel}
                 </div>
 
                 {sidebarNotice && (

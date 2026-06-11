@@ -43,6 +43,11 @@ class BancoDados:
                 """)
 
                 await cur.execute("""
+                    ALTER TABLE conversas
+                    ADD COLUMN IF NOT EXISTS project_id TEXT DEFAULT 'general'
+                """)
+
+                await cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_conversas_user_email
                     ON conversas(user_email)
                 """)
@@ -50,6 +55,11 @@ class BancoDados:
                 await cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_conversas_user_session
                     ON conversas(user_email, session_id)
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_conversas_user_project
+                    ON conversas(user_email, project_id)
                 """)
 
                 await cur.execute("""
@@ -76,6 +86,7 @@ class BancoDados:
         content: str,
         user_email: Optional[str] = None,
         title: Optional[str] = None,
+        project_id: Optional[str] = None,
     ):
         if not self.pool:
             return
@@ -84,10 +95,10 @@ class BancoDados:
             async with conn.cursor() as cur:
                 await cur.execute(
                     """
-                    INSERT INTO conversas (session_id, role, content, user_email, title)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO conversas (session_id, role, content, user_email, title, project_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """,
-                    (session_id, role, content, user_email, title)
+                    (session_id, role, content, user_email, title, project_id or "general")
                 )
                 await conn.commit()
 
@@ -144,7 +155,8 @@ class BancoDados:
                             'Nova conversa'
                         ) AS titulo,
                         MAX(created_at) AS updated_at,
-                        COUNT(*) AS total_mensagens
+                        COUNT(*) AS total_mensagens,
+                        COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
                     FROM conversas
                     WHERE user_email = %s
                     GROUP BY session_id
@@ -161,6 +173,7 @@ class BancoDados:
                         "titulo": r[1],
                         "updated_at": r[2].isoformat() if r[2] else None,
                         "total_mensagens": int(r[3] or 0),
+                        "project_id": r[4] or "general",
                     }
                     for r in rows
                 ]
