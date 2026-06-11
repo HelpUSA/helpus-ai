@@ -56,7 +56,7 @@ export default function AdminPage() {
 
   return (
     <main className="min-h-screen bg-[#212121] px-4 py-6 text-zinc-100">
-      <div className="mx-auto flex min-h[calc(100vh-3rem)] w-full max-w-5xl flex-col justify-center">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col justify-center">
         <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-8 shadow-2xl shadow-black/30">
           <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
