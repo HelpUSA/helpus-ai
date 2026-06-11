@@ -163,6 +163,8 @@ class CerebroIA:
 
         raise RuntimeError("AI providers failed: " + ",".join(falhas))
 
+        raise RuntimeError("AI providers failed: " + ",".join(falhas))
+
         def gerar():
             return self.llm(
                 prompt,
