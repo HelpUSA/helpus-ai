@@ -159,6 +159,7 @@ export default function Home() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [sidebarNotice, setSidebarNotice] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState('')
+  const [sidebarPanel, setSidebarPanel] = useState<'projects' | 'library' | null>(null)
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
 
@@ -478,9 +479,9 @@ export default function Home() {
                     <span>Nova conversa</span>
                     <span className="text-zinc-500">+</span>
                   </button>
-                  <button disabled className="flex w-full cursor-not-allowed items-center justify-between rounded-xl px-3 py-2.5 text-left text-zinc-500" role="menuitem">
+                  <button onClick={() => { setActionsMenuOpen(false); setSidebarPanel('projects'); setSidebarOpen(true) }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
                     <span>Projetos</span>
-                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">em breve</span>
+                    <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-200">ativo</span>
                   </button>
                   <div className="my-2 h-px bg-white/10" />
                   {profile ? (
@@ -544,13 +545,41 @@ export default function Home() {
                   />
                 </label>
                 <button
-                  disabled
-                  className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-500"
+                  onClick={() => setSidebarPanel(sidebarPanel === 'library' ? null : 'library')}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${sidebarPanel === 'library' ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
                 >
                   <span className="w-5 text-center">[]</span>
                   <span>Biblioteca</span>
                 </button>
               </nav>
+
+              {sidebarPanel && (
+                <div className="mx-2 mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p3 text-sm text-zinc-300">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="font-medium text-zinc-100">
+                      {sidebarPanel === 'projects' ? 'Projetos' : 'Biblioteca'}
+                    </div>
+                    <button onClick={() => setSidebarPanel(null)} className="rounded-lg px-2 py-1 text-xs text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
+                      Fechar
+                    </button>
+                  </div>
+                  {sidebarPanel === 'projects' ? (
+                    <div className="space-y-2 text-xs leading-5 text-zinc-400">
+                      <p>Use os atalhos abaixo para filtrar conversas por frente de trabalho.</p>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => setChatSearch('HelpUSAI')} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">HelpUSAI</button>
+                        <button onClick={() => setChatSearch('AI Bridge')} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">AI Bridge</button>
+                        <button onClick={() => setChatSearch('Watcher')} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">Watcher</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 text-xs leading-5 text-zinc-400">
+                      <p>A biblioteca vai reunir arquivos, fontes e links usados nos atendimentos.</p>
+                      <p>Por enquanto, mantenha materiais importantes nas conversas salvas.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4 px-2">
                 <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -558,12 +587,12 @@ export default function Home() {
                 </div>
                 <div className="space-y-1 text-sm">
                   <button
-                    disabled
-                    className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2 text-left text-zinc-500"
+                    onClick={() => setSidebarPanel(sidebarPanel === 'projects' ? null : 'projects')}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-white/10 ${sidebarPanel === 'projects' ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
                   >
                     <span className="w-5 text-center">+</span>
                     <span>Novo projeto</span>
-                    <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-500">em breve</span>
+                    <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">painel</span>
                   </button>
                   <button onClick={() => setChatSearch('')} className="w-full rounded-xl bg-white/10 px-3 py-2 text-left text-zinc-100 transition hover:bg-white/15" title="Mostrar todos os chats">
                     <div className="flex items-center gap-3">
