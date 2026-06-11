@@ -7,6 +7,8 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   fontes?: { titulo: string; url: string; fonte: string }[]
+  provider_used?: string
+  fallback_reason?: string | null
 }
 
 interface GoogleProfile {
@@ -381,6 +383,8 @@ export default function Home() {
           role: 'assistant',
           content: data.resposta || 'A API respondeu sem conteudo.',
           fontes: data.fontes || [],
+          provider_used: data.provider_used || '',
+          fallback_reason: data.fallback_reason || null,
         },
       ])
 
@@ -800,6 +804,11 @@ export default function Home() {
                       </div>
 
                       <section>{renderMessageContent(msg.content)}</section>
+                      {msg.provider_used && (
+                        <div className="mt-3 rounded-lg border border-white/5 bg-white/[0.02] px-2 py-1 text-[11px] text-zinc-500">
+                          Provider: {msg.provider_used}{msg.fallback_reason ? ` (${msg.fallback_reason})` : ''}
+                        </div>
+                      )}
 
                       {msg.role === 'assistant' && (
                         <button
