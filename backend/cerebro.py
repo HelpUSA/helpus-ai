@@ -28,6 +28,18 @@ class CerebroIA:
             self.client = genai.Client(api_key=GEMINI_API_KEY)
             return
 
+        if self.provider == "deepseek":
+            self.nome_modelo = app_config.DEEPSEEK_MODEL
+            if not app_config.DEEPSEEK_API_KEY:
+                raise RuntimeError("DEEPSEEK_API_KEY nao configurada.")
+            return
+
+        if self.provider == "openrouter":
+            self.nome_modelo = app_config.OPENROUTER_MODEL
+            if not app_config.OPENROUTER_API_KEY:
+                raise RuntimeError("OPENROUTER_API_KEY nao configurada.")
+            return
+
         if self.provider == "local":
             self.nome_modelo = "Local GGUF"
             from llama_cpp import Llama
@@ -127,7 +139,7 @@ class CerebroIA:
                         tokens = dados.get("usage", {}).get("completion_tokens", 0)
                         self.last_provider_used = "deepseek"
                         self.last_fallback_reason = "_".join(f"{p}_failed" for p in falhas) or None
-                        tempo = round(time.time() - inicio, 2),
+                        tempo = round(time.time() - inicio, 2)
                         return texto, tokens, tempo
 
                     raise RuntimeError(f"AI_PROVIDER_ORDER invalido: {provider}")
