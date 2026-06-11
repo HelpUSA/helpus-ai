@@ -3,12 +3,13 @@
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
 """
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import time
 import uuid
+import os
 from contextlib import asynccontextmanager
 
 import config as app_config
@@ -96,6 +97,9 @@ class MensagemResponse(BaseModel):
     tokens_gerados: int = 0
     provider_used: str = ""
     fallback_reason: Optional[str] = None
+    provider_configured: str = ""
+    model: str = ""
+    latency_ms: Optional[float] = None
 
 class StatusResponse(BaseModel):
     status: str
@@ -106,10 +110,37 @@ class StatusResponse(BaseModel):
     build_commit: str = ''
     auth_required: bool = False
     provider_order: List[str] = []
+    provider_configured: str = ""
+    provider_used: str = ""
+    fallback_reason: Optional[str] = None
+    model: str = ""
+    latency_ms: Optional[float] = None
 
 class IndexarRequest(BaseModel):
     url: str
     profundidade: int = 2
+
+class InternalSmokeChatRequest(BaseModel):
+    mensagem: str = "Responda apenas: HELPUS_INTERNAL_SMOKE_OK"
+    project_id: Optional[str] = "internal-smoke"
+
+class InternalSmokeChatResponse(BaseModel):
+    ok: bool
+    resposta: str
+    provider_configured: str = ""
+    provider_used: str = ""
+    fallback_reason: Optional[str] = None
+    model: str = ""
+    latency_ms: Optional[float] = None
+
+def _provider_metrics(latency_ms: Optional[float] = None) -> Dict[str, object]:
+    return {
+        "provider_configured": getattr(app_config, "AI_PROVIDER", ""),
+        "provider_used": getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")) if cerebro else "",
+        "fallback_reason": getattr(cerebro, "last_fallback_reason", None) if cerebro else None,
+        "model": getattr(cerebro, "nome_modelo", "") if cerebro else "",
+        "latency_ms": latency_ms,
+    }
 
 # ===== ENDPOINTS =====
 @app.get("/")
@@ -132,7 +163,8 @@ async def status():
         app_version=app_config.APP_VERSION,
         build_commit=app_config.BUILD_COMMIT,
         auth_required=app_config.AUTH_REQUIRED,
-        provider_order=app_config.AI_PROVIDER_ORDER
+        provider_order=app_config.AI_PROVIDER_ORDER,
+        **_provider_metrics()
     )
 
 
@@ -147,8 +179,36 @@ async def admin_status(usuario = Depends(obter_admin_google)):
         app_version=app_config.APP_VERSION,
         build_commit=app_config.BUILD_COMMIT,
         auth_required=app_config.AUTH_REQUIRED,
-        provider_order=app_config.AI_PROVIDER_ORDER
+        provider_order=app_config.AI_PROVIDER_ORDER,
+        **_provider_metrics()
     )
+
+@app.post("/internal/smoke-chat", response_model=InternalSmokeChatResponse)
+async def internal_smoke_chat(
+    request: InternalSmokeChatRequest,
+    x_internal_smoke_token: Optional[str] = Header(default=None),
+):
+    expected_token = os.getenv("INTERNAL_SMOKE_TOKEN", "")
+    if not expected_token or x_internal_smoke_token != expected_token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not cerebro:
+        raise HTTPException(status_code=503, detail="Modelo de IA nao carregado.")
+
+    inicio = time.time()
+    resposta, tokens, tempo_ia = await cerebro.pensar(
+        pergunta=request.mensagem,
+        contexto_busca="",
+        historico=[],
+    )
+    latency_ms = round((time.time() - inicio) * 1000, 2)
+
+    return InternalSmokeChatResponse(
+        ok=True,
+        resposta=resposta,
+        **_provider_metrics(latency_ms=latency_ms),
+    )
+
 
 @app.post("/chat", response_model=MensagemResponse)
 async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
@@ -235,7 +295,10 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             tempo_total=tempo_total,
             tokens_gerados=tokens,
             provider_used=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
-            fallback_reason=getattr(cerebro, "last_fallback_reason", None)
+            fallback_reason=getattr(cerebro, "last_fallback_reason", None),
+            provider_configured=getattr(app_config, "AI_PROVIDER", ""),
+            model=getattr(cerebro, "nome_modelo", ""),
+            latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None
         )
         
     except Exception as e:
