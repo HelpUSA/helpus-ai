@@ -568,7 +568,7 @@ export default function Home() {
               </nav>
 
               {sidebarPanel && (
-                <div className="mx-2 mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p3 text-sm text-zinc-300">
+                <div className="mx-2 mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-zinc-300">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="font-medium text-zinc-100">
                       {sidebarPanel === 'projects' ? 'Projetos' : 'Biblioteca'}
