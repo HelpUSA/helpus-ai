@@ -497,6 +497,10 @@ export default function Home() {
                     <span>Projetos</span>
                     <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-200">ativo</span>
                   </button>
+                  <button onClick={() => { setActionsMenuOpen(false); router.push('/admin') }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
+                    <span>Painel operacional</span>
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-300">/admin</span>
+                  </button>
                   <div className="my-2 h-px bg-white/10" />
                   {profile ? (
                     <button onClick={sair} className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10" role="menuitem">Sair da conta Google</button>
