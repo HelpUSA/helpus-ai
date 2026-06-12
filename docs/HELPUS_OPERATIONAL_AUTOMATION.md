@@ -36,3 +36,25 @@ git diff --check
 - Criar relatorio de saude local com ultimos commits, status, build e smokes.
 - Evoluir painel de memorias com busca, tags e historico de alteracoes.
 - Preparar tag de release apenas apos suite completa verde.
+
+## Release smoke e health report
+
+A suite operacional agora tambem possui dois utilitarios de fechamento:
+
+- scripts/watcher/smoke_operational_release.py: executa a suite operacional principal em uma chamada unica.
+- scripts/watcher/health_report.py: gera reports/helpus_health_report.json com status git, HEAD, log recente e existencia dos smokes.
+- scripts/watcher/smoke_health_report.py: valida a geracao e o contrato minimo do health report.
+
+## Comando final recomendado antes de tag
+
+powershell
+python scripts/watcher/smoke_operational_release.py
+python scripts/watcher/smoke_health_report.py
+npm --prefix frontend run build
+git diff --check
+git status -sb
+
+
+## Criterio para tag operacional
+
+Criar tag somente quando release smoke, health report, build frontend e diff check estiverem verdes com repo limpo/alinhado.
