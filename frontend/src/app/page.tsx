@@ -214,7 +214,7 @@ export default function Home() {
         const data = formatarDataConversa(conv).toLowerCase()
         return titulo.includes(chatSearchTerm) || data.includes(chatSearchTerm)
       })
-    : conversas
+    : projectFilteredConversas
 
   const authHeaders = (token = googleToken) => ({
     Authorization: `Bearer ${token}`,
