@@ -141,6 +141,19 @@ function decodeJwtProfile(token: string): GoogleProfile | null {
   }
 }
 
+
+interface ProjectMemory {
+ id: number
+ project_id: string
+ title: string
+ content: string
+ tags?: string
+ enabled: boolean
+ created_by?: string
+ created_at?: string
+ updated_at?: string
+}
+
 export default function Home() {
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
@@ -162,8 +175,13 @@ export default function Home() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [sidebarNotice, setSidebarNotice] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState('')
-  const [sidebarPanel, setSidebarPanel] = useState<'projects' | 'library' | null>(null)
+  const [sidebarPanel, setSidebarPanel] = useState<'projects' | 'library' | 'memories' | null>(null)
   const [activeProjectId, setActiveProjectId] = useState('general')
+  const [projectMemories, setProjectMemories] = useState<ProjectMemory[]>([])
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [memoryNotice, setMemoryNotice] = useState('')
+  const [memoryFormOpen, setMemoryFormOpen] = useState(false)
+  const [memoryForm, setMemoryForm] = useState({ title: '', content: '', tags: '' })
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
 
@@ -222,6 +240,26 @@ export default function Home() {
     }
   }
 
+  const carregarMemorias = async (projectId = activeProjectId, token = googleToken) => {
+    if (!token) return
+
+    try {
+      setMemoryLoading(true)
+      const response = await fetch(`${apiUrl}/memorias?project_id=${encodeURIComponent(projectId)}&include_disabled=true`, {
+        headers: authHeaders(token),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
+      setProjectMemories(data.memorias || [])
+      setMemoryNotice('')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      setMemoryNotice(`Nao foi possivel carregar memorias: ${message}`)
+    } finally {
+      setMemoryLoading(false)
+    }
+  }
+
   useEffect(() => {
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
     const initialChatId = chatIdFromUrl()
@@ -232,6 +270,12 @@ export default function Home() {
       if (initialChatId) carregarHistorico(initialChatId, savedToken, false)
     }
   }, [])
+
+  useEffect(() => {
+    if (googleToken) {
+      carregarMemorias(activeProjectId, googleToken)
+    }
+  }, [activeProjectId, googleToken])
 
 
   // Sincroniza a URL com a conversa ativa
@@ -572,7 +616,7 @@ export default function Home() {
                   className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${sidebarPanel === 'library' ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
                 >
                   <span className="w-5 text-center">[]</span>
-                  <span>Biblioteca</span>
+                  <span>Memórias</span>
                 </button>
               </nav>
 
@@ -580,7 +624,7 @@ export default function Home() {
                 <div className="mx-2 mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-zinc-300">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="font-medium text-zinc-100">
-                      {sidebarPanel === 'projects' ? 'Projetos' : 'Biblioteca'}
+                      {sidebarPanel === 'projects' ? 'Projetos' : 'Memórias'}
                     </div>
                     <button onClick={() => setSidebarPanel(null)} className="rounded-lg px-2 py-1 text-xs text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
                       Fechar
@@ -597,8 +641,8 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="space-y-2 text-xs leading-5 text-zinc-400">
-                      <p>A biblioteca vai reunir arquivos, fontes e links usados nos atendimentos.</p>
-                      <p>Por enquanto, mantenha materiais importantes nas conversas salvas.</p>
+                      <p>Use esta area para guardar memorias ativas do projeto: regras, decisoes, comandos, IDs e aprendizados.</p>
+                      <p>As memorias entram como contexto adicional da HelpUS AI quando o projeto estiver ativo.</p>
                     </div>
                   )}
                 </div>
@@ -756,7 +800,7 @@ export default function Home() {
                         <div className="space-y-1">
                           <div className="font-medium text-zinc-200">Ajuda</div>
                           <p>Use Nova conversa para iniciar um atendimento limpo.</p>
-                          <p>Use Projetos para filtrar frentes de trabalho e Biblioteca para organizar materiais de apoio.</p>
+                          <p>Use Projetos para filtrar frentes de trabalho e Memórias para guardar regras, decisoes e aprendizados.</p>
                           <p>Se a sessao expirar, entre novamente com Google e reenvie a pergunta preservada na caixa.</p>
                         </div>
                       )}
