@@ -307,6 +307,28 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+@app.post("/internal/smoke-chat-auth-flow", response_model=MensagemResponse)
+async def internal_smoke_chat_auth_flow(
+    x_internal_smoke_token: Optional[str] = Header(default=None),
+):
+    """Executa o fluxo real de /chat com usuario sintetico interno."""
+    expected = getattr(app_config, "INTERNAL_SMOKE_TOKEN", "")
+    if not expected or x_internal_smoke_token != expected:
+        raise HTTPException(status_code=401, detail="invalid_internal_smoke_token")
+
+    request = MensagemRequest(
+        mensagem="Responda apenas: HELPUS_INTERNAL_AUTH_FLOW_OK",
+        pesquisar_web=False,
+        project_id="internal-smoke",
+    )
+    usuario = {
+        "email": "smoke@internal.helpus",
+        "name": "HelpUS Internal Smoke",
+        "sub": "internal-smoke-user",
+    }
+    return await chat(request, usuario=usuario)
+
 @app.get("/conversas")
 async def listar_conversas(usuario = Depends(obter_usuario_google)):
     """Lista conversas do usuario autenticado"""
