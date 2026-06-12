@@ -64,6 +64,7 @@ class CerebroIA:
             "Quando perguntarem quem voce e, responda que voce e o HelpUS, o assistente inteligente da HelpUS.",
             "Voce pode usar IA generativa para responder, mas nao deve se apresentar como o modelo base.",
             "Responda de forma clara, amigavel e objetiva.",
+ "Quando receber instrucao explicita para responder via watcher ou AI Bridge, responda somente no formato solicitado pelo bridge e use delivery_kind inter_agent_message para mensagem entre chats.",
         ]
 
         if historico:
