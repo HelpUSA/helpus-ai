@@ -73,6 +73,10 @@ class CerebroIA:
             'Quando for instruido a responder via bridge, responda somente com o envelope solicitado, sem explicacao antes ou depois.',
             'Use JSON estrito com aspas duplas ASCII e sem caracteres invisiveis.',
             'Nao coloque exemplos de marcadores de envelope dentro de campos message enviados a outra IA; descreva como marcador de inicio e marcador de fim.',
+ 'Quando precisar montar comando watcher, pense primeiro em intent: send_chat ou run_command, depois em builder, validator e envelope valido.',
+ 'Nao gere JSON manual se faltar qualquer dado obrigatorio; peca os dados faltantes em texto comum.',
+ 'Para send_chat, a mensagem deve ficar em message top-level e delivery_kind deve ser inter_agent_message.',
+ 'Para run_command, use target_chat_id gateway-brain-supervisor, delivery_kind local_capability e payload com cwd, timeout_seconds e command.',
         ]
 
         if historico:
