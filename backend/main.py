@@ -148,6 +148,41 @@ class InternalSmokeChatResponse(BaseModel):
     model: str = ""
     latency_ms: Optional[float] = None
 
+def construir_contexto_memorias(memorias: List[Dict], limite_total: int = 2500) -> str:
+    """Monta contexto curto e seguro com memorias ativas do projeto."""
+    if not memorias:
+        return ""
+
+    partes = [
+        "Memoria ativa do projeto:",
+        "Use estas memorias como contexto operacional persistente. Elas nao substituem a pergunta atual, politicas de seguranca, autorizacoes explicitas nem validacao de dados.",
+    ]
+
+    total = sum(len(p) for p in partes)
+    for memoria in memorias[:12]:
+        titulo = str(memoria.get("title") or "").strip()
+        conteudo = str(memoria.get("content") or "").strip()
+        tags = str(memoria.get("tags") or "").strip()
+
+        if not titulo or not conteudo:
+            continue
+
+        item = f"- {titulo}: {conteudo}"
+        if tags:
+            item += f" [tags: {tags}]"
+
+        if len(item) > 700:
+            item = item[:697] + "..."
+
+        if total + len(item) > limite_total:
+            break
+
+        partes.append(item)
+        total += len(item)
+
+    return "\n".join(partes) if len(partes) > 2 else ""
+
+
 def _provider_metrics(latency_ms: Optional[float] = None) -> Dict[str, object]:
     return {
         "provider_configured": getattr(app_config, "AI_PROVIDER", ""),
@@ -246,6 +281,18 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         except:
             pass
         
+        # Memoria ativa do projeto
+        contexto_memorias = ""
+        try:
+            memorias_ativas = await banco.listar_memorias_projeto(
+                project_id=project_id,
+                include_disabled=False,
+                limite=12,
+            )
+            contexto_memorias = construir_contexto_memorias(memorias_ativas)
+        except:
+            contexto_memorias = ""
+
         # Busca na web
         fontes = []
         contexto_busca = ""
@@ -284,7 +331,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         # Gera resposta
         resposta, tokens, tempo_ia = await cerebro.pensar(
             pergunta=request.mensagem,
-            contexto_busca=contexto_busca,
+            contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_busca] if parte]),
             historico=historico
         )
         
