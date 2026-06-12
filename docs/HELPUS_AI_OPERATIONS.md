@@ -7,7 +7,8 @@ Este e o documento principal da frente HelpUS AI. Os demais documentos markdown 
 ## Estado atual
 
 - Frontend em producao: Vercel.
-- Dominio publico: https://ai.helpusbr.com.
+- Dominio publico oficial: https://ai.helpusbr.com.
+- URL Vercel funcional para smoke/local: https://helpus-ai.vercel.app.
 - Backend em producao: Railway.
 - Backend publico: https://helpus-api-production.up.railway.app.
 - Banco: Railway Postgres.
@@ -15,7 +16,7 @@ Este e o documento principal da frente HelpUS AI. Os demais documentos markdown 
 - AUTH_REQUIRED=true em producao.
 - Provider primario: DeepSeek.
 - Fallback: Gemini e OpenRouter.
-- Ordem de providers: deepseek,gemini,openrouter.
+- Ordem de providers em producao: deepseek.
 - Admin dashboard ativo em /admin.
 - provider_used e fallback_reason ja existem no backend.
 - Badge de provider existe no frontend, mas fica oculto por padrao e so aparece com debug local.
@@ -64,7 +65,7 @@ Obrigatorias ou relevantes:
 - GOOGLE_CLIENT_ID
 - ADMIN_EMAILS
 - AI_PROVIDER
-- AI_PROVIDER_ORDER=deepseek,gemini,openrouter
+- AI_PROVIDER_ORDER=deepseek
 - DEEPSEEK_API_KEY
 - DEEPSEEK_MODEL=deepseek-chat
 - DEEPSEEK_API_URL=https://api.deepseek.com/chat/completions
