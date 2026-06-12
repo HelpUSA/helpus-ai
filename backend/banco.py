@@ -68,6 +68,30 @@ class BancoDados:
                 """)
 
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS project_memories (
+                        id SERIAL PRIMARY KEY,
+                        project_id TEXT NOT NULL DEFAULT 'general',
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        tags TEXT DEFAULT '',
+                        enabled BOOLEAN DEFAULT TRUE,
+                        created_by TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_project_memories_project_enabled
+                    ON project_memories(project_id, enabled)
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_project_memories_created_by
+                    ON project_memories(created_by)
+                """)
+
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS paginas_indexadas (
                         id SERIAL PRIMARY KEY,
                         url TEXT UNIQUE NOT NULL,
@@ -195,6 +219,150 @@ class BancoDados:
                         (session_id,)
                     )
                 await conn.commit()
+
+    async def listar_memorias_projeto(
+        self,
+        project_id: str = "general",
+        include_disabled: bool = False,
+        limite: int = 50,
+    ) -> List[Dict]:
+        if not self.pool:
+            return []
+
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                if include_disabled:
+                    await cur.execute(
+                        """
+                        SELECT id, project_id, title, content, tags, enabled, created_by, created_at, updated_at
+                        FROM project_memories
+                        WHERE project_id = %s
+                        ORDER BY updated_at DESC, created_at DESC
+                        LIMIT %s
+                        """,
+                        (project_id or "general", limite),
+                    )
+                else:
+                    await cur.execute(
+                        """
+                        SELECT id, project_id, title, content, tags, enabled, created_by, created_at, updated_at
+                        FROM project_memories
+                        WHERE project_id = %s AND enabled = TRUE
+                        ORDER BY updated_at DESC, created_at DESC
+                        LIMIT %s
+                        """,
+                        (project_id or "general", limite),
+                    )
+
+                rows = await cur.fetchall()
+                return [
+                    {
+                        "id": int(r[0]),
+                        "project_id": r[1] or "general",
+                        "title": r[2],
+                        "content": r[3],
+                        "tags": r[4] or "",
+                        "enabled": bool(r[5]),
+                        "created_by": r[6] or "",
+                        "created_at": r[7].isoformat() if r[7] else None,
+                        "updated_at": r[8].isoformat() if r[8] else None,
+                    }
+                    for r in rows
+                ]
+
+    async def criar_memoria_projeto(
+        self,
+        project_id: str,
+        title: str,
+        content: str,
+        tags: str = "",
+        created_by: Optional[str] = None,
+    ) -> Optional[Dict]:
+        if not self.pool:
+            return None
+
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO project_memories (project_id, title, content, tags, enabled, created_by)
+                    VALUES (%s, %s, %s, %s, TRUE, %s)
+                    RETURNING id, project_id, title, content, tags, enabled, created_by, created_at, updated_at
+                    """,
+                    (project_id or "general", title, content, tags or "", created_by),
+                )
+                r = await cur.fetchone()
+                await conn.commit()
+
+                if not r:
+                    return None
+
+                return {
+                    "id": int(r[0]),
+                    "project_id": r[1] or "general",
+                    "title": r[2],
+                    "content": r[3],
+                    "tags": r[4] or "",
+                    "enabled": bool(r[5]),
+                    "created_by": r[6] or "",
+                    "created_at": r[7].isoformat() if r[7] else None,
+                    "updated_at": r[8].isoformat() if r[8] else None,
+                }
+
+    async def atualizar_memoria_projeto(
+        self,
+        memory_id: int,
+        project_id: str,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        tags: Optional[str] = None,
+        enabled: Optional[bool] = None,
+    ) -> Optional[Dict]:
+        if not self.pool:
+            return None
+
+        atuais = await self.listar_memorias_projeto(project_id=project_id, include_disabled=True, limite=200)
+        alvo = next((m for m in atuais if int(m["id"]) == int(memory_id)), None)
+        if not alvo:
+            return None
+
+        next_title = title if title is not None else alvo["title"]
+        next_content = content if content is not None else alvo["content"]
+        next_tags = tags if tags is not None else alvo["tags"]
+        next_enabled = enabled if enabled is not None else alvo["enabled"]
+
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    UPDATE project_memories
+                    SET title = %s,
+                        content = %s,
+                        tags = %s,
+                        enabled = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND project_id = %s
+                    RETURNING id, project_id, title, content, tags, enabled, created_by, created_at, updated_at
+                    """,
+                    (next_title, next_content, next_tags or "", bool(next_enabled), int(memory_id), project_id or "general"),
+                )
+                r = await cur.fetchone()
+                await conn.commit()
+
+                if not r:
+                    return None
+
+                return {
+                    "id": int(r[0]),
+                    "project_id": r[1] or "general",
+                    "title": r[2],
+                    "content": r[3],
+                    "tags": r[4] or "",
+                    "enabled": bool(r[5]),
+                    "created_by": r[6] or "",
+                    "created_at": r[7].isoformat() if r[7] else None,
+                    "updated_at": r[8].isoformat() if r[8] else None,
+                }
 
     async def indexar_pagina(self, url: str, titulo: str, conteudo: str):
         if not self.pool:

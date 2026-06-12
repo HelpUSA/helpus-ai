@@ -120,6 +120,21 @@ class IndexarRequest(BaseModel):
     url: str
     profundidade: int = 2
 
+class ProjectMemoryRequest(BaseModel):
+    project_id: Optional[str] = "general"
+    title: str
+    content: str
+    tags: Optional[str] = ""
+
+
+class ProjectMemoryUpdateRequest(BaseModel):
+    project_id: Optional[str] = "general"
+    title: Optional[str] = None
+    content: Optional[str] = None
+    tags: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
 class InternalSmokeChatRequest(BaseModel):
     mensagem: str = "Responda apenas: HELPUS_INTERNAL_SMOKE_OK"
     project_id: Optional[str] = "internal-smoke"
@@ -328,6 +343,97 @@ async def internal_smoke_chat_auth_flow(
         "sub": "internal-smoke-user",
     }
     return await chat(request, usuario=usuario)
+
+@app.get("/memorias")
+async def listar_memorias(
+    project_id: str = "general",
+    include_disabled: bool = False,
+    usuario = Depends(obter_usuario_google),
+):
+    """Lista memorias ativas do projeto para o usuario autenticado."""
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+
+    try:
+        return {
+            "project_id": project_id or "general",
+            "memorias": await banco.listar_memorias_projeto(
+                project_id=project_id or "general",
+                include_disabled=include_disabled,
+                limite=100,
+            ),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memorias")
+async def criar_memoria(
+    request: ProjectMemoryRequest,
+    usuario = Depends(obter_usuario_google),
+):
+    """Cria uma memoria ativa de projeto."""
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+
+    title = (request.title or "").strip()
+    content = (request.content or "").strip()
+
+    if not title:
+        raise HTTPException(status_code=400, detail="Titulo da memoria e obrigatorio.")
+    if not content:
+        raise HTTPException(status_code=400, detail="Conteudo da memoria e obrigatorio.")
+
+    if len(title) > 160:
+        raise HTTPException(status_code=400, detail="Titulo da memoria deve ter ate 160 caracteres.")
+    if len(content) > 4000:
+        raise HTTPException(status_code=400, detail="Conteudo da memoria deve ter ate 4000 caracteres.")
+
+    try:
+        memoria = await banco.criar_memoria_projeto(
+            project_id=(request.project_id or "general")[:80],
+            title=title,
+            content=content,
+            tags=(request.tags or "")[:300],
+            created_by=usuario.get("email"),
+        )
+        return {"memoria": memoria}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/memorias/{memory_id}")
+async def atualizar_memoria(
+    memory_id: int,
+    request: ProjectMemoryUpdateRequest,
+    usuario = Depends(obter_usuario_google),
+):
+    """Atualiza ou ativa/desativa uma memoria de projeto."""
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+
+    if request.title is not None and len(request.title.strip()) > 160:
+        raise HTTPException(status_code=400, detail="Titulo da memoria deve ter ate 160 caracteres.")
+    if request.content is not None and len(request.content.strip()) > 4000:
+        raise HTTPException(status_code=400, detail="Conteudo da memoria deve ter ate 4000 caracteres.")
+
+    try:
+        memoria = await banco.atualizar_memoria_projeto(
+            memory_id=memory_id,
+            project_id=(request.project_id or "general")[:80],
+            title=request.title.strip() if request.title is not None else None,
+            content=request.content.strip() if request.content is not None else None,
+            tags=(request.tags or "")[:300] if request.tags is not None else None,
+            enabled=request.enabled,
+        )
+        if not memoria:
+            raise HTTPException(status_code=404, detail="Memoria nao encontrada.")
+        return {"memoria": memoria}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/conversas")
 async def listar_conversas(usuario = Depends(obter_usuario_google)):
