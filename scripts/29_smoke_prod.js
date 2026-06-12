@@ -1,5 +1,5 @@
 const A=process.env.HELPUS_API_URL||'https://helpus-api-production.up.railway.app';
-const W=process.env.HELPUS_FRONTEND_URL||'https://ai.helpusbr.com';
+const W=process.env.HELPUS_FRONTEND_URL||'https://helpus-ai.vercel.app';
 async function j(u){const r=await fetch(u); if(!r.ok) throw Error(u+' '+r.status); return r.json()}
 async function h(u){const r=await fetch(u); if(!r.ok) throw Error(u+' '+r.status); return r.status}
 function ok(n,c){if(!c) throw Error(n); console.log('OK '+n)}
