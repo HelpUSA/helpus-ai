@@ -10,6 +10,7 @@ SMOKE_FILES = [
     "scripts/watcher/smoke_intent_layer.py",
     "scripts/watcher/smoke_watcher_errors.py",
     "scripts/watcher/smoke_telemetry.py",
+    "scripts/watcher/smoke_admin_telemetry.py",
     "scripts/watcher/smoke_command_safety.py",
     "scripts/watcher/smoke_watcher_stress.py",
     "scripts/watcher/smoke_memory_panel_contract.py",
