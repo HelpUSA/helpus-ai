@@ -18,6 +18,7 @@ from banco import BancoDados
 from cerebro import CerebroIA
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
+from admin_telemetry import summarize_events
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -232,6 +233,12 @@ async def admin_status(usuario = Depends(obter_admin_google)):
         provider_order=app_config.AI_PROVIDER_ORDER,
         **_provider_metrics()
     )
+
+
+@app.get("/admin/telemetry")
+async def admin_telemetry(usuario = Depends(obter_admin_google)):
+    telemetry_path = os.getenv("HELPUS_TELEMETRY_LOG", "reports/helpus_telemetry.jsonl")
+    return summarize_events(telemetry_path)
 
 @app.post("/internal/smoke-chat", response_model=InternalSmokeChatResponse)
 async def internal_smoke_chat(
