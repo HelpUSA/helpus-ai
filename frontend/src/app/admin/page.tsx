@@ -14,6 +14,19 @@ interface StatusData {
   provider_order?: string[]
 }
 
+interface TelemetrySummary {
+  total?: number
+  by_type?: Record<string, number>
+  by_status?: Record<string, number>
+  by_project?: Record<string, number>
+}
+
+function formatTelemetryMap(data?: Record<string, number>) {
+  const entries = Object.entries(data || {})
+  if (!entries.length) return 'Sem eventos registrados.'
+  return entries.map(([key, value]) => `${key}: ${value}`).join(' | ')
+}
+
 function decodeJwtEmail(token: string) {
   try {
     const payload = token.split('.')[1]
@@ -34,6 +47,7 @@ export default function AdminPage() {
   const [googleToken, setGoogleToken] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
   const [statusData, setStatusData] = useState<StatusData | null>(null)
+  const [telemetryData, setTelemetryData] = useState<TelemetrySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
 
@@ -50,6 +64,7 @@ export default function AdminPage() {
 
     const carregarStatus = async () => {
       if (!googleToken || !isAdminAllowed) {
+        setTelemetryData(null)
         setLoading(false)
         return
       }
@@ -61,6 +76,9 @@ export default function AdminPage() {
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
         if (mounted) setStatusData(data)
+        const telemetryResponse = await fetch(`${apiUrl}/admin/telemetry`, { cache: 'no-store', headers: { Authorization: `Bearer ${googleToken}` } })
+        const telemetryData = await telemetryResponse.json().catch(() => ({}))
+        if (mounted) setTelemetryData(telemetryResponse.ok ? telemetryData : null)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erro desconhecido'
         if (mounted) setErro(message)
@@ -165,6 +183,24 @@ export default function AdminPage() {
               </p>
               <p className="mt-1 text-xs text-zinc-500">
                 Fonte de dados: {apiUrl}/admin/status
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <h2 className="font-medium text-zinc-100">Telemetria operacional</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                Total de eventos: {telemetryData?.total ?? 0}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Status: {formatTelemetryMap(telemetryData?.by_status)}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Tipos: {formatTelemetryMap(telemetryData?.by_type)}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Projetos: {formatTelemetryMap(telemetryData?.by_project)}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">
+                Fonte de dados: {apiUrl}/admin/telemetry
               </p>
             </div>
           </div>
