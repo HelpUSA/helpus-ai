@@ -389,3 +389,53 @@ Objetivo: organizar proximas melhorias de produto e UX sem alterar frontend nest
 - Em falha, sugerir primeira acao segura: inspecionar status/diff antes de corrigir.
 
 Decisao atual: planejamento apenas. Nenhuma UI, rota ou componente foi alterado neste micro.
+
+## Plano seguranca progressiva 2026-06-14
+
+Objetivo: manter velocidade de desenvolvimento individual com controles progressivos que reduzem risco sem travar os micros seguros.
+
+### Controles permanentes imediatos
+- Logs de todos os comandos e resultados.
+- cwd explicito em toda execucao.
+- timeout obrigatorio.
+- stdout, stderr e return_code preservados.
+- command_id unico por tentativa.
+- Inspecao de git status e git diff antes de corrigir falhas.
+- Confirmacao humana para deploy, tag, reset hard, git clean, secrets e remocao em massa.
+
+### Protecao de secrets
+- Nunca imprimir valores de variaveis sensiveis.
+- Bloquear leitura de .env e arquivos de credenciais em APIs read-only.
+- Mascarar tokens em logs e UI.
+- Validar apenas presenca/nome de variaveis quando necessario.
+
+### Blacklist inicial
+- git reset --hard.
+- git clean.
+- rm -rf e Remove-Item recursivo amplo.
+- comandos de deploy sem autorizacao explicita.
+- criacao/push de tag sem autorizacao explicita.
+- comandos que imprimem env completo.
+
+### Allowlist futura
+- Comandos readonly de status, log, diff, leitura limitada e smokes.
+- Comandos de build e validacao conhecidos.
+- Patches restritos a arquivos esperados por micro.
+- Commit e push somente apos suite OK.
+
+### RBAC futuro
+- Supervisor pode planejar e aprovar.
+- Executor pode rodar comandos permitidos.
+- Auditor pode bloquear riscos.
+- Docs agent pode ler docs/reports.
+- UI deve mostrar permissao requerida antes de executar.
+
+### Smokes futuros
+- Bloquear comando destrutivo sem autorizacao.
+- Permitir comando readonly seguro.
+- Mascarar secret em stdout/stderr.
+- Exigir cwd e timeout.
+- Rejeitar command_id repetido.
+- Confirmar que deploy/tag exigem fluxo separado.
+
+Decisao atual: planejamento apenas. Nenhuma regra runtime, endpoint ou RBAC foi implementado neste micro.
