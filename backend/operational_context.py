@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,8 +49,9 @@ def load_operational_context(root=None):
             'Use watcher for execution; local AI is analysis only.',
             'Do not deploy without explicit authorization.',
             'Do not run destructive commands without dry-run and explicit authorization.',
+            'Use CommandBuilder plus PreflightValidator before proposing watcher envelopes.',
         ],
-        'next_micro': 'Micro 25 - watcher_intent',
+        'next_micro': 'Micro 27 - watcher_recovery',
     }
 
 def render_operational_summary(root=None):

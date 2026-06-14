@@ -1,4 +1,4 @@
-﻿import subprocess
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +31,7 @@ COMMANDS = [
         "scripts/watcher/smoke_watcher_command_protocol.py",
         "scripts/watcher/smoke_operational_context.py",
         "scripts/watcher/smoke_watcher_intent.py",
+    "scripts/watcher/smoke_watcher_envelope_builder.py",
         "scripts/watcher/smoke_command_safety.py",
         "scripts/watcher/smoke_watcher_stress.py",
         "scripts/watcher/smoke_memory_panel_contract.py",

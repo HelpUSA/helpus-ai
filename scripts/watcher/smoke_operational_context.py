@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,7 +16,7 @@ for key in ['repo', 'branch', 'remote', 'docs_loaded', 'safe_validation_commands
         raise AssertionError('Missing context key: ' + key)
 
 summary = render_operational_summary()
-for marker in ['operational_context_status=ready', 'repo=D:/dev/ai', 'branch=main', 'next=Micro 25 - watcher_intent']:
+for marker in ['operational_context_status=ready', 'repo=D:/dev/ai', 'branch=main', 'next=Micro 27 - watcher_recovery']:
     if marker not in summary:
         raise AssertionError('Missing summary marker: ' + marker)
 
