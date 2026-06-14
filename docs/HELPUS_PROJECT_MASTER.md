@@ -270,3 +270,43 @@ Objetivo: planejar um executor interno estruturado para comandos locais no futur
 - falha parcial orienta inspecao antes de patch.
 
 Decisao atual: planejamento apenas. Nenhum endpoint ou executor novo foi implementado neste micro.
+
+## Plano mensageria entre agentes sem extensao 2026-06-14
+
+Objetivo: planejar uma mensageria backend-first para agentes HelpUSAI conversarem sem depender da extensao/browser como canal principal.
+
+### Tabela messages proposta
+- id: identificador unico.
+- source_agent_id: agente remetente.
+- target_agent_id: agente destino.
+- conversation_id: agrupamento da conversa.
+- kind: chat, command_request, command_result, audit_note, planning_note ou status.
+- message: texto curto e estruturado.
+- payload_json: dados estruturados opcionais.
+- status: pending, sent, read, acked, failed ou archived.
+- created_at, read_at e ack_at.
+- correlation_id para relacionar pedido e resposta.
+
+### Fluxo inicial
+1. Supervisor cria mensagem para planner, executor, auditor ou docs agent.
+2. Backend persiste a mensagem.
+3. Agente destino lista pendentes e marca read_at.
+4. Agente responde com status e ack_at.
+5. UI exibe trilha completa por conversation_id.
+
+### Regras de seguranca
+- Mensagens nao executam comandos por si so.
+- command_request deve passar por preflight e executor separado.
+- Recibos seguem padrao AI_LOCAL_RUN / AI_LOCAL_ERRO ou equivalente interno.
+- Secrets nao devem ser gravados em message nem payload_json.
+- Toda mensagem deve ter source_agent_id, target_agent_id e conversation_id.
+
+### Smokes futuros
+- Criar mensagem pendente.
+- Marcar como lida.
+- Registrar ack.
+- Correlacionar request/result.
+- Bloquear mensagem sem agente destino.
+- Bloquear payload com marcador de secret.
+
+Decisao atual: planejamento apenas. Nenhuma tabela, migration ou endpoint foi implementado neste micro.
