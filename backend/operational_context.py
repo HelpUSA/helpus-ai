@@ -1,27 +1,33 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_DOCS = [
-    'docs/HELPUS_AGENT_OPERATING_PROTOCOL.md',
-    'docs/HELPUS_WATCHER_COMMAND_PROTOCOL.md',
-    'docs/HELPUS_CHAT_WATCHER_INTELLIGENCE_ROADMAP.md',
-    'docs/HELPUS_OPERATIONAL_AUTOMATION.md',
+    'docs/HELPUS_PROJECT_MASTER.md',
 ]
 
 OPTIONAL_DOCS = [
-    'docs/HELPUS_LOCAL_AI_PROVIDER.md',
+    'docs/legacy/HELPUS_AGENT_OPERATING_PROTOCOL.md',
+    'docs/legacy/HELPUS_WATCHER_COMMAND_PROTOCOL.md',
+    'docs/legacy/HELPUS_CHAT_WATCHER_INTELLIGENCE_ROADMAP.md',
+    'docs/legacy/HELPUS_OPERATIONAL_AUTOMATION.md',
+    'docs/legacy/HELPUS_LOCAL_AI_PROVIDER.md',
 ]
+
 
 def missing_required_docs(root=None):
     base = Path(root) if root else ROOT
     return [path for path in REQUIRED_DOCS if not (base / path).exists()]
+
 
 def title_from_text(text, fallback):
     for line in text.splitlines():
         if line.startswith('# '):
             return line[2:].strip()
     return fallback
+
 
 def load_operational_context(root=None):
     base = Path(root) if root else ROOT
@@ -39,6 +45,7 @@ def load_operational_context(root=None):
         'docs_loaded': docs,
         'safe_validation_commands': [
             'git status -sb',
+            'python scripts/watcher/smoke_watcher_recovery.py',
             'python scripts/watcher/smoke_operational_release.py',
             'python scripts/watcher/smoke_health_report.py',
             'npm --prefix frontend run build',
@@ -47,12 +54,15 @@ def load_operational_context(root=None):
         'safety_rules': [
             'Do not treat AI_LOCAL receipts as new commands.',
             'Use watcher for execution; local AI is analysis only.',
+            'Use CommandBuilder plus PreflightValidator before proposing watcher envelopes.',
+            'In parse errors, create a new command_id and simplify the envelope.',
+            'In partial failures, inspect status and diff before fixing.',
             'Do not deploy without explicit authorization.',
             'Do not run destructive commands without dry-run and explicit authorization.',
-            'Use CommandBuilder plus PreflightValidator before proposing watcher envelopes.',
         ],
-        'next_micro': 'Micro 27 - watcher_recovery',
+        'next_micro': 'Micro 28 - chat_watcher_orchestrator',
     }
+
 
 def render_operational_summary(root=None):
     context = load_operational_context(root)

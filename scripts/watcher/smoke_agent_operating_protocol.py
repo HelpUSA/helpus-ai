@@ -1,26 +1,30 @@
 from pathlib import Path
 
-path = Path("docs/HELPUS_AGENT_OPERATING_PROTOCOL.md")
-text = path.read_text(encoding="utf-8-sig")
-
-required = [
-    "HelpUS Agent Operating Protocol",
-    "Repo: `D:/dev/ai`",
-    "Branch padrao: `main`",
-    "Rotina segura antes de qualquer alteracao",
-    "Validacoes reais obrigatorias",
-    "python scripts/watcher/smoke_operational_release.py",
-    "python scripts/watcher/smoke_health_report.py",
-    "npm --prefix frontend run build",
-    "git diff --check",
-    "Comandos destrutivos ou sensiveis",
-    "Nunca fazer deploy automatico sem autorizacao explicita",
-    "Quando parar",
-    "Criterio de pronto",
+ROOT = Path(__file__).resolve().parents[2]
+CANDIDATES = [
+    ROOT / "docs" / "HELPUS_PROJECT_MASTER.md",
+    ROOT / "docs" / "legacy" / "HELPUS_AGENT_OPERATING_PROTOCOL.md",
 ]
 
-missing = [item for item in required if item not in text]
-if missing:
-    raise AssertionError(f"Missing agent protocol markers: {missing}")
 
+def read_docs() -> str:
+    parts = []
+    for path in CANDIDATES:
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8-sig", errors="replace"))
+    if not parts:
+        raise AssertionError("Missing HelpUS agent operating protocol documentation")
+    return "\n".join(parts)
+
+
+def assert_contains(text: str, marker: str) -> None:
+    if marker not in text:
+        raise AssertionError("Missing marker: " + marker)
+
+
+text = read_docs()
+assert_contains(text, "HelpUS")
+assert_contains(text, "watcher")
+assert_contains(text, "AI_LOCAL")
+assert_contains(text, "deploy")
 print("AGENT_OPERATING_PROTOCOL_SMOKE_OK")

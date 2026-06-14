@@ -1,4 +1,4 @@
-﻿import json
+import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +17,7 @@ SMOKE_FILES = [
     "scripts/watcher/smoke_watcher_command_protocol.py",
     "scripts/watcher/smoke_operational_context.py",
     "scripts/watcher/smoke_watcher_intent.py",
+ "scripts/watcher/smoke_watcher_recovery.py",
     "scripts/watcher/smoke_command_safety.py",
     "scripts/watcher/smoke_watcher_stress.py",
     "scripts/watcher/smoke_memory_panel_contract.py",

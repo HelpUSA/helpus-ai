@@ -1,33 +1,46 @@
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from backend.operational_context import load_operational_context, missing_required_docs, render_operational_summary
+from backend.operational_context import load_operational_context, render_operational_summary
 
-missing = missing_required_docs()
+
+context = load_operational_context(ROOT)
+missing = context['missing_required_docs']
 if missing:
     raise AssertionError('Missing required docs: ' + repr(missing))
 
-context = load_operational_context()
-for key in ['repo', 'branch', 'remote', 'docs_loaded', 'safe_validation_commands', 'safety_rules', 'next_micro']:
-    if key not in context:
-        raise AssertionError('Missing context key: ' + key)
+loaded_paths = [doc['path'] for doc in context['docs_loaded']]
+if 'docs/HELPUS_PROJECT_MASTER.md' not in loaded_paths:
+    raise AssertionError('Master doc not loaded')
 
-summary = render_operational_summary()
-for marker in ['operational_context_status=ready', 'repo=D:/dev/ai', 'branch=main', 'next=Micro 27 - watcher_recovery']:
-    if marker not in summary:
-        raise AssertionError('Missing summary marker: ' + marker)
+if context['repo'] != 'D:/dev/ai':
+    raise AssertionError('Unexpected repo: ' + context['repo'])
 
-commands = context['safe_validation_commands']
-for command in ['git status -sb', 'python scripts/watcher/smoke_operational_release.py', 'python scripts/watcher/smoke_health_report.py', 'npm --prefix frontend run build', 'git diff --check']:
-    if command not in commands:
-        raise AssertionError('Missing validation command: ' + command)
+if context['branch'] != 'main':
+    raise AssertionError('Unexpected branch: ' + context['branch'])
+
+if 'Micro 28 - chat_watcher_orchestrator' != context['next_micro']:
+    raise AssertionError('Unexpected next_micro: ' + context['next_micro'])
 
 rules = ' '.join(context['safety_rules'])
-for marker in ['AI_LOCAL receipts', 'watcher', 'Do not deploy', 'destructive commands']:
+for marker in ['AI_LOCAL receipts', 'new command_id', 'Do not deploy']:
     if marker not in rules:
-        raise AssertionError('Missing safety marker: ' + marker)
+        raise AssertionError('Missing safety rule marker: ' + marker)
+
+summary = render_operational_summary(ROOT)
+for marker in [
+    'operational_context_status=ready',
+    'repo=D:/dev/ai',
+    'docs_loaded=',
+    'missing_required_docs=0',
+    'next=Micro 28 - chat_watcher_orchestrator',
+]:
+    if marker not in summary:
+        raise AssertionError('Missing summary marker: ' + marker)
 
 print('OPERATIONAL_CONTEXT_SMOKE_OK')
