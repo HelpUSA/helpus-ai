@@ -46,6 +46,7 @@ def load_operational_context(root=None):
         'safe_validation_commands': [
             'git status -sb',
             'python scripts/watcher/smoke_watcher_recovery.py',
+            'python scripts/watcher/smoke_local_ai_provider.py',
             'python scripts/watcher/smoke_operational_release.py',
             'python scripts/watcher/smoke_health_report.py',
             'npm --prefix frontend run build',
@@ -60,7 +61,7 @@ def load_operational_context(root=None):
             'Do not deploy without explicit authorization.',
             'Do not run destructive commands without dry-run and explicit authorization.',
         ],
-        'next_micro': 'Micro 29 - local_ai_provider',
+        'next_micro': 'Final - docs_and_report',
     }
 
 
