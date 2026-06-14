@@ -439,3 +439,27 @@ Objetivo: manter velocidade de desenvolvimento individual com controles progress
 - Confirmar que deploy/tag exigem fluxo separado.
 
 Decisao atual: planejamento apenas. Nenhuma regra runtime, endpoint ou RBAC foi implementado neste micro.
+
+## Implementacao inicial local read-only files 2026-06-14
+
+Status: implementado o helper backend/local_readonly_files.py e o smoke scripts/watcher/smoke_local_readonly_files.py. O smoke foi integrado a smoke_operational_release.py e ao health_report.py.
+
+### Capacidades implementadas
+- Leitura read-only de arquivos permitidos.
+- Allowlist inicial: docs, reports, scripts/watcher e backend.
+- Bloqueio de path traversal.
+- Bloqueio de path absoluto.
+- Bloqueio de .env e nomes sensiveis.
+- Bloqueio de paths com marcadores secret, token, password, passwd, private_key, apikey e api_key.
+- Limite de bytes com truncamento controlado.
+- Retorno estruturado com ok, path, size, content, truncated e reason.
+
+### Validacoes existentes
+- smoke_local_readonly_files.py cobre leitura permitida, arquivo ausente, path traversal, path absoluto, .env bloqueado, marcador sensivel bloqueado, path fora da allowlist e leitura de relatorio.
+- smoke_operational_release.py executa o smoke local read-only dentro da suite operacional.
+- health_report.py inclui o smoke local read-only no health report.
+
+### Proximos passos
+- Evoluir para status/diff read-only.
+- Planejar rotas locais GET /local/status, GET /local/diff e GET /local/files/read.
+- Manter sem execucao livre de comandos nesta frente ate haver preflight, logs, smokes e UI suficientes.
