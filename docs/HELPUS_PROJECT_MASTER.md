@@ -486,3 +486,27 @@ Status: implementado o helper backend/local_repo_status.py e o smoke scripts/wat
 - Planejar rotas GET /local/status e GET /local/diff usando estes helpers.
 - Manter executor de comandos separado e ainda nao habilitado por API.
 - Antes de deploy, repetir suite completa e revisar plataforma real de deploy.
+
+## Implementacao inicial rotas locais read-only 2026-06-14
+
+Status: implementadas rotas FastAPI locais read-only protegidas por admin para diagnostico operacional.
+
+### Rotas implementadas
+- GET /local/status: retorna status read-only do repositorio local usando LocalRepoStatus.
+- GET /local/diff: retorna diff --stat e diff --check read-only usando LocalRepoStatus.
+- GET /local/files/read: le arquivo permitido usando LocalReadonlyFiles com allowlist e bloqueios de secrets/path traversal.
+
+### Seguranca
+- Todas as rotas usam Depends(obter_admin_google).
+- As rotas nao executam comandos arbitrarios do usuario.
+- Leitura de arquivos usa allowlist e bloqueia .env, secrets, tokens, passwords, api keys, path absoluto e traversal.
+- Diff/status sao auxiliares de diagnostico, nao executor de comandos.
+
+### Validacoes
+- smoke_local_readonly_routes.py valida imports, instancias e guardas admin nas rotas.
+- smoke_operational_release.py executa o smoke das rotas dentro da suite operacional.
+- health_report.py inclui o smoke das rotas no health report.
+
+### Proximos passos
+- Revisar experiencia de UI para consumir estes endpoints.
+- Manter deploy/tag apenas com validacao completa imediatamente antes.
