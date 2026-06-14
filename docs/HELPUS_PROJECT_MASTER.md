@@ -352,3 +352,40 @@ Objetivo: planejar um painel multiagente para coordenar supervisor, executor, au
 - Garantir que secrets sejam mascarados.
 
 Decisao atual: planejamento apenas. Nenhuma UI foi implementada neste micro.
+
+## Plano produto e UX 2026-06-14
+
+Objetivo: organizar proximas melhorias de produto e UX sem alterar frontend neste micro.
+
+### Telemetria admin
+- Revisar clareza dos eventos exibidos.
+- Separar eventos de usuario, sistema, watcher e IA local.
+- Destacar falhas por return_code diferente de zero.
+- Mostrar command_id, conversation_id e timestamp de forma copiavel.
+- Evitar exibir secrets ou payloads sensiveis.
+
+### Health report
+- Melhorar localizacao e linguagem dos status.
+- Exibir resumo curto: OK, alerta, falha e proxima acao.
+- Incluir ultima validacao conhecida e commit associado.
+- Mostrar quando o repo esta limpo/alinhado.
+- Manter caminho para relatorio detalhado em reports.
+
+### Toggle IA local analysis_only
+- Deixar claro que IA local nao executa comandos.
+- Exibir estado: disabled, analysis_only ou unavailable.
+- Explicar que execucao continua via watcher/executor autorizado.
+- Alertar quando usuario tentar pedir execucao pela IA local.
+
+### Onboarding
+- Criar passos iniciais: status do repo, ler docs mestre, escolher micro pequeno, validar, commit e push.
+- Mostrar exemplos seguros de envelopes.
+- Explicar diferenca entre AI_LOCAL_RUN, AI_LOCAL_ERRO e pedido novo.
+- Reforcar proibicoes: deploy, tag, reset hard, git clean, secrets e remocao em massa sem autorizacao.
+
+### Clareza de status
+- Sempre mostrar micro atual, arquivos esperados, validacoes obrigatorias e resultado final.
+- Usar estados consistentes: planejado, em execucao, validado, commitado, enviado e bloqueado.
+- Em falha, sugerir primeira acao segura: inspecionar status/diff antes de corrigir.
+
+Decisao atual: planejamento apenas. Nenhuma UI, rota ou componente foi alterado neste micro.
