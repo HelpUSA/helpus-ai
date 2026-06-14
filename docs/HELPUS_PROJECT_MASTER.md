@@ -1255,3 +1255,7 @@ Daily safe operation is now tracked in docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md
 ## Post completion backlog
 
 Future work after completion is tracked in docs/HELPUS_POST_COMPLETION_BACKLOG.md. The backlog is planning only and keeps release, deploy, hardening and product follow-up separated from completed work.
+
+## Active documentation index
+
+Active documentation is indexed in docs/README.md. The active set is the master document, release and deploy checklist, watcher operations runbook, post completion backlog and final report. Historical documents remain in docs/legacy.
