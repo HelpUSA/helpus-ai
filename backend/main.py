@@ -10,6 +10,7 @@ from typing import List, Optional, Dict
 import time
 import uuid
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 import config as app_config
@@ -19,6 +20,8 @@ from cerebro import CerebroIA
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
 from admin_telemetry import summarize_events
+from local_readonly_files import LocalReadonlyFiles
+from local_repo_status import LocalRepoStatus
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -193,6 +196,10 @@ def _provider_metrics(latency_ms: Optional[float] = None) -> Dict[str, object]:
         "latency_ms": latency_ms,
     }
 
+LOCAL_REPO_ROOT = Path(__file__).resolve().parents[1]
+local_readonly_files = LocalReadonlyFiles(LOCAL_REPO_ROOT)
+local_repo_status = LocalRepoStatus(LOCAL_REPO_ROOT)
+
 # ===== ENDPOINTS =====
 @app.get("/")
 async def raiz():
@@ -239,6 +246,23 @@ async def admin_status(usuario = Depends(obter_admin_google)):
 async def admin_telemetry(usuario = Depends(obter_admin_google)):
     telemetry_path = os.getenv("HELPUS_TELEMETRY_LOG", "reports/helpus_telemetry.jsonl")
     return summarize_events(telemetry_path)
+
+@app.get("/local/status")
+async def local_status(usuario = Depends(obter_admin_google)):
+    """Read-only local repository status for admin diagnostics."""
+    return local_repo_status.status()
+
+
+@app.get("/local/diff")
+async def local_diff(usuario = Depends(obter_admin_google)):
+    """Read-only local repository diff summary for admin diagnostics."""
+    return local_repo_status.diff()
+
+
+@app.get("/local/files/read")
+async def local_files_read(path: str, usuario = Depends(obter_admin_google)):
+    """Read an allowlisted local file with secret/path safeguards."""
+    return local_readonly_files.read_text(path)
 
 @app.post("/internal/smoke-chat", response_model=InternalSmokeChatResponse)
 async def internal_smoke_chat(
