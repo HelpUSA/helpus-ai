@@ -1,4 +1,4 @@
-import subprocess
+﻿import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +18,8 @@ COMMANDS = [
         "backend/telemetry.py",
         "backend/command_safety.py",
         "backend/admin_telemetry.py",
+        "backend/operational_context.py",
+        "backend/watcher_intent.py",
         "scripts/watcher/smoke_behavior_ai.py",
         "scripts/watcher/smoke_intent_layer.py",
         "scripts/watcher/smoke_watcher_errors.py",
@@ -27,6 +29,8 @@ COMMANDS = [
         "scripts/watcher/smoke_admin_telemetry_ui_contract.py",
         "scripts/watcher/smoke_agent_operating_protocol.py",
         "scripts/watcher/smoke_watcher_command_protocol.py",
+        "scripts/watcher/smoke_operational_context.py",
+        "scripts/watcher/smoke_watcher_intent.py",
         "scripts/watcher/smoke_command_safety.py",
         "scripts/watcher/smoke_watcher_stress.py",
         "scripts/watcher/smoke_memory_panel_contract.py",
@@ -40,6 +44,8 @@ COMMANDS = [
     ["python", "scripts/watcher/smoke_admin_telemetry_ui_contract.py"],
     ["python", "scripts/watcher/smoke_agent_operating_protocol.py"],
     ["python", "scripts/watcher/smoke_watcher_command_protocol.py"],
+    ["python", "scripts/watcher/smoke_operational_context.py"],
+    ["python", "scripts/watcher/smoke_watcher_intent.py"],
     ["python", "scripts/watcher/smoke_command_safety.py"],
     ["python", "scripts/watcher/smoke_watcher_stress.py"],
     ["python", "scripts/watcher/smoke_memory_panel_contract.py"],
