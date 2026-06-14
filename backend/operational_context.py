@@ -60,7 +60,7 @@ def load_operational_context(root=None):
             'Do not deploy without explicit authorization.',
             'Do not run destructive commands without dry-run and explicit authorization.',
         ],
-        'next_micro': 'Micro 28 - chat_watcher_orchestrator',
+        'next_micro': 'Micro 29 - local_ai_provider',
     }
 
 

@@ -24,7 +24,7 @@ if context['repo'] != 'D:/dev/ai':
 if context['branch'] != 'main':
     raise AssertionError('Unexpected branch: ' + context['branch'])
 
-if 'Micro 28 - chat_watcher_orchestrator' != context['next_micro']:
+if 'Micro 29 - local_ai_provider' != context['next_micro']:
     raise AssertionError('Unexpected next_micro: ' + context['next_micro'])
 
 rules = ' '.join(context['safety_rules'])
@@ -38,7 +38,7 @@ for marker in [
     'repo=D:/dev/ai',
     'docs_loaded=',
     'missing_required_docs=0',
-    'next=Micro 28 - chat_watcher_orchestrator',
+    'next=Micro 29 - local_ai_provider',
 ]:
     if marker not in summary:
         raise AssertionError('Missing summary marker: ' + marker)
