@@ -463,3 +463,26 @@ Status: implementado o helper backend/local_readonly_files.py e o smoke scripts/
 - Evoluir para status/diff read-only.
 - Planejar rotas locais GET /local/status, GET /local/diff e GET /local/files/read.
 - Manter sem execucao livre de comandos nesta frente ate haver preflight, logs, smokes e UI suficientes.
+
+## Implementacao inicial local repo status 2026-06-14
+
+Status: implementado o helper backend/local_repo_status.py e o smoke scripts/watcher/smoke_local_repo_status.py. O smoke foi integrado a smoke_operational_release.py e ao health_report.py.
+
+### Capacidades implementadas
+- Leitura read-only de branch atual.
+- Leitura read-only de HEAD curto.
+- Leitura read-only de git status --porcelain e git status -sb.
+- Lista estruturada de dirty files.
+- Leitura read-only de git diff --stat.
+- Leitura read-only de git diff --check com return_code preservado.
+- Retorno estruturado sem executar comandos arbitrarios fornecidos pelo usuario.
+
+### Validacoes existentes
+- smoke_local_repo_status.py valida branch, head, dirty_files, status -sb e retorno de diff-check.
+- smoke_operational_release.py executa o smoke local repo status dentro da suite operacional.
+- health_report.py inclui o smoke local repo status no health report.
+
+### Proximos passos
+- Planejar rotas GET /local/status e GET /local/diff usando estes helpers.
+- Manter executor de comandos separado e ainda nao habilitado por API.
+- Antes de deploy, repetir suite completa e revisar plataforma real de deploy.
