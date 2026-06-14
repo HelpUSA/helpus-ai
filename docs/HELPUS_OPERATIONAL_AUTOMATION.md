@@ -58,3 +58,38 @@ git status -sb
 ## Criterio para tag operacional
 
 Criar tag somente quando release smoke, health report, build frontend e diff check estiverem verdes com repo limpo/alinhado.
+
+## Baseline admin telemetry UI - 2026-06-13
+
+Ponto seguro criado apos integrar telemetria operacional ao painel admin.
+
+- Tag: helpus-admin-telemetry-ui-2026-06-13
+- Commit: eebdc82 Add admin telemetry card to operational panel
+- Backend: GET /admin/telemetry protegido por obter_admin_google e baseado em summarize_events.
+- Frontend: /admin exibe o card Telemetria operacional usando /admin/telemetry.
+- Smokes adicionados: smoke_admin_telemetry_route_contract.py e smoke_admin_telemetry_ui_contract.py.
+- Suite agregada: smoke_operational_release.py inclui os contratos de rota e UI.
+- Health report: health_report.py lista os smokes de telemetria admin.
+
+### Validacao obrigatoria antes de novas alteracoes
+
+Executar, nesta ordem:
+
+powershell
+git status -sb
+python scripts/watcher/smoke_operational_release.py
+python scripts/watcher/smoke_health_report.py
+npm --prefix frontend run build
+git diff --check
+
+
+### Criterio de continuidade
+
+Prosseguir apenas se a suite operacional, health report, build frontend e diff check estiverem verdes. Se houver alteracoes locais inesperadas, parar e inspecionar antes de aplicar qualquer patch.
+
+### Proximas frentes recomendadas
+
+1. Inspecao visual/manual do painel /admin em ambiente local ou producao.
+2. Melhorar o resumo de telemetria com ultimos eventos, ultima falha e timestamp mais recente.
+3. Adicionar smoke de contrato para novos campos antes de expor na UI.
+4. Manter commits pequenos, com uma frente por vez e sem deploy automatico.
