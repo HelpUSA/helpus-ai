@@ -21,6 +21,7 @@ SMOKE_FILES = [
     "scripts/watcher/smoke_chat_watcher_orchestrator.py",
     "scripts/watcher/smoke_local_ai_provider.py",
     "scripts/watcher/smoke_docs_index.py",
+    "scripts/watcher/smoke_release_deploy_gate.py",
     "scripts/watcher/smoke_command_safety.py",
     "scripts/watcher/smoke_watcher_stress.py",
     "scripts/watcher/smoke_memory_panel_contract.py",
