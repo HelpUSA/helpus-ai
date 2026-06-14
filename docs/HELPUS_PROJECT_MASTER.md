@@ -310,3 +310,45 @@ Objetivo: planejar uma mensageria backend-first para agentes HelpUSAI conversare
 - Bloquear payload com marcador de secret.
 
 Decisao atual: planejamento apenas. Nenhuma tabela, migration ou endpoint foi implementado neste micro.
+
+## Plano UI multiagente 2026-06-14
+
+Objetivo: planejar um painel multiagente para coordenar supervisor, executor, auditor, planner e docs agent, sem implementar UI neste micro.
+
+### Paineis propostos
+- Supervisor: visao geral de conversas, objetivos, estado do repo e proximas decisoes.
+- Planner: backlog, micro atual, arquivos esperados e plano de validacao.
+- Executor: fila de comandos, status, stdout, stderr, return_code e tempo de execucao.
+- Auditor: diffs, riscos, comandos bloqueados, secrets e regras permanentes.
+- Docs agent: busca em docs, leitura de relatorios, sumarios e referencias.
+
+### Componentes principais
+- Timeline por conversation_id.
+- Fila de command_requests e command_results.
+- Visualizacao de git status, diff stat e diff check.
+- Cards de smoke/build/health report.
+- Indicadores de risco: deploy, tag, reset, git clean, secrets e remocao em massa.
+- Botao de copiar envelope seguro.
+
+### Estados visuais
+- pending, running, succeeded, failed, rejected, timed_out e needs_human_authorization.
+- Destaque para retorno diferente de zero.
+- Destaque para repo sujo.
+- Aviso quando o watcher ainda for executor oficial.
+
+### Regras UX
+- Mostrar sempre cwd, timeout e command_id.
+- Nunca mostrar valores de secrets.
+- Separar leitura, patch, validacao, commit e push.
+- Nunca misturar deploy/tag com feature patch.
+- Exigir confirmacao humana para acoes destrutivas.
+
+### Smokes futuros
+- Renderizar lista de agentes.
+- Renderizar fila vazia.
+- Renderizar command_result com stdout/stderr truncado.
+- Renderizar alerta de repo sujo.
+- Renderizar bloqueio de comando perigoso.
+- Garantir que secrets sejam mascarados.
+
+Decisao atual: planejamento apenas. Nenhuma UI foi implementada neste micro.
