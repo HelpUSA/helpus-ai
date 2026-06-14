@@ -110,3 +110,11 @@ npm --prefix frontend run build
 git diff --check
 
 ## 14. Fontes documentais consolidadas
+
+## Fechamento final 2026-06-14
+
+Status final: Micros 24 a 29 concluidos, validados, commitados e enviados para origin/main. Local AI permanece analysis_only. Sem deploy, tag, reset hard, git clean, secrets ou remocoes em massa sem autorizacao.
+
+## Active documentation index
+
+Active documentation is indexed in docs/README.md. The active set is the master document, release and deploy checklist, watcher operations runbook, post completion backlog and final report.
