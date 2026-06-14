@@ -201,3 +201,31 @@ Objetivo: preparar um runbook de deploy e rollback sem executar deploy, sem cria
 - Rollback nao necessario ou testado/documentado.
 
 Nenhum deploy foi executado por este micro. Nenhuma tag foi criada. Nenhum secret foi impresso.
+
+## Plano API local de arquivos read-only 2026-06-14
+
+Objetivo: planejar endpoints locais apenas de leitura para reduzir dependencia de comandos shell em tarefas de inspeção, mantendo o watcher como executor oficial.
+
+### Escopo inicial read-only
+- GET /local/status: retornar branch, HEAD curto, alinhamento com origin/main e dirty files, sem alterar nada.
+- GET /local/diff: retornar git diff --stat e opcionalmente git diff --check, sem expor secrets.
+- GET /local/files/read: ler arquivos permitidos com limite de tamanho e allowlist de diretorios.
+- GET /local/docs/search: buscar termos em docs e reports com limite de linhas.
+- GET /local/reports/latest: listar relatorios recentes e permitir leitura limitada.
+- GET /local/logs/read: ler logs permitidos com redacao basica e limite de bytes.
+
+### Regras de seguranca
+- Sem execucao livre nesta fase.
+- cwd fixo ou explicitamente validado.
+- Allowlist de caminhos: docs, reports, scripts/watcher e arquivos de codigo especificos quando necessario.
+- Bloquear leitura de .env, secrets, chaves, tokens, credenciais e arquivos binarios grandes.
+- Sempre registrar request_id, path solicitado, status e tamanho retornado.
+
+### Validacoes futuras
+- Smoke para path traversal.
+- Smoke para bloqueio de secrets.
+- Smoke para limite de tamanho.
+- Smoke para leitura de docs e reports.
+- Smoke para status e diff read-only.
+
+Decisao atual: apenas planejamento documentado. Nenhum endpoint foi implementado neste micro.
