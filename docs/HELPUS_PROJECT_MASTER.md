@@ -1247,3 +1247,7 @@ Regras permanentes: AI_LOCAL, AI_LOCAL_RUN e AI_LOCAL_ERRO sao recibos; parse er
 ## Release and deploy decision gate
 
 Release, tag and deploy are now tracked in docs/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md. These actions remain separated from development and require explicit human authorization.
+
+## Watcher operations runbook
+
+Daily safe operation is now tracked in docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md. The runbook defines inspection-first work, receipt handling, validation sequence and forbidden actions without explicit authorization.
