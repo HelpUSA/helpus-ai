@@ -124,3 +124,29 @@ Nota operacional: estado pos-conclusao segue sem deploy, sem tag e com IA local 
 Nota operacional: estado pos-conclusao segue sem deploy, sem tag e com IA local em analysis_only ate autorizacao explicita.
 
 Release, tag and deploy gates permanecem documentados em legacy; Post completion backlog e Active documentation index permanecem como referencia historica; estado atual segue sem deploy e analysis_only ate autorizacao explicita.
+
+## Micro documentacao watcher segura
+
+Objetivo: reduzir envelope_parse_error e falhas por comandos inline frageis ao operar HelpUS AI via watcher / AI Bridge Local.
+
+### Modelos seguros
+- send-chat-message: manter message no topo do JSON, usar command_id novo e unico, evitar mensagens muito longas com quebras nao escapadas.
+- run-command readonly: preferir comandos curtos para git status -sb, git log, git diff --stat, git diff --check e leitura limitada de arquivos.
+- run-command de patch: inspecionar antes, alterar apenas arquivos esperados, validar, commitar e pushar somente apos suite OK.
+- pos-falha: se AI_LOCAL_ERRO envelope_parse_error, assumir que nada executou, criar command_id novo e simplificar.
+- pos-falha: se AI_LOCAL_RUN return_code diferente de zero, assumir execucao parcial possivel, inspecionar status e diff antes de corrigir.
+
+### Erros recorrentes a evitar
+- Nao usar $.FullName; usar $PSItem.FullName em PowerShell quando necessario.
+- Nao usar Write-Output $ solto; imprimir variaveis explicitamente.
+- Nao repetir command_id apos erro de parse.
+- Nao enviar mensagem longa com quebras nao escapadas dentro de JSON inline.
+- Nao misturar leitura, patch amplo, deploy, tag e limpeza no mesmo micro.
+- Nao usar reset hard, git clean, secrets, deploy ou tag sem autorizacao explicita.
+
+### Sequencia padrao
+1. Inspecionar: git status -sb, git log --oneline --decorate -8, git diff --stat e git diff --check.
+2. Planejar micro pequeno e listar arquivos esperados.
+3. Patch minimo apenas nos arquivos esperados.
+4. Validar smoke especifico, smoke_operational_release, smoke_health_report, npm build quando aplicavel e git diff --check.
+5. Conferir diff, git add somente arquivos esperados, commit pequeno e push.
