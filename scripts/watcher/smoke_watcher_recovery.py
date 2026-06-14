@@ -78,6 +78,24 @@ def main() -> None:
     assert_equal(diff_check_receipt['risk'], 'format_or_whitespace', 'receipt diff check risk')
 
 
+
+    generic_failed = analyze_watcher_failure('[AI_LOCAL_RUN] id=x status=failed return_code=1 stderr=generic failure')
+    assert_equal(generic_failed['category'], 'command_failed', 'generic command failed category')
+    assert_equal(generic_failed['executed'], True, 'generic command failed executed')
+    assert_equal(generic_failed['next_action'], 'inspect_status_and_diff_before_fix', 'generic command failed action')
+
+    build_failed = analyze_watcher_failure('[AI_LOCAL_RUN] id=x status=failed return_code=1 stdout=FRONTEND_BUILD frontend_build npm --prefix frontend run build')
+    assert_equal(build_failed['category'], 'build_failed', 'frontend build failed category')
+    assert_equal(build_failed['risk'], 'build_or_type_error', 'frontend build failed risk')
+
+    syntax_failed = analyze_watcher_failure('[AI_LOCAL_RUN] id=x status=failed return_code=1 stderr=SyntaxError invalid syntax')
+    assert_equal(syntax_failed['category'], 'syntax_or_indent_failed', 'syntax failed category')
+    assert_equal(syntax_failed['next_action'], 'patch_only_broken_file_then_py_compile', 'syntax failed action')
+
+    unknown_receipt = analyze_watcher_failure('unrecognized watcher text without status markers')
+    assert_equal(unknown_receipt['category'], 'unknown', 'unknown receipt category')
+    assert_equal(unknown_receipt['executed'], False, 'unknown receipt executed')
+
     print('WATCHER_RECOVERY_SMOKE_OK')
 
 
