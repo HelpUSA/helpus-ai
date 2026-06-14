@@ -66,5 +66,4 @@ def render_operational_summary(root=None):
     ]
     if context['missing_required_docs']:
         lines.append('missing=' + ','.join(context['missing_required_docs']))
-    return '
-'.join(lines)
+    return chr(10).join(lines)
