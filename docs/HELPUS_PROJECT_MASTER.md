@@ -510,3 +510,30 @@ Status: implementadas rotas FastAPI locais read-only protegidas por admin para d
 ### Proximos passos
 - Revisar experiencia de UI para consumir estes endpoints.
 - Manter deploy/tag apenas com validacao completa imediatamente antes.
+
+## Deploy autorizado executado 2026-06-14
+
+Status: deploy autorizado executado apos validacoes locais e smokes.
+
+### Resultado
+- Backend publicado no Railway usando railway up --detach.
+- Backend respondeu HTTP 200 no endpoint /status apos deploy.
+- Frontend publicado na Vercel em producao usando vercel deploy --prod --yes.
+- smoke:prod passou apos deploy.
+- Repo permaneceu limpo e alinhado com origin/main.
+
+### Validacoes executadas
+- git diff --check.
+- py_compile dos modulos diagnosticos.
+- smoke_local_readonly_files.
+- smoke_local_repo_status.
+- smoke_local_readonly_routes.
+- smoke_operational_release.
+- smoke_health_report.
+- npm --prefix frontend run build.
+- npm run smoke:prod.
+
+### Observacoes
+- Secrets nao foram impressos.
+- Deploy e tag continuam separados; nenhuma tag foi criada neste fluxo.
+- Proximo passo sugerido: monitorar logs de producao e evoluir UI para consumir as rotas locais read-only.
