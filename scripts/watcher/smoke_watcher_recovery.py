@@ -57,6 +57,27 @@ def main() -> None:
     assert_contains(summary, 'category=envelope_parse_error', 'summary category')
     assert_contains(summary, 'executed=False', 'summary executed')
 
+
+    ai_local_run_failed = analyze_watcher_failure('[AI_LOCAL_RUN] id=x status=failed return_code=1 smoke stderr=Traceback')
+    assert_equal(ai_local_run_failed['category'], 'smoke_failed', 'ai local run failed category')
+    assert_equal(ai_local_run_failed['executed'], True, 'ai local run failed executed')
+    assert_equal(ai_local_run_failed['next_action'], 'inspect_failed_smoke_before_patch', 'ai local run failed action')
+
+    ai_local_run_success = analyze_watcher_failure('[AI_LOCAL_RUN] id=x status=acked return_code=0 stdout=OK')
+    assert_equal(ai_local_run_success['category'], 'success', 'ai local run success category')
+    assert_equal(ai_local_run_success['executed'], True, 'ai local run success executed')
+    assert_equal(ai_local_run_success['next_action'], 'summarize_result_and_continue', 'ai local run success action')
+
+    ai_local_erro_parse = analyze_watcher_failure('[AI_LOCAL_ERRO] tipo=envelope_parse_error executado=nao')
+    assert_equal(ai_local_erro_parse['category'], 'envelope_parse_error', 'ai local erro category')
+    assert_equal(ai_local_erro_parse['executed'], False, 'ai local erro executed')
+    assert_equal(ai_local_erro_parse['risk'], 'none_executed', 'ai local erro risk')
+
+    diff_check_receipt = analyze_watcher_failure('[AI_LOCAL_RUN] return_code=1 stdout=DIFF_CHECK git diff --check')
+    assert_equal(diff_check_receipt['category'], 'diff_check_failed', 'receipt diff check category')
+    assert_equal(diff_check_receipt['risk'], 'format_or_whitespace', 'receipt diff check risk')
+
+
     print('WATCHER_RECOVERY_SMOKE_OK')
 
 
