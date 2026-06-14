@@ -91,3 +91,25 @@ git diff --check
 ## Criterio de independencia do chat
 
 O chat sera considerado mais independente quando conseguir consultar docs operacionais automaticamente, identificar a tarefa correta sem depender de historico manual longo, diferenciar recibo erro e pedido novo, propor envelopes JSON validos, corrigir erro de parse sem repetir o erro, validar com suite real, resumir resultado e recomendar o proximo micro.
+
+### Micro 29 - Provedor local/offline de IA
+
+Adicionar suporte opcional a um runtime local de IA, como LM Studio ou outro servidor compativel com API local, para apoiar raciocinio operacional privado e modo offline/degradado.
+
+Objetivo:
+
+- consultar docs e protocolos operacionais localmente;
+- resumir estado do repo sem depender de provedor externo;
+- classificar intencoes watcher com mais privacidade;
+- interpretar recibos e erros sem enviar logs sensiveis para fora;
+- manter execucao real sempre via watcher;
+- manter fallback para provedores externos quando configurado.
+
+Arquivos provaveis:
+
+- backend/local_ai_provider.py
+- backend/operational_context.py
+- scripts/watcher/smoke_local_ai_provider.py
+- docs/HELPUS_LOCAL_AI_PROVIDER.md
+
+Criterio de pronto: runtime local opcional, falha segura quando indisponivel, nenhum segredo exposto, smokes verdes, health report verde, build frontend verde e git diff --check verde.

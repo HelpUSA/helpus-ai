@@ -117,3 +117,11 @@ Depois desta baseline operacional, as proximas frentes recomendadas sao:
 2. Fazer inspecao visual/manual do painel `/admin`.
 3. Criar documentacao curta de uso do painel admin.
 4. Adicionar testes de rota com FastAPI/TestClient quando a autenticacao puder ser mockada com seguranca.
+
+## Referencia para IA local/offline
+
+Para evoluir a autonomia do chat com privacidade, consultar tambem:
+
+- docs/HELPUS_LOCAL_AI_PROVIDER.md
+
+O provedor local e opcional e deve ser usado apenas como apoio analitico. Execucao, patch, commit, tag e deploy continuam passando pelo watcher e pelas validacoes reais.

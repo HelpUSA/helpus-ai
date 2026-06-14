@@ -162,3 +162,24 @@ O chat entende o watcher quando consegue:
 - validar com a suite real;
 - parar quando houver risco;
 - relatar resultado final com proximo passo.
+
+## Relacao com provedor local de IA
+
+O provedor local de IA pode ajudar a interpretar contexto, recibos e erros, mas nao deve executar comandos.
+
+Fluxo correto:
+
+1. Provedor local ou contexto operacional ajuda a analisar.
+2. watcher_intent classifica a tarefa.
+3. watcher_envelope_builder gera envelope JSON seguro.
+4. watcher / AI Bridge Local executa.
+5. smokes, build e git diff --check validam.
+6. chat resume o resultado e recomenda o proximo micro.
+
+Componentes planejados relacionados:
+
+- operational_context
+- local_ai_provider
+- watcher_intent
+- watcher_envelope_builder
+- watcher_recovery
