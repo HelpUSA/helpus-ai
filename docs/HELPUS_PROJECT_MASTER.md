@@ -150,3 +150,9 @@ Objetivo: reduzir envelope_parse_error e falhas por comandos inline frageis ao o
 3. Patch minimo apenas nos arquivos esperados.
 4. Validar smoke especifico, smoke_operational_release, smoke_health_report, npm build quando aplicavel e git diff --check.
 5. Conferir diff, git add somente arquivos esperados, commit pequeno e push.
+
+## Release readiness sem deploy 2026-06-14
+
+Validacao executada sem deploy e sem tag. Repo iniciou limpo e alinhado com origin/main. Foram revisados o log recente, o relatorio final e marcadores do documento mestre. Validacoes executadas: smoke_operational_release, smoke_health_report, npm build e git diff --check.
+
+Recomendacao: o projeto esta apto para uma decisao humana separada sobre tag/release formal, desde que a validacao completa seja repetida imediatamente antes da tag. Nenhuma tag ou release deve ser criada sem autorizacao explicita. Nenhum deploy foi executado.
