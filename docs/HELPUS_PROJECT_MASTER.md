@@ -156,3 +156,48 @@ Objetivo: reduzir envelope_parse_error e falhas por comandos inline frageis ao o
 Validacao executada sem deploy e sem tag. Repo iniciou limpo e alinhado com origin/main. Foram revisados o log recente, o relatorio final e marcadores do documento mestre. Validacoes executadas: smoke_operational_release, smoke_health_report, npm build e git diff --check.
 
 Recomendacao: o projeto esta apto para uma decisao humana separada sobre tag/release formal, desde que a validacao completa seja repetida imediatamente antes da tag. Nenhuma tag ou release deve ser criada sem autorizacao explicita. Nenhum deploy foi executado.
+
+## Preparacao de deploy sem executar deploy 2026-06-14
+
+Objetivo: preparar um runbook de deploy e rollback sem executar deploy, sem criar tag, sem alterar secrets e sem fazer comandos destrutivos.
+
+### Pre-condicoes obrigatorias
+- Repo limpo e alinhado com origin/main.
+- Release readiness repetido imediatamente antes de qualquer tag ou deploy.
+- Autorizacao humana explicita para deploy, em comando separado.
+- Health checks definidos antes da janela de deploy.
+- Variaveis de ambiente confirmadas apenas por nome, sem imprimir valores.
+
+### Health checks obrigatorios
+- Aplicacao inicia sem erro.
+- Endpoint de health responde OK quando disponivel.
+- smoke_health_report passa.
+- smoke_operational_release passa.
+- npm --prefix frontend run build passa.
+- git diff --check passa.
+
+### Variaveis esperadas sem imprimir secrets
+- Confirmar nomes e presenca das variaveis necessarias no ambiente alvo.
+- Nunca imprimir valores de secrets em stdout, logs, docs ou mensagens watcher.
+- Se variavel obrigatoria faltar, abortar antes do deploy.
+
+### Plano de rollback
+- Registrar commit/tag implantado antes do deploy.
+- Confirmar comando de rollback antes de iniciar.
+- Se health check falhar, voltar para a versao anterior conhecida como boa.
+- Registrar stdout, stderr e return_code do rollback.
+
+### Criterios de abortar
+- Repo sujo.
+- Build, smoke ou diff-check falhando.
+- Secrets ausentes ou expostos.
+- Plano de rollback indefinido.
+- Autorizacao humana ausente.
+
+### Criterios de sucesso
+- Deploy autorizado separadamente.
+- Health checks OK apos deploy.
+- Logs sem erros criticos.
+- Rollback nao necessario ou testado/documentado.
+
+Nenhum deploy foi executado por este micro. Nenhuma tag foi criada. Nenhum secret foi impresso.
