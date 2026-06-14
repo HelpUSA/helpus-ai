@@ -1,4 +1,4 @@
-﻿# HelpUS AI - Documento Mestre Unificado
+# HelpUS AI - Documento Mestre Unificado
 
 Este documento e a fonte principal do projeto HelpUS AI. Ele consolida toda a documentacao em um unico arquivo e preserva documentos historicos em docs/legacy.
 
@@ -118,3 +118,9 @@ Status final: Micros 24 a 29 concluidos, validados, commitados e enviados para o
 ## Active documentation index
 
 Active documentation is indexed in docs/README.md. The active set is the master document, release and deploy checklist, watcher operations runbook, post completion backlog and final report.
+
+Nota operacional: estado pos-conclusao segue sem deploy, sem tag e com IA local em analysis_only ate autorizacao explicita.
+
+Nota operacional: estado pos-conclusao segue sem deploy, sem tag e com IA local em analysis_only ate autorizacao explicita.
+
+Release, tag and deploy gates permanecem documentados em legacy; Post completion backlog e Active documentation index permanecem como referencia historica; estado atual segue sem deploy e analysis_only ate autorizacao explicita.

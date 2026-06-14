@@ -1,11 +1,11 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
 DOCS = {
-    "release": "docs/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md",
-    "backlog": "docs/HELPUS_POST_COMPLETION_BACKLOG.md",
-    "runbook": "docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md",
+    "release": "docs/legacy/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md",
+    "backlog": "docs/legacy/HELPUS_POST_COMPLETION_BACKLOG.md",
+    "runbook": "docs/legacy/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md",
     "master": "docs/HELPUS_PROJECT_MASTER.md",
     "report": "reports/HELPUS_FINAL_REPORT_2026-06-14.md",
 }
@@ -89,4 +89,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

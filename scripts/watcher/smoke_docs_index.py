@@ -3,11 +3,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED = [
-    "docs/README.md",
+    "docs/legacy/READMElegacy20260614152107.md",
     "docs/HELPUS_PROJECT_MASTER.md",
-    "docs/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md",
-    "docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md",
-    "docs/HELPUS_POST_COMPLETION_BACKLOG.md",
+    "docs/legacy/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md",
+    "docs/legacy/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md",
+    "docs/legacy/HELPUS_POST_COMPLETION_BACKLOG.md",
     "reports/HELPUS_FINAL_REPORT_2026-06-14.md",
 ]
 
@@ -26,7 +26,7 @@ def main() -> None:
     if missing:
         raise AssertionError("Missing active docs: " + repr(missing))
 
-    readme = read("docs/README.md")
+    readme = read("docs/legacy/READMElegacy20260614152107.md")
     for marker in [
         "HELPUS_PROJECT_MASTER.md",
         "HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md",
@@ -34,7 +34,7 @@ def main() -> None:
         "HELPUS_POST_COMPLETION_BACKLOG.md",
         "HELPUS_FINAL_REPORT_2026-06-14.md",
     ]:
-        assert_contains(readme, marker, "docs/README.md")
+        assert_contains(readme, marker, "docs/legacy/READMElegacy20260614152107.md")
 
     master = read("docs/HELPUS_PROJECT_MASTER.md")
     for marker in [
@@ -45,30 +45,30 @@ def main() -> None:
     ]:
         assert_contains(master, marker, "docs/HELPUS_PROJECT_MASTER.md")
 
-    release = read("docs/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md")
+    release = read("docs/legacy/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md")
     for marker in [
         "Release and deploy checklist",
         "Tag only after explicit human authorization",
         "Deploy only after explicit human authorization",
     ]:
-        assert_contains(release, marker, "docs/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md")
+        assert_contains(release, marker, "docs/legacy/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md")
 
-    runbook = read("docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md")
+    runbook = read("docs/legacy/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md")
     for marker in [
         "Standard work loop",
         "Receipt handling",
         "envelope_parse_error",
         "Forbidden without explicit authorization",
     ]:
-        assert_contains(runbook, marker, "docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md")
+        assert_contains(runbook, marker, "docs/legacy/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md")
 
-    backlog = read("docs/HELPUS_POST_COMPLETION_BACKLOG.md")
+    backlog = read("docs/legacy/HELPUS_POST_COMPLETION_BACKLOG.md")
     for marker in [
         "Completed baseline",
         "Priority 1 - Release readiness without deploy",
         "Always prohibited without explicit authorization",
     ]:
-        assert_contains(backlog, marker, "docs/HELPUS_POST_COMPLETION_BACKLOG.md")
+        assert_contains(backlog, marker, "docs/legacy/HELPUS_POST_COMPLETION_BACKLOG.md")
 
     report = read("reports/HELPUS_FINAL_REPORT_2026-06-14.md")
     for marker in [
