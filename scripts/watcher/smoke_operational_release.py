@@ -43,6 +43,7 @@ COMMANDS = [
         "scripts/watcher/smoke_command_safety.py",
         "scripts/watcher/smoke_watcher_stress.py",
         "scripts/watcher/smoke_local_readonly_files.py",
+        "scripts/watcher/smoke_local_repo_status.py",
         "scripts/watcher/smoke_memory_panel_contract.py",
     ],
     ["python", "scripts/watcher/smoke_behavior_ai.py"],
@@ -64,6 +65,7 @@ COMMANDS = [
     ["python", "scripts/watcher/smoke_command_safety.py"],
     ["python", "scripts/watcher/smoke_watcher_stress.py"],
  ["python", "scripts/watcher/smoke_local_readonly_files.py"],
+ ["python", "scripts/watcher/smoke_local_repo_status.py"],
     ["python", "scripts/watcher/smoke_memory_panel_contract.py"],
     ["git", "diff", "--check"],
 ]
