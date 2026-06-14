@@ -229,3 +229,44 @@ Objetivo: planejar endpoints locais apenas de leitura para reduzir dependencia d
 - Smoke para status e diff read-only.
 
 Decisao atual: apenas planejamento documentado. Nenhum endpoint foi implementado neste micro.
+
+## Plano API local de comandos 2026-06-14
+
+Objetivo: planejar um executor interno estruturado para comandos locais no futuro, sem substituir ainda o watcher e sem liberar execucao ampla nesta etapa.
+
+### Modelo command_requests
+- command_id unico e descritivo.
+- source_agent_id e conversation_id.
+- cwd explicito.
+- command como lista, nunca string shell gigante por padrao.
+- timeout_seconds obrigatorio.
+- status inicial pending.
+- created_at e requested_by.
+- risk_level calculado antes de executar.
+
+### Modelo command_results
+- command_id vinculado ao request.
+- started_at e finished_at.
+- return_code.
+- stdout e stderr com limite de tamanho.
+- truncated_stdout e truncated_stderr quando aplicavel.
+- status: succeeded, failed, timed_out, rejected ou aborted.
+- logs auditaveis.
+
+### Regras iniciais
+- Watcher permanece executor oficial ate haver smokes e UI suficientes.
+- Nenhum comando destrutivo sem autorizacao explicita.
+- Bloquear ou exigir confirmacao para deploy, tag, reset hard, git clean, remocao em massa e secrets.
+- Sempre inspecionar status e diff antes de corrigir falhas.
+- Toda execucao deve produzir recibo estruturado equivalente a AI_LOCAL_RUN.
+
+### Smokes futuros
+- command_id unico.
+- cwd obrigatorio.
+- timeout obrigatorio.
+- stdout/stderr capturados.
+- return_code preservado.
+- comandos perigosos rejeitados ou exigindo confirmacao.
+- falha parcial orienta inspecao antes de patch.
+
+Decisao atual: planejamento apenas. Nenhum endpoint ou executor novo foi implementado neste micro.
