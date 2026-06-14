@@ -1251,3 +1251,7 @@ Release, tag and deploy are now tracked in docs/HELPUS_RELEASE_AND_DEPLOY_CHECKL
 ## Watcher operations runbook
 
 Daily safe operation is now tracked in docs/HELPUS_WATCHER_OPERATIONS_RUNBOOK.md. The runbook defines inspection-first work, receipt handling, validation sequence and forbidden actions without explicit authorization.
+
+## Post completion backlog
+
+Future work after completion is tracked in docs/HELPUS_POST_COMPLETION_BACKLOG.md. The backlog is planning only and keeps release, deploy, hardening and product follow-up separated from completed work.
