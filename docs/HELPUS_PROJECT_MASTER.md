@@ -1,4 +1,4 @@
-# HelpUS AI - Documento Mestre Unificado
+﻿# HelpUS AI - Documento Mestre Unificado
 
 Este documento e a fonte principal do projeto HelpUS AI. Ele consolida toda a documentacao em um unico arquivo e preserva documentos historicos em docs/legacy.
 
@@ -537,3 +537,150 @@ Status: deploy autorizado executado apos validacoes locais e smokes.
 - Secrets nao foram impressos.
 - Deploy e tag continuam separados; nenhuma tag foi criada neste fluxo.
 - Proximo passo sugerido: monitorar logs de producao e evoluir UI para consumir as rotas locais read-only.
+
+## 15. Arquitetura de memoria evolutiva e auto-melhoria
+
+A HelpUSAI deve evoluir de chat reativo para agente operacional com estado, memoria, regras, banco, testes e capacidade controlada de alterar codigo, docs e banco usando watcher ou executor interno futuro. A evolucao nao depende de retreinar o modelo a cada uso. O aprendizado deve acontecer por memoria externa, eventos, licoes aprendidas, regras vivas, smokes e tarefas de auto-melhoria.
+
+### 15.1 Referencias conceituais observadas em IAs e agentes existentes
+
+Projetos de IA existentes normalmente combinam chat, mensagens, arquivos, conhecimento, memoria e ferramentas. A HelpUSAI deve ir alem disso e registrar tambem estado operacional, comandos, resultados, erros, licoes, regras, avaliacoes, auto-melhorias e historico de alteracoes.
+
+Padroes uteis para a HelpUSAI:
+- Open WebUI como referencia de produto de chat com usuarios, conversas, mensagens, arquivos, conhecimento, funcoes, feedback e permissoes.
+- Letta e MemGPT como referencia de memoria hierarquica, com memoria principal e memoria arquivada.
+- LangGraph como referencia de persistencia por thread, checkpoints, retomada, human-in-the-loop e tolerancia a falhas.
+- CrewAI como referencia de memoria por escopo, importancia, recencia, similaridade e backend vetorial.
+- Pesquisas recentes sobre memoria de agentes reforcam que memoria precisa de ingestao, revisao, recuperacao, esquecimento e governanca.
+
+### 15.2 Objetivo da arquitetura HelpUSAI
+
+A HelpUSAI deve se tornar um sistema que registra experiencia, aprende com erros, cria regras, cria testes e melhora o proprio repositorio com micro-alteracoes validadas. O ciclo ideal e: erro vira licao, licao vira regra, regra vira teste, teste vira codigo ou docs, validacao vira commit.
+
+Fluxo alvo:
+1. Receber mensagem, comando ou resultado do watcher.
+2. Classificar o tipo de evento.
+3. Consultar estado persistente, regras e memoria.
+4. Decidir se deve ignorar, responder, executar, pedir autorizacao ou propor melhoria.
+5. Executar micro pequeno via watcher quando apropriado.
+6. Registrar resultado, stdout, stderr, arquivos alterados e validacoes.
+7. Extrair licoes aprendidas.
+8. Criar ou atualizar regras e smokes.
+9. Atualizar docs e memoria.
+10. Commitar e pushar somente se as validacoes passarem.
+
+### 15.3 Banco de dados recomendado
+
+A base final recomendada e PostgreSQL com JSONB e, depois, pgvector para busca semantica. Para comecar rapido em ambiente local, SQLite e suficiente, desde que o schema ja seja desenhado para migrar depois.
+
+Tabelas principais recomendadas:
+
+#### agents
+Guarda agentes da HelpUSAI, como supervisor, executor, auditor, planner, docs_agent, db_architect, code_editor e release_manager. Campos principais: id, name, role, status, model_provider, model_name, system_prompt, capabilities_json, created_at e updated_at.
+
+#### conversations
+Agrupa conversas e fluxos de trabalho. Campos: id, title, project_id, status, current_phase, summary, created_at e updated_at.
+
+#### messages
+Registra mensagens entre usuario, agentes e watcher. Campos: id, conversation_id, source_agent_id, target_agent_id, direction, kind, content, metadata_json, status, created_at, read_at e ack_at. Tipos de mensagem: human_instruction, agent_message, watcher_receipt, watcher_error, command_result, decision_request e status_report.
+
+#### agent_state
+Estado persistente do agente. Evita loops e perda de contexto. Campos: id, agent_id, project_id, state_json, created_at e updated_at. O state_json deve guardar current_phase, next_micro, ack_loop_closed, last_head, repo_clean, do_not_deploy e pending_human_decision.
+
+#### command_requests
+Pedidos de comando feitos pela IA. Campos: id, command_id, requested_by_agent_id, project_id, cwd, command_json, reason, risk_level, status, requires_confirmation, created_at, approved_at, started_at e finished_at.
+
+#### command_results
+Resultados estruturados de watcher ou executor interno. Campos: id, command_request_id, return_code, stdout, stderr, files_changed_json, diff_stat, summary e created_at.
+
+#### memories
+Memoria operacional e factual. Campos: id, agent_id, project_id, scope, category, content, summary, importance, confidence, source_type, source_id, valid_from, valid_until, created_at e updated_at. Categorias: fact, lesson, preference, workflow_rule, repo_state, error_pattern e decision.
+
+#### lessons
+Licoes aprendidas a partir de erros reais. Campos: id, project_id, trigger_event_id, problem, root_cause, lesson, rule_text, severity, status e created_at.
+
+#### rules
+Regras vivas que o agente consulta antes de agir. Campos: id, scope, name, rule_text, priority, enabled, source_lesson_id, created_at e updated_at.
+
+#### experience_events
+Log bruto de eventos. Campos: id, project_id, agent_id, event_type, input_text, output_text, metadata_json e created_at. Exemplos: user_instruction_received, watcher_ack_received, watcher_error_received, command_failed, command_succeeded, lesson_created, rule_created, test_created, code_modified e migration_proposed.
+
+#### self_improvement_tasks
+Fila de melhorias propostas pela propria IA. Campos: id, project_id, title, problem, proposed_solution, target_files_json, risk_level, status, created_by_agent_id, created_at e completed_at. Status: proposed, approved, in_progress, validated, committed e rejected.
+
+#### code_changes
+Registro de alteracoes de codigo feitas pela IA. Campos: id, task_id, branch, commit_hash, files_changed_json, diff_summary, validation_json e created_at.
+
+#### db_migrations
+Alteracoes de banco propostas ou aplicadas. Campos: id, task_id, migration_name, migration_sql, rollback_sql, status, applied_at e validated_at.
+
+#### evaluations
+Smokes e avaliacoes para impedir regressao. Campos: id, project_id, name, type, input_fixture, expected_output, status e last_run_at. Exemplos: smoke_ack_loop_guard, smoke_envelope_parse_error_recovery, smoke_command_id_uniqueness e smoke_supervisor_message.
+
+### 15.4 Memoria por niveis
+
+A HelpUSAI deve separar memoria em quatro niveis:
+
+1. Memoria curta: estado da tarefa atual, arquivos em edicao, ultimo comando e proximo passo.
+2. Memoria operacional: regras aprendidas, erros recorrentes, decisoes e padroes seguros.
+3. Memoria documental: roadmap, runbooks, relatorios e este documento mestre.
+4. Memoria de avaliacao: smokes, fixtures e criterios que impedem repetir erros antigos.
+
+### 15.5 Anti-loop e decisao correta
+
+O agente deve ter uma regra permanente anti-loop: se receber apenas ACK tecnico, nao responder com outro ACK. Se ack_loop_closed for true, qualquer novo ACK deve ser registrado e ignorado, exceto se houver pedido humano novo.
+
+Classificacoes minimas de mensagem:
+- human_instruction: pedido novo do usuario.
+- watcher_ack: recibo tecnico, normalmente nao responder.
+- watcher_error: erro tecnico, analisar e corrigir se for o comando atual.
+- command_result_success: resumir resultado e decidir proximo passo.
+- command_result_failure: inspecionar status e diff antes de patch.
+- loop_ack: registrar e ignorar.
+- decision_required: parar e pedir autorizacao humana.
+
+### 15.6 Poder de criar e modificar codigo com watcher
+
+A HelpUSAI pode evoluir alterando codigo, docs e banco usando watcher, mas por micro-alteracoes pequenas e validadas. Niveis de autonomia:
+
+Nivel 1 autonomo: ler arquivos, git status, git diff, atualizar docs, criar smoke simples, corrigir typo, adicionar fixture, rodar validacoes, commit e push de micro pequeno.
+
+Nivel 2 autonomo com validacao forte: alterar backend nao critico, adicionar endpoint interno, criar tabela nova, criar migration reversivel, alterar orquestrador e alterar memoria. Exige py_compile, smoke especifico, smoke_operational_release, smoke_health_report, npm build, git diff --check e rollback quando houver banco.
+
+Nivel 3 decisao humana obrigatoria: deploy, tag release, secrets, apagar dados, migration destrutiva, reset hard, git clean, alteracao de auth, permissao ou producao.
+
+### 15.7 Estrutura inicial recomendada no repo
+
+Arquivos iniciais sugeridos:
+- backend/agent_state.py
+- backend/agent_message_classifier.py
+- backend/experience_learner.py
+- backend/ack_loop_guard.py
+- backend/self_improvement_planner.py
+- backend/evolving_memory.py
+- scripts/watcher/send_to_supervisor.py
+- scripts/watcher/smoke_agent_state.py
+- scripts/watcher/smoke_experience_learner.py
+- scripts/watcher/smoke_ack_loop_guard.py
+- scripts/watcher/smoke_evolving_memory.py
+
+Arquivos locais ou tabelas iniciais:
+- data/helpus/agent_state.json
+- data/helpus/memory/events.jsonl
+- data/helpus/memory/lessons.md
+- data/helpus/memory/rules.json
+
+### 15.8 Proximo micro recomendado
+
+Micro recomendado: HelpUSAI evolving memory database foundation.
+
+Escopo:
+1. Criar schema inicial SQLite para agents, messages, agent_state, experience_events, memories, lessons, rules, self_improvement_tasks, command_requests, command_results e evaluations.
+2. Criar backend/evolving_memory.py com funcoes simples para registrar evento, criar memoria, criar licao, criar regra, registrar comando, registrar resultado e propor melhoria.
+3. Criar smokes para salvar evento, extrair licao, criar regra, impedir loop de ACK, registrar comando watcher, registrar resultado e propor melhoria.
+4. Atualizar este documento com qualquer ajuste descoberto.
+5. Validar com py_compile, smoke especifico, smoke_operational_release, smoke_health_report, npm build e git diff --check.
+
+### 15.9 Regra de ouro
+
+A HelpUSAI deve sempre transformar uso real em melhoria permanente. Cada erro importante deve gerar uma licao. Cada licao recorrente deve gerar regra. Cada regra critica deve gerar teste. Cada teste deve entrar na suite. Cada melhoria validada deve virar commit pequeno e rastreavel.
