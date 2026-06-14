@@ -1243,3 +1243,7 @@ Entregas finais: Micro 27 watcher_recovery, Micro 28 chat_watcher_orchestrator, 
 Validacoes finais esperadas: py_compile, smoke_operational_release, smoke_health_report, npm --prefix frontend run build e git diff --check.
 
 Regras permanentes: AI_LOCAL, AI_LOCAL_RUN e AI_LOCAL_ERRO sao recibos; parse error exige command_id novo e envelope simples; falha parcial exige inspecao antes de patch; IA local e analysis_only; sem deploy, reset hard, git clean, secrets, tags ou remocoes em massa sem autorizacao.
+
+## Release and deploy decision gate
+
+Release, tag and deploy are now tracked in docs/HELPUS_RELEASE_AND_DEPLOY_CHECKLIST.md. These actions remain separated from development and require explicit human authorization.
