@@ -1243,3 +1243,40 @@ Validacoes:
 
 Proximo micro recomendado:
 - Batch C Micros 26 a 29: patch proposal mode, human-approved patch apply, guarded memory feedback e final release readiness.
+
+
+## Micros 26 a 29 Final guarded release batch concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_patch_proposal_mode.py.
+- Criado backend/helpus_human_approved_patch_apply.py.
+- Criado backend/helpus_guarded_memory_feedback.py.
+- Criado backend/helpus_final_release_readiness.py.
+- Criados smokes de patch proposal, human-approved patch apply, guarded memory feedback e final release readiness.
+- Atualizado badge visual temporario para v0.29.0-dev.
+
+Objetivo:
+- Fechar a cadeia operacional segura da HelpUSAI.
+- Permitir proposta de patch sem aplicar automaticamente.
+- Modelar aplicacao de patch somente com aprovacao humana e allowlist.
+- Registrar feedback de memoria apenas como draft, sem promover rules automaticamente.
+- Consolidar checklist final de release readiness.
+
+Comportamento:
+- Patch proposal mode e reviewable only.
+- Human-approved patch apply retorna decisao; nao aplica agora.
+- Guarded memory feedback e draft_only.
+- Final readiness permanece ready_for_release=False ate revisao humana final.
+- Deploy continua proibido sem aprovacao explicita.
+
+Validacoes:
+- python scripts/watcher/smoke_helpus_patch_proposal_mode.py
+- python scripts/watcher/smoke_helpus_human_approved_patch_apply.py
+- python scripts/watcher/smoke_helpus_guarded_memory_feedback.py
+- python scripts/watcher/smoke_helpus_final_release_readiness.py
+- cadeia completa dos smokes HelpUSAI.
+- npm --prefix frontend run build
+- git diff --check
+
+Estado final esperado:
+- HelpUSAI entende contexto, planeja comandos, classifica risco, bloqueia perigosos, gera envelopes, faz dry-run, avalia readonly, propoe patches, exige aprovacao humana e prepara release readiness.
