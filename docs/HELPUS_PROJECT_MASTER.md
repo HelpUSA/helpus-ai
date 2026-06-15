@@ -914,3 +914,12 @@ Comportamento: deduplica por project_id/name, cria evaluations status proposed, 
 Validacoes: evaluation_proposals, rule_promoter, lesson_extractor, ingestion, sanitizer, event_recorder, command_store e git diff --check.
 Limites: nao executa smoke proposto, nao ativa rules, nao aplica rules em runtime e nao faz auto-patch.
 Proximo micro recomendado: Micro 11 readonly memory report/export para resumir rules, lessons, evaluations e command history em relatorio local.
+
+## Micro 11 readonly memory report/export 2026-06-15
+
+Status: implementado report/export readonly para gerar snapshot local da evolving memory sem executar comandos.
+Entrega: backend/evolving_memory_report.py e scripts/watcher/smoke_evolving_memory_report.py.
+Comportamento: gera snapshot com counts, rules, lessons, evaluations, command_requests e failed_command_results; renderiza Markdown e exporta JSON.
+Validacoes: memory_report, evaluation_proposals, rule_promoter, lesson_extractor, ingestion, sanitizer, event_recorder, command_store, docs_index e git diff --check.
+Limites: nao executa comandos, nao altera runtime, nao ativa rules, nao aplica rules e nao faz auto-patch.
+Proximo micro recomendado: Micro 12 readonly operator dashboard summary para consolidar status operacional e proximas acoes seguras.
