@@ -43,7 +43,7 @@ function renderInlineMarkdown(text: string) {
   )
 }
 
-const HELPUSAI_VISUAL_VERSION = 'v0.18.0-dev'
+const HELPUSAI_VISUAL_VERSION = 'v0.19.0-dev'
 
 function renderMessageContent(content: string) {
   const lines = content.split('\n')

@@ -1143,3 +1143,39 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 19 Chat Endpoint Wiring guarded para conectar o adapter ao endpoint real de chat com flag desligada por padrao.
+
+## Micro 19 Chat Endpoint Wiring guarded concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_chat_endpoint_wiring.py.
+- Criado scripts/watcher/smoke_helpus_chat_endpoint_wiring.py.
+- Atualizado badge visual temporario para v0.19.0-dev.
+
+Objetivo:
+- Conectar o Conversation API Adapter ao fluxo de chat por uma camada guardada.
+- Manter a feature flag desligada por padrao.
+- Preservar resposta principal quando o adapter estiver desligado ou nao reconhecer intencao operacional.
+
+Comportamento:
+- Wiring readonly: nao executa comandos.
+- Default enabled=False.
+- Mensagens normais preservam a resposta primaria.
+- Mensagens operacionais usam adapter apenas quando enabled=True.
+- Mensagens perigosas continuam blocked e sem execucao.
+
+Validacoes:
+- python -m py_compile backend/helpus_chat_endpoint_wiring.py scripts/watcher/smoke_helpus_chat_endpoint_wiring.py
+- python scripts/watcher/smoke_helpus_chat_endpoint_wiring.py
+- python scripts/watcher/smoke_helpus_conversation_api_adapter.py
+- python scripts/watcher/smoke_helpus_conversation_response_composer.py
+- python scripts/watcher/smoke_helpus_execution_envelope_builder.py
+- python scripts/watcher/smoke_helpus_approval_gate.py
+- python scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 20 Minimal guarded endpoint integration para plugar o wiring no endpoint real atras de variavel de ambiente desligada por padrao.
