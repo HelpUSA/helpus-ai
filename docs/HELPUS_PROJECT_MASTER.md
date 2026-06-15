@@ -923,3 +923,33 @@ Comportamento: gera snapshot com counts, rules, lessons, evaluations, command_re
 Validacoes: memory_report, evaluation_proposals, rule_promoter, lesson_extractor, ingestion, sanitizer, event_recorder, command_store, docs_index e git diff --check.
 Limites: nao executa comandos, nao altera runtime, nao ativa rules, nao aplica rules e nao faz auto-patch.
 Proximo micro recomendado: Micro 12 readonly operator dashboard summary para consolidar status operacional e proximas acoes seguras.
+
+## Micro 12 readonly operator dashboard summary concluido - 2026-06-15
+
+Entrega:
+- Criado `backend/evolving_memory_operator_dashboard.py`.
+- Criado `scripts/watcher/smoke_evolving_memory_operator_dashboard.py`.
+- Dashboard operacional somente leitura para consolidar status, contagens, itens recentes, falhas recentes e proximas acoes seguras.
+
+Comportamento:
+- Consulta SQLite em modo readonly logico.
+- Nao executa comandos.
+- Nao usa rede externa.
+- Nao cria API publica.
+- Nao ativa rules automaticamente.
+- Nao altera dados de memoria.
+
+Validacoes:
+- `python -m py_compile backend/evolving_memory_operator_dashboard.py scripts/watcher/smoke_evolving_memory_operator_dashboard.py`
+- `python scripts/watcher/smoke_evolving_memory_operator_dashboard.py`
+- Smokes base da evolving memory.
+- `python scripts/watcher/smoke_docs_index.py`
+- `git diff --check`
+
+Limites:
+- Qualquer falha deve parar o fluxo e reportar stdout/stderr.
+- Rules e lessons continuam dependendo de gate humano.
+- O dashboard e apenas apoio operacional para leitura e decisao.
+
+Proximo micro recomendado:
+- Micro 13 HelpUSAI operational context card para reduzir alucinacao operacional e melhorar conversa/comandos seguros.
