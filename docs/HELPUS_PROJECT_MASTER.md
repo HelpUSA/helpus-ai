@@ -1010,3 +1010,35 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 15 Approval Gate para separar execucao automatica bloqueada, execucao readonly permitida e patch com aprovacao humana.
+
+## Micro 15 Approval Gate concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_approval_gate.py.
+- Criado scripts/watcher/smoke_helpus_approval_gate.py.
+- Atualizado badge visual temporario para v0.15.0-dev.
+
+Objetivo:
+- Separar planos readonly permitidos, planos que exigem aprovacao humana e planos bloqueados.
+- Impedir que comandos perigosos avancem para execucao.
+- Manter stop-on-failure como comportamento padrao.
+
+Comportamento:
+- Gate readonly: nao executa comandos.
+- Avalia planos gerados pelo Safe Command Planner.
+- Low risk sem arquivos vira readonly_allowed.
+- Medium/review/arquivos vira approval_required.
+- Blocked ou dangerous tokens vira blocked sem comandos.
+
+Validacoes:
+- python -m py_compile backend/helpus_approval_gate.py scripts/watcher/smoke_helpus_approval_gate.py
+- python scripts/watcher/smoke_helpus_approval_gate.py
+- python scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 16 Command Execution Envelope Builder para converter planos aprovados em envelopes/comandos revisaveis sem executar automaticamente.
