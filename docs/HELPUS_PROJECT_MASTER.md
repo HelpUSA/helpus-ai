@@ -1042,3 +1042,36 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 16 Command Execution Envelope Builder para converter planos aprovados em envelopes/comandos revisaveis sem executar automaticamente.
+
+## Micro 16 Command Execution Envelope Builder concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_execution_envelope_builder.py.
+- Criado scripts/watcher/smoke_helpus_execution_envelope_builder.py.
+- Atualizado badge visual temporario para v0.16.0-dev.
+
+Objetivo:
+- Converter planos e decisoes aprovadas em envelopes revisaveis.
+- Nao executar comandos automaticamente.
+- Separar envelopes readonly permitidos, approval-required e blocked.
+
+Comportamento:
+- Builder readonly: nao chama subprocess, rede ou APIs externas.
+- readonly_allowed gera reviewable-run-command.
+- approval_required gera reviewable-approval-required.
+- blocked gera envelope blocked sem comandos.
+- Todo envelope inclui warnings e stop-on-failure.
+
+Validacoes:
+- python -m py_compile backend/helpus_execution_envelope_builder.py scripts/watcher/smoke_helpus_execution_envelope_builder.py
+- python scripts/watcher/smoke_helpus_execution_envelope_builder.py
+- python scripts/watcher/smoke_helpus_approval_gate.py
+- python scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 17 Conversation Response Composer para transformar planos, gates e envelopes em respostas curtas da HelpUSAI.
