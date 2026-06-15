@@ -1299,3 +1299,24 @@ Validacoes:
 - frontend build
 
 Proximo micro recomendado: Micro 31 Railway Postgres migration plan and guarded apply script.
+
+## Micro 32 - Controlled Railway Postgres memory migration apply
+
+Status: completed with manual Railway SSH apply and readonly verification.
+
+Resumo:
+- Aplicada migration additive-only da memoria persistente no Railway Postgres.
+- Aplicacao feita dentro do container helpus-api via railway ssh.
+- Confirmadas tabelas helpus_memory_events, helpus_memory_feedback, helpus_memory_lessons e helpus_memory_rules.
+- Confirmados 13 indices nas tabelas de memoria.
+- Atualizado badge visual temporario para v0.32.0-dev.
+
+Validacoes:
+- readonly table verification
+- smoke_helpus_memory_postgres_migration_sql.py
+- smoke_helpus_memory_migration_apply_guard.py
+- smokes de memoria persistente Micro 30
+- smoke_docs_index.py
+- frontend build
+
+Proximo micro recomendado: Micro 33 guarded production memory API wiring with admin protection.
