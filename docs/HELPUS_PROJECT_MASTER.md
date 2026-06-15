@@ -896,3 +896,12 @@ Status: implementado extractor readonly para criar lessons em draft a partir de 
 
 ### Proximo micro recomendado
 Micro 9: rule draft promoter readonly. Objetivo: promover lessons draft selecionadas para rules draft com deduplicacao por escopo/nome, sem ativar regra automaticamente.
+
+## Micro 9 rule draft promoter readonly 2026-06-15
+
+Status: implementado promoter readonly para transformar lessons draft selecionadas em rules draft, com deduplicacao por scope/name e sem ativar regras automaticamente.
+
+Entrega: backend/evolving_memory_rule_promoter.py e scripts/watcher/smoke_evolving_memory_rule_promoter.py.
+Validacoes: rule_promoter, lesson_extractor, ingestion, sanitizer, event_recorder, command_store, docs_index e git diff --check.
+Limites: nao ativa rules automaticamente, nao aplica rules em runtime, nao executa comandos por API e nao faz auto-patch.
+Proximo micro recomendado: Micro 10 evaluations/smoke proposal generator readonly.
