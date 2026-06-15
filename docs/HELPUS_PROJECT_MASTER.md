@@ -770,3 +770,23 @@ Status: implementado recorder readonly para transformar eventos observados do wa
 
 ### Proximo micro recomendado
 Micro 4: command_requests e command_results store. Objetivo: gravar pedidos de comando e resultados de watcher de forma append-only, garantindo que command_results sempre referenciem command_requests.
+
+## Micro 4 command_requests e command_results store 2026-06-14
+
+Status: implementado store local append/read para command_requests e command_results.
+
+### Entrega
+- backend/evolving_memory_command_store.py cria EvolvingCommandStore.
+- O store grava command_requests com command_id unico, cwd, command_json, reason, risk_level e requires_confirmation.
+- O store grava command_results sempre vinculados a command_requests existentes.
+- scripts/watcher/smoke_evolving_memory_command_store.py valida duplicidade, integridade referencial, listagens e ausencia de execucao de comandos/rede.
+
+### Limites mantidos
+- Ainda nao integrado automaticamente ao watcher de producao.
+- Ainda nao grava stdout/stderr reais automaticamente.
+- Ainda nao cria lessons ou rules.
+- Ainda nao executa comandos por API.
+- Ainda nao faz auto-patch.
+
+### Proximo micro recomendado
+Micro 5: sanitizer forte e compartilhado. Objetivo: centralizar redacao de secrets, stdout, stderr, headers, URLs sensiveis e textos longos antes de persistir memoria, command_results ou eventos.
