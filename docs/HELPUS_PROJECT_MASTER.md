@@ -1,4 +1,4 @@
-﻿# HelpUS AI - Documento Mestre Unificado
+# HelpUS AI - Documento Mestre Unificado
 
 Este documento e a fonte principal do projeto HelpUS AI. Ele consolida toda a documentacao em um unico arquivo e preserva documentos historicos em docs/legacy.
 
@@ -684,3 +684,20 @@ Escopo:
 ### 15.9 Regra de ouro
 
 A HelpUSAI deve sempre transformar uso real em melhoria permanente. Cada erro importante deve gerar uma licao. Cada licao recorrente deve gerar regra. Cada regra critica deve gerar teste. Cada teste deve entrar na suite. Cada melhoria validada deve virar commit pequeno e rastreavel.
+
+
+## Micro 1 memoria evolutiva aprovado 2026-06-14
+
+Status: iniciado o Micro 1 da arquitetura evolutiva. O objetivo e criar schema local e smoke readonly antes de qualquer autonomia, API ou auto-patch.
+
+### Guardrails aprovados
+- Comecar em record_only e suggest_only antes de qualquer execucao automatica.
+- Nao integrar ao watcher de producao neste micro.
+- Nao executar comandos por API.
+- Nao gerar patches automaticos.
+- command_requests sao append-only.
+- command_results sempre referenciam command_requests.
+- stdout e stderr devem ser sanitizados antes de persistencia operacional.
+- rules devem evoluir por draft, active, deprecated e rejected.
+- db_migrations devem exigir rollback_sql, ambiente e smoke.
+- self_restructure_guarded so pode existir com plano, diff, smokes, rollback e gates.
