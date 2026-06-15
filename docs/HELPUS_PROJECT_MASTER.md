@@ -867,3 +867,32 @@ Status: implementado ingestion adapter readonly para receber envelopes/resultado
 
 ### Proximo micro recomendado
 Micro 8: lesson draft extractor readonly. Objetivo: ler command_results/experience_events falhos e gerar lessons em draft com problem, root_cause, lesson, rule_text e severity, sem promover rules automaticamente.
+
+## Micro 8 lesson draft extractor readonly 2026-06-15
+
+Status: implementado extractor readonly para criar lessons em draft a partir de command_results falhos, sem promover rules automaticamente.
+
+### Entrega
+- backend/evolving_memory_lesson_extractor.py cria LessonDraftExtractor.
+- O extractor classifica falhas comuns: envelope/JSON fragil, SyntaxError/IndentationError e falhas genericas.
+- Cria lessons com status draft, problem sanitizado, root_cause, lesson, rule_text e severity.
+- scripts/watcher/smoke_evolving_memory_lesson_extractor.py valida classificacao, criacao de draft, sanitizacao, ausencia de lesson para sucesso e limite seguro de listagem.
+
+### Validacoes
+- smoke_evolving_memory_lesson_extractor.py
+- smoke_evolving_memory_ingestion.py
+- smoke_evolving_memory_sanitizer.py
+- smoke_evolving_memory_event_recorder.py
+- smoke_evolving_memory_command_store.py
+- smoke_docs_index.py
+- git diff --check
+
+### Limites mantidos
+- Ainda nao promove rules automaticamente.
+- Ainda nao deduplica lessons.
+- Ainda nao le falhas reais automaticamente do watcher de producao.
+- Ainda nao executa comandos por API.
+- Ainda nao faz auto-patch.
+
+### Proximo micro recomendado
+Micro 9: rule draft promoter readonly. Objetivo: promover lessons draft selecionadas para rules draft com deduplicacao por escopo/nome, sem ativar regra automaticamente.
