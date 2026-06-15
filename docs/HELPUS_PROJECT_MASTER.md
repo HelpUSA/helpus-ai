@@ -905,3 +905,12 @@ Entrega: backend/evolving_memory_rule_promoter.py e scripts/watcher/smoke_evolvi
 Validacoes: rule_promoter, lesson_extractor, ingestion, sanitizer, event_recorder, command_store, docs_index e git diff --check.
 Limites: nao ativa rules automaticamente, nao aplica rules em runtime, nao executa comandos por API e nao faz auto-patch.
 Proximo micro recomendado: Micro 10 evaluations/smoke proposal generator readonly.
+
+## Micro 10 evaluations smoke proposal generator readonly 2026-06-15
+
+Status: implementado generator readonly para criar evaluations propostas de smoke a partir de rules draft/active, sem executar comandos.
+Entrega: backend/evolving_memory_evaluation_proposals.py e scripts/watcher/smoke_evolving_memory_evaluation_proposals.py.
+Comportamento: deduplica por project_id/name, cria evaluations status proposed, kind smoke_proposal, target rule_id e command_json proposto.
+Validacoes: evaluation_proposals, rule_promoter, lesson_extractor, ingestion, sanitizer, event_recorder, command_store e git diff --check.
+Limites: nao executa smoke proposto, nao ativa rules, nao aplica rules em runtime e nao faz auto-patch.
+Proximo micro recomendado: Micro 11 readonly memory report/export para resumir rules, lessons, evaluations e command history em relatorio local.
