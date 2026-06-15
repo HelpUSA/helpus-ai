@@ -1075,3 +1075,37 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 17 Conversation Response Composer para transformar planos, gates e envelopes em respostas curtas da HelpUSAI.
+
+## Micro 17 Conversation Response Composer concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_conversation_response_composer.py.
+- Criado scripts/watcher/smoke_helpus_conversation_response_composer.py.
+- Atualizado badge visual temporario para v0.17.0-dev.
+
+Objetivo:
+- Transformar contexto, plano, gate e envelope em respostas curtas da HelpUSAI.
+- Melhorar a conversa antes de qualquer execucao.
+- Explicar repo, risco, decisao, acao, comandos, arquivos, avisos e proximo passo.
+
+Comportamento:
+- Composer readonly: nao executa comandos.
+- Usa Operational Context Card, Safe Command Planner, Approval Gate e Envelope Builder.
+- readonly_allowed mostra comandos sugeridos e regra de parada.
+- approval_required pede aprovacao humana.
+- blocked informa que nao deve executar.
+
+Validacoes:
+- python -m py_compile backend/helpus_conversation_response_composer.py scripts/watcher/smoke_helpus_conversation_response_composer.py
+- python scripts/watcher/smoke_helpus_conversation_response_composer.py
+- python scripts/watcher/smoke_helpus_execution_envelope_builder.py
+- python scripts/watcher/smoke_helpus_approval_gate.py
+- python scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 18 Conversation API Adapter para expor o composer internamente ao fluxo de chat sem executar comandos.
