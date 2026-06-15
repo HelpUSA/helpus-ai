@@ -953,3 +953,32 @@ Limites:
 
 Proximo micro recomendado:
 - Micro 13 HelpUSAI operational context card para reduzir alucinacao operacional e melhorar conversa/comandos seguros.
+
+## Micro 13 HelpUSAI operational context card concluido - 2026-06-15
+
+Entrega:
+- Criado docs/HELPUS_OPERATIONAL_CONTEXT_CARD.md.
+- Criado backend/helpus_operational_context_card.py.
+- Criado scripts/watcher/smoke_helpus_operational_context_card.py.
+
+Objetivo:
+- Reduzir alucinacao operacional da HelpUSAI.
+- Garantir que a IA reconheca repo, ambiente, micro atual, comandos readonly, allowlist, smokes e restricoes.
+- Fornecer um prompt compacto reutilizavel antes de planejamento de comandos.
+
+Comportamento:
+- Card readonly e conservador.
+- Nao executa comandos.
+- Nao usa rede externa.
+- Nao ativa rules automaticamente.
+- Nao cria API publica.
+
+Validacoes:
+- python -m py_compile backend/helpus_operational_context_card.py scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 14 Safe Command Planner para transformar intencoes do usuario em comandos seguros com allowlist, timeout, cwd e stop-on-failure.
