@@ -43,6 +43,8 @@ function renderInlineMarkdown(text: string) {
   )
 }
 
+const HELPUSAI_VISUAL_VERSION = 'v0.13.1-dev'
+
 function renderMessageContent(content: string) {
   const lines = content.split('\n')
   const blocks: JSX.Element[] = []
@@ -518,7 +520,10 @@ export default function Home() {
               </button>
               <div>
                 <h1 className="text-base font-semibold tracking-tight text-zinc-100">Projeto Geral</h1>
-                <p className="text-xs text-zinc-400">HelpUS!AI</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-zinc-400">HelpUS!AI</p>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-zinc-500" title="Versao visual temporaria da HelpUSAI">{HELPUSAI_VISUAL_VERSION}</span>
+                </div>
               </div>
             </div>
 
