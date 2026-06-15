@@ -982,3 +982,31 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 14 Safe Command Planner para transformar intencoes do usuario em comandos seguros com allowlist, timeout, cwd e stop-on-failure.
+
+## Micro 14 Safe Command Planner concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_safe_command_planner.py.
+- Criado scripts/watcher/smoke_helpus_safe_command_planner.py.
+
+Objetivo:
+- Transformar intencoes do usuario em planos de comandos seguros.
+- Sempre incluir cwd, timeout, comandos, risco, allowlist, validacoes e stop-on-failure.
+- Bloquear comandos perigosos antes de qualquer execucao.
+
+Comportamento:
+- Planner readonly: nao executa comandos.
+- Usa HelpUSOperationalContextCard como fonte de contexto.
+- Classifica status/inspecao, smokes, Micro 14 patch, desconhecido e comandos perigosos.
+- Comandos perigosos retornam plano blocked sem comandos.
+
+Validacoes:
+- python -m py_compile backend/helpus_safe_command_planner.py scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 15 Approval Gate para separar execucao automatica bloqueada, execucao readonly permitida e patch com aprovacao humana.
