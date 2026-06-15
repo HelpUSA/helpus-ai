@@ -750,3 +750,23 @@ Status: implementado store local inicial para memoria evolutiva, sem API publica
 
 ### Proximo micro recomendado
 Micro 3: event recorder do watcher em modo readonly. Objetivo: transformar entradas ja observadas do watcher em experience_events usando EvolvingMemoryStore, com sanitizer antes de persistir stdout/stderr.
+
+## Micro 3 watcher event recorder readonly 2026-06-14
+
+Status: implementado recorder readonly para transformar eventos observados do watcher em experience_events usando EvolvingMemoryStore.
+
+### Entrega
+- backend/evolving_memory_event_recorder.py cria WatcherEventRecorder.
+- O recorder normaliza eventos do watcher e grava experience_events.
+- Inclui sanitizer inicial para secrets, bearer tokens, chaves e textos longos.
+- scripts/watcher/smoke_evolving_memory_event_recorder.py valida redacao, truncamento, persistencia e ausencia de execucao de comandos/rede.
+
+### Limites mantidos
+- Ainda nao integrado automaticamente ao watcher de producao.
+- Ainda nao registra command_requests ou command_results em tabelas proprias.
+- Ainda nao cria lessons ou rules.
+- Ainda nao executa comandos por API.
+- Ainda nao faz auto-patch.
+
+### Proximo micro recomendado
+Micro 4: command_requests e command_results store. Objetivo: gravar pedidos de comando e resultados de watcher de forma append-only, garantindo que command_results sempre referenciem command_requests.
