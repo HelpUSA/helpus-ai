@@ -837,3 +837,33 @@ Status: integrado sanitizer compartilhado ao WatcherEventRecorder e ao EvolvingC
 
 ### Proximo micro recomendado
 Micro 7: command/event ingestion adapter readonly. Objetivo: receber envelopes/resultados observados do watcher, gravar experience_events e command_requests/command_results com sanitizer compartilhado, ainda sem execucao automatica e sem API publica.
+
+## Micro 7 command/event ingestion adapter readonly 2026-06-15
+
+Status: implementado ingestion adapter readonly para receber envelopes/resultados observados do watcher e persistir command_requests, command_results e experience_events.
+
+### Entrega
+- backend/evolving_memory_ingestion.py cria EvolvingMemoryIngestion.
+- scripts/watcher/smoke_evolving_memory_ingestion.py valida ingestao de command request, ingestao de command result, vinculo result->request e rejeicao de resultado orfao.
+- O adapter usa WatcherEventRecorder e EvolvingCommandStore, preservando sanitizer compartilhado.
+- Nao executa comandos, nao importa requests, nao expoe API publica e nao faz patch.
+
+### Validacoes
+- smoke_evolving_memory_ingestion.py
+- smoke_evolving_memory_sanitizer.py
+- smoke_evolving_memory_event_recorder.py
+- smoke_evolving_memory_command_store.py
+- smoke_evolving_memory_schema.py
+- smoke_evolving_memory_store.py
+- smoke_docs_index.py
+- git diff --check
+
+### Limites mantidos
+- Ainda nao integrado automaticamente ao watcher de producao.
+- Ainda nao le fila real do watcher sozinho.
+- Ainda nao cria lessons ou rules.
+- Ainda nao executa comandos por API.
+- Ainda nao faz auto-patch.
+
+### Proximo micro recomendado
+Micro 8: lesson draft extractor readonly. Objetivo: ler command_results/experience_events falhos e gerar lessons em draft com problem, root_cause, lesson, rule_text e severity, sem promover rules automaticamente.
