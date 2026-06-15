@@ -1280,3 +1280,22 @@ Validacoes:
 
 Estado final esperado:
 - HelpUSAI entende contexto, planeja comandos, classifica risco, bloqueia perigosos, gera envelopes, faz dry-run, avalia readonly, propoe patches, exige aprovacao humana e prepara release readiness.
+
+## Micro 30 - Persistent memory schema and API draft
+
+Status: completed as guarded local persistence foundation.
+
+Resumo:
+- Adicionado schema versionado para memoria persistente da HelpUSAI.
+- Adicionado store local sqlite para smokes e validacao inicial.
+- Adicionado API router draft sem wiring automatico em producao.
+- Atualizado badge visual temporario para v0.30.0-dev.
+
+Validacoes:
+- smoke_helpus_persistent_memory_schema.py
+- smoke_helpus_persistent_memory_store.py
+- smoke_helpus_persistent_memory_api.py
+- smoke_docs_index.py
+- frontend build
+
+Proximo micro recomendado: Micro 31 Railway Postgres migration plan and guarded apply script.
