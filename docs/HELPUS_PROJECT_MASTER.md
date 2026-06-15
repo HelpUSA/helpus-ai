@@ -1179,3 +1179,35 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 20 Minimal guarded endpoint integration para plugar o wiring no endpoint real atras de variavel de ambiente desligada por padrao.
+
+
+## Micros 20 a 22 Runtime guarded batch concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_runtime_feature_flags.py.
+- Criado backend/helpus_chat_runtime_adapter.py.
+- Criado backend/helpus_operator_visibility.py.
+- Criados smokes de runtime flags, runtime adapter e operator visibility.
+- Atualizado badge visual temporario para v0.22.0-dev.
+
+Objetivo:
+- Agrupar feature flags runtime, adapter runtime guardado e visibilidade operacional.
+- Manter adapter desligado por padrao.
+- Preparar caminho para integracao real com endpoint sem alterar comportamento atual.
+
+Comportamento:
+- Runtime flags leem HELPUSAI_CONVERSATION_ADAPTER_ENABLED e HELPUSAI_CONVERSATION_ADAPTER_FORCE.
+- Default seguro: adapter disabled.
+- Runtime adapter preserva resposta primaria quando desligado.
+- Operator visibility mostra versao, micros, flags e seguranca.
+
+Validacoes:
+- python scripts/watcher/smoke_helpus_runtime_feature_flags.py
+- python scripts/watcher/smoke_helpus_chat_runtime_adapter.py
+- python scripts/watcher/smoke_helpus_operator_visibility.py
+- cadeia completa dos smokes de conversa e seguranca.
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Batch B Micros 23 a 25: dry-run real de conversa, command envelope export e readonly execution gate.
