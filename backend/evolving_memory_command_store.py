@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from evolving_memory_schema import apply_schema, connect_memory_db
+from evolving_memory_sanitizer import sanitize_command_result_fields
 
 
 def _json_dumps(value: Any) -> str:
@@ -68,8 +69,9 @@ class EvolvingCommandStore:
     def record_command_result(self, *, command_request_id: str, return_code: int, stdout: str = "", stderr: str = "", files_changed_json: Any = None, diff_stat: str = "", summary: str | None = None, result_id: str | None = None) -> dict[str, Any]:
         new_id = result_id or f"res-{uuid.uuid4()}"
         files_changed = files_changed_json if files_changed_json is not None else []
+        sanitized = sanitize_command_result_fields(stdout=stdout, stderr=stderr, diff_stat=diff_stat, summary=summary)
         sql = "INSERT INTO command_results (id, command_request_id, return_code, stdout, stderr, files_changed_json, diff_stat, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        self.conn.execute(sql, (new_id, command_request_id, return_code, stdout, stderr, _json_dumps(files_changed), diff_stat, summary))
+        self.conn.execute(sql, (new_id, command_request_id, return_code, sanitized["stdout"], sanitized["stderr"], _json_dumps(files_changed), sanitized["diff_stat"], sanitized["summary"]))
         self.conn.commit()
         return self.get_command_result(new_id)
 

@@ -809,3 +809,31 @@ Status: implementado sanitizer compartilhado inicial para redacao antes de persi
 
 ### Proximo micro recomendado
 Micro 6: integrar sanitizer compartilhado ao WatcherEventRecorder e ao EvolvingCommandStore, removendo duplicacao local de sanitize_text e garantindo que stdout/stderr/metadata passem pelo sanitizer antes de persistir.
+
+## Micro 6 integracao do sanitizer compartilhado 2026-06-15
+
+Status: integrado sanitizer compartilhado ao WatcherEventRecorder e ao EvolvingCommandStore.
+
+### Entrega
+- backend/evolving_memory_event_recorder.py agora importa sanitize_text e sanitize_metadata de backend/evolving_memory_sanitizer.py.
+- backend/evolving_memory_command_store.py agora aplica sanitize_command_result_fields antes de persistir stdout, stderr, diff_stat e summary em command_results.
+- Reduzida duplicacao local de sanitizacao e centralizada a politica de redacao.
+
+### Validacoes
+- smoke_evolving_memory_sanitizer.py
+- smoke_evolving_memory_event_recorder.py
+- smoke_evolving_memory_command_store.py
+- smoke_evolving_memory_schema.py
+- smoke_evolving_memory_store.py
+- smoke_docs_index.py
+- git diff --check
+
+### Limites mantidos
+- Ainda nao integrado automaticamente ao watcher de producao.
+- Ainda nao grava command_requests/command_results reais automaticamente.
+- Ainda nao cria lessons ou rules.
+- Ainda nao executa comandos por API.
+- Ainda nao faz auto-patch.
+
+### Proximo micro recomendado
+Micro 7: command/event ingestion adapter readonly. Objetivo: receber envelopes/resultados observados do watcher, gravar experience_events e command_requests/command_results com sanitizer compartilhado, ainda sem execucao automatica e sem API publica.

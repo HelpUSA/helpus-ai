@@ -1,30 +1,12 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 from evolving_memory_store import EvolvingMemoryStore
 
-MAX_TEXT_LENGTH = 4000
+from evolving_memory_sanitizer import sanitize_metadata, sanitize_text
 
-def sanitize_text(value: str | None, *, max_length: int = MAX_TEXT_LENGTH) -> str | None:
-	if value is None:
-		return None
-	cleaned = value.replace(chr(0), '')
-	markers = ('api_key=', 'apikey=', 'token=', 'secret=', 'password=', 'authorization:', 'bearer ', 'sk-')
-	lowered = cleaned.lower()
-	for marker in markers:
-		pos = lowered.find(marker)
-		while pos >= 0:
-			end = pos + len(marker)
-			while end < len(cleaned) and cleaned[end] not in (' ', ',', ';', chr(10), chr(13), chr(9)):
-				end += 1
-			cleaned = cleaned[:pos] + marker + '<redacted>' + cleaned[end:]
-			lowered = cleaned.lower()
-			pos = lowered.find(marker, pos + len(marker) + 10)
-	if len(cleaned) > max_length:
-		return cleaned[:max_length] + '...<truncated>'
-	return cleaned
 
 def normalize_watcher_event(raw: dict[str, Any]) -> dict[str, Any]:
 	event_type = str(raw.get('event_type') or raw.get('type') or 'watcher_event')
@@ -39,7 +21,7 @@ def normalize_watcher_event(raw: dict[str, Any]) -> dict[str, Any]:
 		'agent_id': raw.get('agent_id'),
 		'input_text': sanitize_text(raw.get('input_text') or raw.get('stdout')),
 		'output_text': sanitize_text(raw.get('output_text') or raw.get('stderr')),
-		'metadata': metadata,
+		'metadata': sanitize_metadata(metadata),
 		'event_id': raw.get('event_id'),
 	}
 
