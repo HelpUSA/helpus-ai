@@ -701,3 +701,34 @@ Status: iniciado o Micro 1 da arquitetura evolutiva. O objetivo e criar schema l
 - rules devem evoluir por draft, active, deprecated e rejected.
 - db_migrations devem exigir rollback_sql, ambiente e smoke.
 - self_restructure_guarded so pode existir com plano, diff, smokes, rollback e gates.
+
+## Roadmap revisado para autosuficiencia HelpUSAI 2026-06-14
+
+Status: revisado apos leitura da documentacao atual e apos conclusao do Micro 1. A resposta anterior continua correta na direcao geral, mas deve ser atualizada para refletir que o schema local e o smoke da memoria evolutiva ja existem.
+
+### Estado atual confirmado
+- Micro 1 concluido: backend/evolving_memory_schema.py criado.
+- Smoke criado: scripts/watcher/smoke_evolving_memory_schema.py.
+- Documentacao atualizada no documento mestre.
+- Ainda nao ha integracao com watcher de producao.
+- Ainda nao ha execucao por API.
+- Ainda nao ha auto-patch automatico.
+
+### O que ainda falta para autosuficiencia real
+1. Criar store persistente da memoria evolutiva, inicialmente local, com funcoes append/read para experience_events, command_requests, command_results, lessons, rules e self_improvement_tasks.
+2. Registrar eventos readonly do watcher em experience_events com sanitizer de stdout e stderr antes de persistir.
+3. Registrar command_requests e command_results de forma append-only e sempre relacionados entre si.
+4. Criar extrator de lessons draft a partir de command_results falhos e watcher_errors reais.
+5. Promover lessons para rules draft com deduplicacao, prioridade, escopo e status.
+6. Criar evaluations e smokes propostos a partir de regras importantes, ainda sem auto-commit.
+7. Criar painel/admin readonly para eventos, licoes, regras, comandos e tarefas de auto-melhoria.
+8. Habilitar docs_patch_guarded apenas para patches pequenos em docs, com smoke_docs_index e git diff --check.
+9. Habilitar code_patch_guarded apenas depois de smokes, allowlist, rollback e auditoria.
+10. Habilitar db_migration_guarded somente com rollback_sql, ambiente, smoke e aprovacao humana.
+11. Habilitar self_restructure_guarded apenas com plano, diff, smokes, rollback, gates e aprovacao para risco medio ou alto.
+
+### Proximo micro recomendado
+Micro 2: EvolvingMemoryStore local e event recorder readonly. Escopo: criar camada simples de persistencia para o schema do Micro 1, gravar experience_events de teste, consultar eventos por projeto e validar via smoke. Nao conectar ainda a API publica, nao executar comandos e nao habilitar auto-patch.
+
+### Definicao atualizada de autosuficiencia
+A HelpUSAI sera considerada autosuficiente quando conseguir registrar experiencia, consultar memoria, aprender com falhas, criar lessons, propor rules, gerar smokes, aplicar micro-patches guardados, validar, commitar, auditar, pedir aprovacao por risco e reverter com seguranca. O caminho continua incremental e controlado.
