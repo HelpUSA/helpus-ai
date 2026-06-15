@@ -732,3 +732,21 @@ Micro 2: EvolvingMemoryStore local e event recorder readonly. Escopo: criar cama
 
 ### Definicao atualizada de autosuficiencia
 A HelpUSAI sera considerada autosuficiente quando conseguir registrar experiencia, consultar memoria, aprender com falhas, criar lessons, propor rules, gerar smokes, aplicar micro-patches guardados, validar, commitar, auditar, pedir aprovacao por risco e reverter com seguranca. O caminho continua incremental e controlado.
+## Micro 2 EvolvingMemoryStore local readonly 2026-06-14
+
+Status: implementado store local inicial para memoria evolutiva, sem API publica, sem execucao de comandos e sem auto-patch.
+
+### Entrega
+- backend/evolving_memory_store.py cria EvolvingMemoryStore sobre o schema do Micro 1.
+- scripts/watcher/smoke_evolving_memory_store.py valida gravacao e leitura de experience_events em banco local.
+- O smoke valida persistencia em disco, filtros por projeto e tipo de evento, limite seguro e ausencia de execucao de comandos/rede no store.
+
+### Limites mantidos
+- Ainda nao integrado ao watcher de producao.
+- Ainda nao grava eventos reais automaticamente.
+- Ainda nao registra command_requests ou command_results automaticamente.
+- Ainda nao cria lessons ou rules.
+- Ainda nao executa comandos por API.
+
+### Proximo micro recomendado
+Micro 3: event recorder do watcher em modo readonly. Objetivo: transformar entradas ja observadas do watcher em experience_events usando EvolvingMemoryStore, com sanitizer antes de persistir stdout/stderr.
