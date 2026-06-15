@@ -1109,3 +1109,37 @@ Validacoes:
 
 Proximo micro recomendado:
 - Micro 18 Conversation API Adapter para expor o composer internamente ao fluxo de chat sem executar comandos.
+
+## Micro 18 Conversation API Adapter concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_conversation_api_adapter.py.
+- Criado scripts/watcher/smoke_helpus_conversation_api_adapter.py.
+- Atualizado badge visual temporario para v0.18.0-dev.
+
+Objetivo:
+- Adaptar mensagens do chat para o composer quando houver intencao operacional.
+- Nao executar comandos automaticamente.
+- Permitir que mensagens normais sigam para o modelo principal sem interceptacao.
+
+Comportamento:
+- Adapter readonly: nao chama subprocess, rede ou APIs externas.
+- Detecta intencoes de comandos, smokes, repo, patch e micros.
+- Usa Conversation Response Composer para gerar resposta operacional curta.
+- Retorna flags de seguranca para execucao, rede, arquivos, revisao e stop-on-failure.
+
+Validacoes:
+- python -m py_compile backend/helpus_conversation_api_adapter.py scripts/watcher/smoke_helpus_conversation_api_adapter.py
+- python scripts/watcher/smoke_helpus_conversation_api_adapter.py
+- python scripts/watcher/smoke_helpus_conversation_response_composer.py
+- python scripts/watcher/smoke_helpus_execution_envelope_builder.py
+- python scripts/watcher/smoke_helpus_approval_gate.py
+- python scripts/watcher/smoke_helpus_safe_command_planner.py
+- python scripts/watcher/smoke_helpus_operational_context_card.py
+- python scripts/watcher/smoke_evolving_memory_operator_dashboard.py
+- python scripts/watcher/smoke_docs_index.py
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Micro 19 Chat Endpoint Wiring guarded para conectar o adapter ao endpoint real de chat com flag desligada por padrao.
