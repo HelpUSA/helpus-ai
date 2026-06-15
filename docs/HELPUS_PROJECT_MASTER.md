@@ -1211,3 +1211,35 @@ Validacoes:
 
 Proximo micro recomendado:
 - Batch B Micros 23 a 25: dry-run real de conversa, command envelope export e readonly execution gate.
+
+
+## Micros 23 a 25 Dry-run envelope readonly gate concluido - 2026-06-15
+
+Entrega:
+- Criado backend/helpus_conversation_dry_run.py.
+- Criado backend/helpus_command_envelope_export.py.
+- Criado backend/helpus_readonly_execution_gate.py.
+- Criados smokes de dry-run, envelope export e readonly execution gate.
+- Atualizado badge visual temporario para v0.25.0-dev.
+
+Objetivo:
+- Validar conversa operacional em modo dry-run.
+- Exportar envelopes revisaveis em JSON/Markdown.
+- Permitir somente avaliacao de comandos readonly; sem executar automaticamente.
+
+Comportamento:
+- Dry-run testa mensagens normais, status, smokes, dangerous e force adapter.
+- Envelope export gera payload revisavel.
+- Readonly gate permite apenas comandos git/status/diff/log, py_compile e smokes.
+- Readonly gate nunca executa comandos; apenas decide.
+
+Validacoes:
+- python scripts/watcher/smoke_helpus_conversation_dry_run.py
+- python scripts/watcher/smoke_helpus_command_envelope_export.py
+- python scripts/watcher/smoke_helpus_readonly_execution_gate.py
+- cadeia completa dos smokes de conversa e seguranca.
+- npm --prefix frontend run build
+- git diff --check
+
+Proximo micro recomendado:
+- Batch C Micros 26 a 29: patch proposal mode, human-approved patch apply, guarded memory feedback e final release readiness.
