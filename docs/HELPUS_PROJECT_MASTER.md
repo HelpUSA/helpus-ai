@@ -790,3 +790,22 @@ Status: implementado store local append/read para command_requests e command_res
 
 ### Proximo micro recomendado
 Micro 5: sanitizer forte e compartilhado. Objetivo: centralizar redacao de secrets, stdout, stderr, headers, URLs sensiveis e textos longos antes de persistir memoria, command_results ou eventos.
+
+## Micro 5 sanitizer forte compartilhado 2026-06-15
+
+Status: implementado sanitizer compartilhado inicial para redacao antes de persistir memoria, eventos e command_results.
+
+### Entrega
+- backend/evolving_memory_sanitizer.py centraliza sanitize_text, sanitize_metadata e sanitize_command_result_fields.
+- scripts/watcher/smoke_evolving_memory_sanitizer.py valida redacao de API keys, tokens, bearer, authorization, secrets e truncamento de texto longo.
+- O sanitizer nao executa comandos, nao importa requests e nao faz rede.
+
+### Limites mantidos
+- Ainda precisa ser integrado ao event recorder e command store em micro posterior.
+- Ainda nao grava eventos reais automaticamente no watcher de producao.
+- Ainda nao cria lessons ou rules.
+- Ainda nao executa comandos por API.
+- Ainda nao faz auto-patch.
+
+### Proximo micro recomendado
+Micro 6: integrar sanitizer compartilhado ao WatcherEventRecorder e ao EvolvingCommandStore, removendo duplicacao local de sanitize_text e garantindo que stdout/stderr/metadata passem pelo sanitizer antes de persistir.
