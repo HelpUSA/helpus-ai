@@ -1370,3 +1370,17 @@ Limites de seguranca: nao enviar dados sensiveis, segredos, informacoes de clien
 Ordem recomendada no roadmap: concluir recorder interno de memoria, ligar recorder no chat, criar leitura de memoria, injetar memoria segura no prompt, implementar pesquisa consultiva de codigo, implementar inspecao segura de webhooks e entao implementar prototipacao visual com v0.dev. A implementacao deve ser consultiva, orientada por checklist e validada por build/smoke antes de merge.
 
 Impacto esperado: acelerar criacao de telas, reduzir custo de experimentacao visual, melhorar comunicacao de UX, aumentar precisao na construcao de paineis administrativos e permitir que a HelpUSAI proponha interfaces mais claras antes de mexer no codigo produtivo.
+
+## 2026-06-16 - Item 1 concluido: recorder interno de memoria
+
+Contexto: foi concluida a primeira parte tecnica da memoria persistente da HelpUSAI. O recorder interno foi criado como modulo isolado, seguro por padrao e sem exposicao publica. Ele prepara o caminho para gravar eventos de conversa em helpus_memory_events depois que o wiring no /chat for implementado.
+
+Arquivo principal criado: backend/helpus_internal_memory_recorder.py. O modulo define HELPUS_MEMORY_RECORDING_ENABLED como flag de ativacao, usa helpus_chat_runtime como source e fornece funcoes para compactar texto, montar summary, montar details em JSON, mascarar DATABASE_URL e gravar eventos no Postgres quando a flag estiver ligada e uma URL de banco estiver disponivel.
+
+Comportamento de seguranca: por padrao o recorder fica desligado. Sem HELPUS_MEMORY_RECORDING_ENABLED=1 ele retorna skipped com reason recording_disabled. Com a flag ligada mas sem DATABASE_URL, POSTGRES_URL ou DATABASE_PUBLIC_URL, ele retorna skipped com reason database_url_missing. A funcao safe_record_chat_memory_event captura erros e retorna skipped em vez de derrubar o fluxo do chat.
+
+Limites importantes: este item nao liga o recorder no /chat, nao cria API publica, nao promove feedback automaticamente, nao cria lessons automaticamente e nao cria rules automaticamente. Os campos automatic_feedback_promotion, automatic_lesson_promotion e automatic_rule_promotion ficam explicitamente False no payload de details e no status do recorder.
+
+Smoke permanente criado: scripts/helpusai/smoke_internal_memory_recorder.py. O smoke valida que o recorder fica desligado por padrao, nao quebra sem banco, compacta summaries, mascara segredos da URL do banco e preserva as travas contra promocao automatica.
+
+Status do roadmap de memoria: Item 1 concluido como fundacao local. Proximo passo recomendado: Item 2, inspecionar o runtime do /chat e ligar safe_record_chat_memory_event somente depois de uma resposta bem-sucedida, atras da mesma flag HELPUS_MEMORY_RECORDING_ENABLED.
