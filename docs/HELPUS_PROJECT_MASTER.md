@@ -1418,3 +1418,15 @@ Implementacao: frontend/src/app/page.tsx agora tipa AgentTraceItem, guarda activ
 Validacao: foi criado scripts/helpusai/smoke_frontend_agent_trace.py para confirmar os marcadores do tipo, estado, parsing de data.agent_trace, mapeamento da resposta e auto-collapse. O build do frontend deve continuar obrigatorio antes de push.
 
 Proximo passo: testar no ambiente real apos deploy do Railway/Vercel e depois evoluir para agentes internos DeepSeek v1, com planner, auditor e finalizador, sempre mantendo visible trace como status seguro e nao como raciocinio interno bruto.
+
+## 2026-06-16 - Agentes internos DeepSeek v1
+
+Contexto: apos validar memoria funcional no chat real e visible work trace no backend/frontend, foi criada a primeira versao dos agentes internos DeepSeek v1. A implementacao e opcional por flag e nao muda o fluxo normal enquanto HELPUS_INTERNAL_AGENTS_ENABLED nao estiver ligado.
+
+Arquitetura: backend/helpus_internal_agents.py define Planner, Auditor e Finalizador como uma orquestracao segura ao redor de cerebro.pensar. O Planner gera um plano curto, o Auditor aponta riscos/lacunas e o Finalizador consolida a resposta final para o usuario. O trace visivel mostra apenas etiquetas seguras de status, nunca raciocinio interno bruto.
+
+Flags: HELPUS_INTERNAL_AGENTS_ENABLED ativa a orquestracao. HELPUS_INTERNAL_AGENTS_VISIBLE_TRACE permite adicionar ao agent_trace as etapas Planejando resposta, Auditando resposta e Finalizando resposta. Sem as flags, o comportamento do /chat continua igual.
+
+Integracao: backend/main.py chama run_internal_agents depois da resposta base de cerebro.pensar e antes de salvar memoria/retornar MensagemResponse. Quando a orquestracao esta ativa, a resposta final, tokens e tempo_ia passam a refletir a execucao dos agentes. Quando o trace esta ativo, os passos sao adicionados ao agent_trace sem expor resumos ou prompts internos.
+
+Validacao: scripts/helpusai/smoke_internal_agents.py valida flags desligadas por padrao, execucao simulada com fake_thinker, ordem Planner/Auditor/Finalizador, trace sem summaries e marcadores de integracao no backend.

@@ -25,6 +25,12 @@ from local_readonly_files import LocalReadonlyFiles
 from local_repo_status import LocalRepoStatus
 from helpus_internal_memory_recorder import safe_record_chat_memory_event
 from helpus_memory_context import build_helpus_memory_context
+from helpus_internal_agents import (
+    build_agent_trace_items,
+    internal_agents_enabled,
+    internal_agents_visible_trace_enabled,
+    run_internal_agents,
+)
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -307,6 +313,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
     project_id = (request.project_id or 'general')[:80]
+    # Agentes internos controlados por HELPUS_INTERNAL_AGENTS_ENABLED.
     agent_trace = [
         {"label": "Analisando pedido", "status": "done"}
     ]
@@ -396,6 +403,25 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico
         )
+        internal_agents_result = await run_internal_agents(
+            pergunta=request.mensagem,
+            contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
+            historico=historico,
+            thinker=cerebro.pensar,
+            base_response=resposta,
+            base_tokens=tokens,
+            base_latency_seconds=tempo_ia if isinstance(tempo_ia, (int, float)) else 0.0,
+        )
+        if internal_agents_result.enabled:
+            resposta = internal_agents_result.final_response or resposta
+            tokens = internal_agents_result.tokens
+            tempo_ia = internal_agents_result.latency_seconds
+            if internal_agents_visible_trace_enabled():
+                agent_trace.extend(build_agent_trace_items(internal_agents_result.steps))
+                for idx in range(len(agent_trace)):
+                    if agent_trace[idx].get("label") == "Agentes internos":
+                        agent_trace[idx] = {"label": "Agentes internos", "status": "done"}
+                        break
         
         agent_trace[-1] = {"label": "Chamando modelo de IA", "status": "done"}
 
