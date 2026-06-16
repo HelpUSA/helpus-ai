@@ -1336,3 +1336,21 @@ Ordem recomendada de evolucao: primeiro concluir o recorder interno de memoria; 
 Impacto esperado: reduzir tempo de investigacao tecnica, melhorar a qualidade dos patches, ajudar a HelpUSAI a comparar abordagens reais e diminuir tentativa e erro. Risco principal: copiar padroes inadequados ou codigo externo sem contexto. Mitigacao: sempre exigir resumo, adaptacao local, smoke, diff pequeno e aprovacao humana.
 
 Decisao operacional: manter apenas este arquivo como documentacao detalhada de roadmap/historico em docs. Relatorios pequenos podem existir para marcos especificos, mas o historico textual e as atividades futuras devem ser consolidados aqui sempre que possivel.
+
+## 2026-06-16 - Roadmap adicional: ferramenta de inspecao de webhooks
+
+Contexto: alem da ferramenta consultiva de pesquisa de codigo externo, foi identificada outra capacidade util para a HelpUSAI: uma ferramenta de inspecao de webhooks e callbacks externos. A referencia operacional sugerida e webhook.site ou servico equivalente. Essa capacidade nao deve ser tratada como memoria, nem como dependencia de producao. Ela deve servir para observabilidade, depuracao e desenho seguro de integracoes.
+
+Objetivo: permitir que a HelpUSAI ajude a testar chamadas HTTP recebidas de servicos externos antes de implementar endpoints reais no backend. Exemplos de uso incluem callbacks de GitHub, Railway, Stripe, formularios, automacoes, ferramentas internas e futuros fluxos de integracao. O valor principal e enxergar metodo, headers, body, user-agent, timestamp e formato real do payload enviado pelo servico emissor.
+
+Regra central: webhook.site deve ser usado apenas para testes com dados nao sensiveis. Nao enviar PHI, documentos pessoais, tokens, senhas, API keys, dados de clientes, payloads privados ou informacoes reguladas. A ferramenta nao deve armazenar conhecimento permanente e nao deve virar componente obrigatorio da HelpUSAI em producao. Logs oficiais, Railway, banco Postgres e endpoints proprios continuam sendo as fontes reais do sistema.
+
+Contrato recomendado para a ferramenta HelpUSAI Webhook Inspection Tool: entrada com objetivo do teste, servico emissor, URL temporaria de inspecao, payload esperado e avaliacao de risco de privacidade; saida com resumo do payload recebido, headers importantes, campos necessarios para endpoint real, riscos de seguranca, sugestao de contrato FastAPI e smokes de validacao. A ferramenta deve orientar e documentar, mas nao deve criar endpoint produtivo sem aprovacao humana.
+
+Uso esperado no fluxo de desenvolvimento: primeiro apontar o servico externo para uma URL temporaria de inspecao; depois observar o payload real; depois desenhar o schema interno; depois criar endpoint local pequeno; depois testar com smoke; por fim trocar a URL temporaria pelo endpoint oficial da HelpUSAI somente quando houver seguranca e validacao.
+
+Limites de seguranca: nunca colar segredos em webhook.site; nunca usar payload real sensivel; nunca depender de URL temporaria como storage; nunca transformar request recebida em acao automatica sem autenticacao, assinatura, replay protection e validacao de origem. Todo webhook produtivo deve ter validacao explicita, logs seguros e tratamento de erro sem vazamento de segredo.
+
+Ordem recomendada no roadmap: concluir primeiro recorder interno de memoria, ligar recorder no chat, criar leitura de memoria, injetar memoria segura no prompt, implementar ferramenta consultiva de pesquisa de codigo, e entao implementar ferramenta de inspecao de webhooks. Depois disso, avancar para promocao controlada de lessons e rules e limpeza ou deduplicacao de memoria.
+
+Impacto esperado: acelerar integracoes externas, reduzir tentativa e erro em callbacks, melhorar o desenho de endpoints e aumentar confianca antes de expor rotas reais. Risco principal: vazamento de dados sensiveis ou uso indevido de URL temporaria. Mitigacao: politica de dados sinteticos, revisao humana, checklist de seguranca e proibicao de segredos em ferramentas externas.
