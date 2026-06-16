@@ -1320,3 +1320,19 @@ Validacoes:
 - frontend build
 
 Proximo micro recomendado: Micro 33 guarded production memory API wiring with admin protection.
+
+## 2026-06-16 - Roadmap adicional: ferramenta de pesquisa de codigo externo
+
+Contexto: durante a retomada da evolucao da HelpUSAI, foi identificada uma oportunidade de tornar a assistente mais agil para tarefas tecnicas usando uma capacidade consultiva de pesquisa de codigo externo. A ideia nao substitui a analise do repositorio local D:/dev/ai e nao deve aplicar codigo automaticamente. Ela deve servir como apoio para comparar padroes publicos, encontrar exemplos reais e melhorar propostas tecnicas antes de qualquer patch.
+
+A funcionalidade proposta pode consultar mecanismos como grep.app, GitHub Code Search ou fontes equivalentes de pesquisa de codigo publico. O objetivo e permitir que a HelpUSAI pesquise exemplos de FastAPI, Postgres, psycopg, memoria persistente, migrations, fallback de providers e padroes de arquitetura similares. Os resultados devem virar resumo tecnico, riscos e proposta adaptada ao nosso repositorio, nunca copia direta de codigo externo.
+
+Regra central: a fonte da verdade continua sendo o repositorio local D:/dev/ai, o banco Railway Postgres e os documentos consolidados em docs. A pesquisa externa e apenas consultiva. Qualquer resultado externo precisa ser interpretado, adaptado, validado por smoke e aprovado antes de virar codigo.
+
+Contrato recomendado para a ferramenta HelpUSAI Code Research Tool: entrada com objetivo tecnico, linguagem, framework, termos de busca e arquivos locais relevantes; saida com resumo dos padroes encontrados, links ou referencias, riscos de licenca e seguranca, sugestao adaptada ao repo e lista de validacoes. A ferramenta nao deve executar patch automatico, nao deve promover regra sozinha e nao deve gravar codigo bruto copiado como memoria.
+
+Ordem recomendada de evolucao: primeiro concluir o recorder interno de memoria; depois ligar o recorder no /chat com flag; depois criar leitura de memoria; depois injetar memoria resumida no prompt; depois criar ferramenta de pesquisa de codigo; por fim guardar na memoria apenas decisoes aprovadas, padroes validados e licoes confirmadas.
+
+Impacto esperado: reduzir tempo de investigacao tecnica, melhorar a qualidade dos patches, ajudar a HelpUSAI a comparar abordagens reais e diminuir tentativa e erro. Risco principal: copiar padroes inadequados ou codigo externo sem contexto. Mitigacao: sempre exigir resumo, adaptacao local, smoke, diff pequeno e aprovacao humana.
+
+Decisao operacional: manter apenas este arquivo como documentacao detalhada de roadmap/historico em docs. Relatorios pequenos podem existir para marcos especificos, mas o historico textual e as atividades futuras devem ser consolidados aqui sempre que possivel.
