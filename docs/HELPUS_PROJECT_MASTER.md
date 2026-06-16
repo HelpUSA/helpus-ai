@@ -1384,3 +1384,15 @@ Limites importantes: este item nao liga o recorder no /chat, nao cria API public
 Smoke permanente criado: scripts/helpusai/smoke_internal_memory_recorder.py. O smoke valida que o recorder fica desligado por padrao, nao quebra sem banco, compacta summaries, mascara segredos da URL do banco e preserva as travas contra promocao automatica.
 
 Status do roadmap de memoria: Item 1 concluido como fundacao local. Proximo passo recomendado: Item 2, inspecionar o runtime do /chat e ligar safe_record_chat_memory_event somente depois de uma resposta bem-sucedida, atras da mesma flag HELPUS_MEMORY_RECORDING_ENABLED.
+
+## 2026-06-16 - Item 2 concluido: recorder ligado ao chat
+
+Contexto: o recorder interno de memoria foi ligado ao endpoint principal /chat depois da geracao bem-sucedida da resposta. A integracao usa safe_record_chat_memory_event e roda por run_in_threadpool para evitar bloquear diretamente o fluxo async do FastAPI.
+
+Arquivo alterado: backend/main.py. A chamada acontece depois de cerebro.pensar produzir resposta, tokens e tempo_ia, e antes do retorno MensagemResponse. O recorder recebe user_message, assistant_reply, conversation_id, provider, route chat, project_id e metadados leves como tokens_gerados, tempo_ia e quantidade de fontes. A integracao nao armazena email do usuario no details do evento.
+
+Seguranca operacional: a gravacao continua desligada por padrao e so grava quando HELPUS_MEMORY_RECORDING_ENABLED=1 e uma URL de banco estiver configurada. Sem flag ou sem banco, o recorder retorna skipped. Qualquer erro interno de gravacao e capturado pelo safe_record_chat_memory_event e nao deve derrubar a conversa.
+
+Smoke permanente criado: scripts/helpusai/smoke_chat_memory_wiring.py. O smoke valida imports, chamada via run_in_threadpool, mapeamento de campos essenciais e ordem correta: resposta gerada primeiro, recorder chamado depois, MensagemResponse retornado por ultimo.
+
+Status do roadmap de memoria: Item 2 conclui o wiring basico do recorder no /chat. Proximos passos: testar em ambiente real com HELPUS_MEMORY_RECORDING_ENABLED=1, confirmar insert em helpus_memory_events, e depois avancar para leitura de memoria por conversation_id, project_id e eventos recentes.

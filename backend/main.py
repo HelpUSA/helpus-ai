@@ -5,6 +5,7 @@ Orquestra: banco de dados, cerebro IA e motor de busca.
 """
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import time
@@ -22,6 +23,7 @@ from auth import obter_usuario_google, obter_admin_google
 from admin_telemetry import summarize_events
 from local_readonly_files import LocalReadonlyFiles
 from local_repo_status import LocalRepoStatus
+from helpus_internal_memory_recorder import safe_record_chat_memory_event
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -378,6 +380,23 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         except:
             pass
         
+        # Grava evento de memoria interna sem afetar a resposta do chat.
+        await run_in_threadpool(
+            safe_record_chat_memory_event,
+            user_message=request.mensagem,
+            assistant_reply=resposta,
+            conversation_id=session_id,
+            actor="assistant",
+            provider=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
+            route="chat",
+            project_id=project_id,
+            extra={
+                "tokens_gerados": tokens,
+                "tempo_ia": tempo_ia,
+                "fontes_count": len(fontes),
+            },
+        )
+
         tempo_total = round(time.time() - inicio_total, 2)
         
         return MensagemResponse(
