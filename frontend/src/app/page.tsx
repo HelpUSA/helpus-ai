@@ -3,11 +3,17 @@ import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect, useRef, useState } from 'react'
 
+type AgentTraceItem = {
+  label: string
+  status: string
+}
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
   fontes?: { titulo: string; url: string; fonte: string }[]
   provider_used?: string
+  agent_trace?: AgentTraceItem[]
   fallback_reason?: string | null
 }
 
@@ -162,6 +168,14 @@ export default function Home() {
   const [input, setInput] = useState('')
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const [loading, setLoading] = useState(false)
+  const defaultAgentTrace: AgentTraceItem[] = [
+    { label: 'Analisando pedido', status: 'running' },
+    { label: 'Consultando memória', status: 'running' },
+    { label: 'Chamando modelo de IA', status: 'running' },
+    { label: 'Preparando resposta final', status: 'running' },
+  ]
+  const [activeAgentTrace, setActiveAgentTrace] = useState<AgentTraceItem[]>([])
+
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
   const [copiedChatLink, setCopiedChatLink] = useState(false)
   const [sessionId, setSessionId] = useState('')
@@ -397,6 +411,7 @@ export default function Home() {
     setInput('')
     setTimeout(() => inputRef.current?.focus(), 0)
     setLoading(true)
+    setActiveAgentTrace(defaultAgentTrace)
 
     try {
       const response = await fetch(`${apiUrl}/chat`, {
@@ -414,6 +429,10 @@ export default function Home() {
       })
 
       const data = await response.json().catch(() => ({}))
+      const responseAgentTrace: AgentTraceItem[] = Array.isArray(data.agent_trace) ? data.agent_trace : []
+      if (responseAgentTrace.length > 0) {
+        setActiveAgentTrace(responseAgentTrace)
+      }
 
       if (!response.ok) {
         const detail = data?.detail || `Erro HTTP ${response.status}`
@@ -431,6 +450,7 @@ export default function Home() {
           content: data.resposta || 'A API respondeu sem conteudo.',
           fontes: data.fontes || [],
           provider_used: data.provider_used || '',
+          agent_trace: responseAgentTrace,
           fallback_reason: data.fallback_reason || null,
         },
       ])
@@ -460,6 +480,7 @@ export default function Home() {
  ])
     } finally {
       setLoading(false)
+      window.setTimeout(() => setActiveAgentTrace([]), 2600)
     }
   }
 
@@ -893,6 +914,20 @@ export default function Home() {
                     </article>
                   </div>
                 ))}
+
+                {activeAgentTrace.length > 0 && (
+                  <div className="mx-auto mb-3 flex max-w-3xl items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-300 shadow-lg shadow-black/10">
+                    <span className="whitespace-nowrap font-medium text-zinc-100">Trabalho interno da HelpUSAI</span>
+                    <span className="h-1 w-1 rounded-full bg-zinc-500" />
+                    <div className="flex min-w-0 flex-wrap gap-2">
+                      {activeAgentTrace.map((step, traceIndex) => (
+                        <span key={`${step.label}-${traceIndex}`} className={`rounded-full px-2 py-1 ${step.status === 'done' ? 'bg-emerald-500/10 text-emerald-200' : step.status === 'skipped' ? 'bg-zinc-500/10 text-zinc-400' : 'bg-sky-500/10 text-sky-200'}`}>
+                          {step.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {loading && (
                   <div className="flex justify-start">

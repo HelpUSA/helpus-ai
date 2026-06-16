@@ -1408,3 +1408,13 @@ Integracao no /chat: backend/main.py passou a montar contexto_memoria_interna an
 Visible Work Trace v1: MensagemResponse agora possui agent_trace com etapas curtas e seguras como analisando pedido, consultando memorias do projeto, consultando memoria interna, chamando modelo de IA, salvando memoria da conversa e preparando resposta final. Este trace deve ser usado pelo frontend como indicador temporario/recolhivel de trabalho, nao como chain-of-thought.
 
 Smoke criado: scripts/helpusai/smoke_memory_reader_context.py valida flag desligada, ausencia de banco, formatacao segura da memoria, travas contra promocao automatica e marcadores do agent_trace no backend. Proximo passo: adaptar o frontend para animar/recolher agent_trace e depois implementar agentes internos DeepSeek v1 com planner, auditor e finalizador.
+
+## 2026-06-16 - Visible work trace v1 no frontend
+
+Contexto: depois de adicionar agent_trace no backend do /chat, o frontend passou a exibir uma linha temporaria de trabalho interno da HelpUSAI. A interface nao mostra raciocinio bruto, prompts internos ou conteudo sensivel. Ela mostra apenas etapas curtas e seguras de andamento, como analisando pedido, consultando memoria, chamando modelo de IA e preparando resposta final.
+
+Implementacao: frontend/src/app/page.tsx agora tipa AgentTraceItem, guarda activeAgentTrace em estado local, mostra uma lista temporaria enquanto a resposta esta sendo gerada, atualiza essa lista com data.agent_trace retornado pelo backend e recolhe automaticamente apos a resposta. O campo agent_trace tambem fica associado a mensagem de resposta para depuracao controlada futura.
+
+Validacao: foi criado scripts/helpusai/smoke_frontend_agent_trace.py para confirmar os marcadores do tipo, estado, parsing de data.agent_trace, mapeamento da resposta e auto-collapse. O build do frontend deve continuar obrigatorio antes de push.
+
+Proximo passo: testar no ambiente real apos deploy do Railway/Vercel e depois evoluir para agentes internos DeepSeek v1, com planner, auditor e finalizador, sempre mantendo visible trace como status seguro e nao como raciocinio interno bruto.
