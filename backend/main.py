@@ -24,6 +24,7 @@ from admin_telemetry import summarize_events
 from local_readonly_files import LocalReadonlyFiles
 from local_repo_status import LocalRepoStatus
 from helpus_internal_memory_recorder import safe_record_chat_memory_event
+from helpus_memory_context import build_helpus_memory_context
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
@@ -106,6 +107,7 @@ class MensagemResponse(BaseModel):
     provider_configured: str = ""
     model: str = ""
     latency_ms: Optional[float] = None
+    agent_trace: List[Dict[str, str]] = []
 
 class StatusResponse(BaseModel):
     status: str
@@ -305,6 +307,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
     project_id = (request.project_id or 'general')[:80]
+    agent_trace = [
+        {"label": "Analisando pedido", "status": "done"}
+    ]
     
     try:
         # Carrega historico
@@ -325,6 +330,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             contexto_memorias = construir_contexto_memorias(memorias_ativas)
         except:
             contexto_memorias = ""
+
+        agent_trace.append({
+            "label": "Consultando memorias do projeto",
+            "status": "done" if contexto_memorias else "skipped",
+        })
 
         # Busca na web
         fontes = []
@@ -361,13 +371,34 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         except:
             pass
         
+        # Memoria interna recente/relevante, controlada por HELPUS_MEMORY_CONTEXT_ENABLED.
+        contexto_memoria_interna = ""
+        try:
+            contexto_memoria_interna = await run_in_threadpool(
+                build_helpus_memory_context,
+                conversation_id=session_id,
+                project_id=project_id,
+                limit=8,
+            )
+        except Exception as e:
+            if DEBUG:
+                print(f"Erro ao carregar memoria interna: {e}")
+            contexto_memoria_interna = ""
+        agent_trace.append({
+            "label": "Consultando memoria interna",
+            "status": "done" if contexto_memoria_interna else "skipped",
+        })
+
         # Gera resposta
+        agent_trace.append({"label": "Chamando modelo de IA", "status": "running"})
         resposta, tokens, tempo_ia = await cerebro.pensar(
             pergunta=request.mensagem,
-            contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_busca] if parte]),
+            contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico
         )
         
+        agent_trace[-1] = {"label": "Chamando modelo de IA", "status": "done"}
+
         # Salva resposta
         try:
             await banco.salvar_mensagem(
@@ -397,6 +428,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             },
         )
 
+        agent_trace.append({"label": "Salvando memoria da conversa", "status": "done"})
+        agent_trace.append({"label": "Preparando resposta final", "status": "done"})
+
         tempo_total = round(time.time() - inicio_total, 2)
         
         return MensagemResponse(
@@ -410,7 +444,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             fallback_reason=getattr(cerebro, "last_fallback_reason", None),
             provider_configured=getattr(app_config, "AI_PROVIDER", ""),
             model=getattr(cerebro, "nome_modelo", ""),
-            latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None
+            latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
+            agent_trace=agent_trace,
         )
         
     except Exception as e:

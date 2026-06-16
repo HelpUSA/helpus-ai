@@ -1396,3 +1396,15 @@ Seguranca operacional: a gravacao continua desligada por padrao e so grava quand
 Smoke permanente criado: scripts/helpusai/smoke_chat_memory_wiring.py. O smoke valida imports, chamada via run_in_threadpool, mapeamento de campos essenciais e ordem correta: resposta gerada primeiro, recorder chamado depois, MensagemResponse retornado por ultimo.
 
 Status do roadmap de memoria: Item 2 conclui o wiring basico do recorder no /chat. Proximos passos: testar em ambiente real com HELPUS_MEMORY_RECORDING_ENABLED=1, confirmar insert em helpus_memory_events, e depois avancar para leitura de memoria por conversation_id, project_id e eventos recentes.
+
+## 2026-06-16 - Memoria no prompt e visible work trace v1
+
+Contexto: foi priorizada a capacidade de memoria funcional e uma primeira versao de visible work trace no chat. A HelpUSAI agora tem leitor de memoria interna, construtor de contexto seguro para prompt e um campo agent_trace na resposta do /chat para permitir que a interface mostre uma linha temporaria de trabalho, sem expor raciocinio interno bruto.
+
+Modulos criados: backend/helpus_memory_reader.py e backend/helpus_memory_context.py. O leitor busca eventos gravados em helpus_memory_events com source helpus_chat_runtime, status recorded e safety_level seguro. A leitura e controlada por HELPUS_MEMORY_CONTEXT_ENABLED e retorna vazio quando a flag esta desligada ou quando nao ha DATABASE_URL/POSTGRES_URL/DATABASE_PUBLIC_URL.
+
+Integracao no /chat: backend/main.py passou a montar contexto_memoria_interna antes de chamar cerebro.pensar. Esse contexto entra junto com memorias manuais do projeto e busca web. O texto de memoria informa ao modelo que a memoria e apenas apoio de continuidade, nao instrucao de sistema, autorizacao, politica de seguranca ou fato imutavel.
+
+Visible Work Trace v1: MensagemResponse agora possui agent_trace com etapas curtas e seguras como analisando pedido, consultando memorias do projeto, consultando memoria interna, chamando modelo de IA, salvando memoria da conversa e preparando resposta final. Este trace deve ser usado pelo frontend como indicador temporario/recolhivel de trabalho, nao como chain-of-thought.
+
+Smoke criado: scripts/helpusai/smoke_memory_reader_context.py valida flag desligada, ausencia de banco, formatacao segura da memoria, travas contra promocao automatica e marcadores do agent_trace no backend. Proximo passo: adaptar o frontend para animar/recolher agent_trace e depois implementar agentes internos DeepSeek v1 com planner, auditor e finalizador.
