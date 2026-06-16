@@ -1430,3 +1430,11 @@ Flags: HELPUS_INTERNAL_AGENTS_ENABLED ativa a orquestracao. HELPUS_INTERNAL_AGEN
 Integracao: backend/main.py chama run_internal_agents depois da resposta base de cerebro.pensar e antes de salvar memoria/retornar MensagemResponse. Quando a orquestracao esta ativa, a resposta final, tokens e tempo_ia passam a refletir a execucao dos agentes. Quando o trace esta ativo, os passos sao adicionados ao agent_trace sem expor resumos ou prompts internos.
 
 Validacao: scripts/helpusai/smoke_internal_agents.py valida flags desligadas por padrao, execucao simulada com fake_thinker, ordem Planner/Auditor/Finalizador, trace sem summaries e marcadores de integracao no backend.
+
+## 2026-06-16 - Ajuste dos agentes internos para recall de memoria ficticia
+
+Contexto: no primeiro teste real com HELPUS_INTERNAL_AGENTS_ENABLED e HELPUS_INTERNAL_AGENTS_VISIBLE_TRACE ligados, a HelpUSAI registrou corretamente o codigo ficticio VERDE-913, mas na pergunta seguinte o fluxo de agentes ficou conservador demais e inventou uma exigencia de e-mail corporativo para devolver um dado de teste fornecido pelo proprio usuario.
+
+Decisao: ajustar os prompts internos do Auditor e do Finalizador para diferenciar dados sensiveis reais de codigos ficticios ou memorias de teste fornecidas pelo proprio usuario na conversa/contexto. Para esse caso, a resposta deve preservar o valor literal e responder diretamente, sem inventar autenticacao adicional.
+
+Validacao: scripts/helpusai/smoke_internal_agents.py passou a exigir que VERDE-913 seja preservado no resultado final e que a resposta nao invente exigencia de e-mail corporativo para codigo de teste. O objetivo e manter seguranca sem bloquear recall simples de memoria ficticia.

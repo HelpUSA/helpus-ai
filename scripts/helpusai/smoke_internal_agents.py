@@ -28,6 +28,9 @@ async def fake_thinker(pergunta: str, contexto_busca: str = "", historico=None, 
     if "auditor interno" in lowered:
         return "Auditoria: resposta clara, sem dado sensivel.", 13, 0.01
 
+    if "finalizador" in lowered and "verde-913" in lowered:
+        return "Seu codigo de teste dos agentes internos e VERDE-913.", 17, 0.01
+
     if "finalizador" in lowered:
         return "Resposta final polida com base no rascunho.", 17, 0.01
 
@@ -72,6 +75,8 @@ async def main_async() -> None:
 
         check(result.enabled is True, "enabled result mismatch")
         check(result.final_response, "missing final response")
+        check("VERDE-913" in result.final_response, "finalizer should preserve user-provided test code")
+        check("e-mail corporativo" not in result.final_response.lower(), "finalizer should not invent identity check for test code")
         check(result.tokens > 5, "tokens should include internal agents")
         check(result.latency_seconds > 0.4, "latency should include internal agents")
         check([step.name for step in result.steps] == ["planner", "auditor", "finalizer"], "unexpected step order")
@@ -90,6 +95,16 @@ async def main_async() -> None:
 
         planner_prompt = agents.build_planner_prompt(pergunta="x", contexto_busca="y", historico=[])
         check("Nao revele raciocinio interno" in planner_prompt, "planner safety wording missing")
+
+        finalizer_prompt = agents.build_finalizer_prompt(
+            pergunta="Qual e meu codigo de teste?",
+            resposta_rascunho="Seu codigo e VERDE-913.",
+            planner_note="Responder diretamente.",
+            auditor_note="Preservar memoria ficticia.",
+        )
+        check("responda diretamente" in finalizer_prompt, "finalizer recall guardrail missing")
+        check("Nao invente exigencia de e-mail corporativo" in finalizer_prompt, "finalizer identity guardrail missing")
+        check("VERDE-913" in finalizer_prompt, "finalizer prompt should preserve test code context")
 
         text = MAIN.read_text(encoding="utf-8")
         check("from helpus_internal_agents import" in text, "main missing internal agents import")
