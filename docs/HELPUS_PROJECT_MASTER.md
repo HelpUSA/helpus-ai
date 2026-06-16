@@ -1354,3 +1354,19 @@ Limites de seguranca: nunca colar segredos em webhook.site; nunca usar payload r
 Ordem recomendada no roadmap: concluir primeiro recorder interno de memoria, ligar recorder no chat, criar leitura de memoria, injetar memoria segura no prompt, implementar ferramenta consultiva de pesquisa de codigo, e entao implementar ferramenta de inspecao de webhooks. Depois disso, avancar para promocao controlada de lessons e rules e limpeza ou deduplicacao de memoria.
 
 Impacto esperado: acelerar integracoes externas, reduzir tentativa e erro em callbacks, melhorar o desenho de endpoints e aumentar confianca antes de expor rotas reais. Risco principal: vazamento de dados sensiveis ou uso indevido de URL temporaria. Mitigacao: politica de dados sinteticos, revisao humana, checklist de seguranca e proibicao de segredos em ferramentas externas.
+
+## 2026-06-16 - Roadmap adicional: ferramenta de prototipacao visual com v0.dev
+
+Contexto: depois da pesquisa consultiva de codigo externo e da inspecao segura de webhooks, foi identificada uma terceira capacidade futura para a HelpUSAI: uma ferramenta consultiva de prototipacao visual e geracao assistida de interfaces usando v0.dev ou plataforma equivalente. A finalidade e acelerar desenho de telas, dashboards e componentes, sem aplicar codigo automaticamente no repositorio.
+
+Objetivo: permitir que a HelpUSAI transforme descricoes de fluxos, telas e necessidades operacionais em prototipos visuais, componentes React, layouts Tailwind e propostas de UX. Usos esperados incluem painel de memorias, feedbacks, lessons, rules candidatas, auditoria de decisoes, painel de integracoes, painel de webhooks, dashboard de saude dos providers e telas administrativas da propria HelpUSAI.
+
+Regra central: v0.dev deve ser tratado como ferramenta de exploracao visual, nao como fonte da verdade do projeto. A fonte da verdade continua sendo D:/dev/ai, os componentes existentes, o design system real, os smokes locais, o build do frontend e os criterios de seguranca. Codigo gerado externamente deve ser considerado rascunho, revisado, reduzido, adaptado ao padrao local e validado antes de qualquer commit.
+
+Contrato recomendado para a HelpUSAI UI Prototyping Tool: entrada com objetivo da tela, usuario alvo, fluxo esperado, stack do projeto, componentes existentes, restricoes visuais, estados de carregamento e erro, requisitos de acessibilidade e screenshot ou mockup opcional; saida com proposta de tela, componentes sugeridos, codigo de referencia, riscos de integracao, arquivos provaveis a alterar e checklist de build, smoke e revisao visual.
+
+Limites de seguranca: nao enviar dados sensiveis, segredos, informacoes de clientes, PHI, tokens, credenciais ou dumps internos para ferramentas externas de prototipacao. Nao aceitar deploy automatico, nao aceitar dependencias novas sem revisao, nao alterar backend, autenticacao, banco ou rotas produtivas por sugestao visual. A ferramenta deve apoiar UX e UI, nao substituir revisao humana.
+
+Ordem recomendada no roadmap: concluir recorder interno de memoria, ligar recorder no chat, criar leitura de memoria, injetar memoria segura no prompt, implementar pesquisa consultiva de codigo, implementar inspecao segura de webhooks e entao implementar prototipacao visual com v0.dev. A implementacao deve ser consultiva, orientada por checklist e validada por build/smoke antes de merge.
+
+Impacto esperado: acelerar criacao de telas, reduzir custo de experimentacao visual, melhorar comunicacao de UX, aumentar precisao na construcao de paineis administrativos e permitir que a HelpUSAI proponha interfaces mais claras antes de mexer no codigo produtivo.
