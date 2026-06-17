@@ -1444,3 +1444,22 @@ Validacao: scripts/helpusai/smoke_internal_agents.py passou a exigir que VERDE-9
 Contexto: apos o ajuste dos prompts de recall ficticio, o commit principal foi enviado com sucesso, mas o smoke final ainda usava um cenario simulado antigo com AZUL-742 enquanto a nova validacao exigia VERDE-913. O resultado foi falha do smoke, nao falha da aplicacao.
 
 Correcao: alinhar o cenario simulado do smoke_internal_agents.py para usar VERDE-913 tanto no contexto quanto na resposta base. Isso garante que o teste valide exatamente o caso real observado: preservar codigo ficticio fornecido pelo usuario e nao inventar exigencia de e-mail corporativo.
+
+## 2026-06-16 - Operational lessons v1
+
+Contexto: apos validar memoria, contexto, agentes internos e comunicacao Supervisor -> HelpUSAI via watcher, ficou claro que a HelpUSAI precisa transformar erros e acertos operacionais em aprendizado reutilizavel, nao apenas lembrar mensagens brutas.
+
+Decisao: criar Operational Lessons v1 como camada leve de aprendizado operacional. A primeira versao nao cria tabela nova; ela cria objetos estruturados de licao candidata e usa o recorder de memoria existente quando HELPUS_OPERATIONAL_LESSONS_ENABLED=1 estiver ativo.
+
+Escopo da v1:
+- construir licoes candidatas com topico, problema, correcao, evidencia, status e tags;
+- formatar licoes relevantes para injecao futura no prompt;
+- interpretar erros comuns do AI Bridge Local, como envelope_parse_error e submit_not_confirmed_composer_still_has_text;
+- registrar licoes candidatas na memoria existente sem promover regra automaticamente;
+- manter automatic_rule_promotion=false e requires_validation_before_promotion=true.
+
+Primeira licao operacional registrada como candidata: para mensagem inter-chat do AI Bridge Local, usar send-chat-message, delivery_kind inter_agent_message, source_chat_id, target_chat_id, message no topo do JSON, payload_json vazio e no_reply conforme necessario. O envelope deve sair sozinho, sem explicacao.
+
+Evidencia: o envio send_helpusai_simple_supervisor_test_20260616_009 chegou ao chat da HelpUSAI e ela respondeu RECEBIDO_HELPUSAI_SUPERVISOR_009 no chat destino. Isso confirmou o caminho Supervisor -> HelpUSAI via watcher, mas ainda nao confirmou retorno automatico HelpUSAI -> Supervisor.
+
+Proximo passo: integrar leitura de licoes por topico no contexto do chat, especialmente quando a pergunta envolver watcher, AI Bridge Local, envelopes, comandos locais, smokes ou erros AI_LOCAL.
