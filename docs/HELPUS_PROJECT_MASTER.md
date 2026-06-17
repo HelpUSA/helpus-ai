@@ -1484,3 +1484,21 @@ Licoes iniciais usadas no contexto:
 - diferenca entre send-chat-message e run-command.
 
 Integracao: backend/main.py passa a anexar contexto operacional aprendido ao contexto de busca antes de chamar o modelo, quando o texto do usuario indica que o assunto e watcher/AI Bridge Local. Isso e um passo para a HelpUSAI aprender com erros reais e aplicar esse aprendizado em respostas futuras.
+
+## 2026-06-17 - Obsidian vault export v1
+
+Contexto: a HelpUSAI passou a registrar Operational Lessons e a injetar lessons relevantes no contexto do chat. Para facilitar revisao humana, auditoria e navegacao do conhecimento, foi criada uma primeira exportacao em formato Obsidian.
+
+Decisao: iniciar com vault Markdown local e versionado, sem plugin, sem API externa e sem depender do Obsidian estar instalado. O Obsidian pode abrir diretamente a pasta knowledge/obsidian/HelpUSAI como vault.
+
+Escopo da v1:
+- criar scripts/helpusai/export_obsidian_vault.py;
+- criar scripts/helpusai/smoke_obsidian_vault.py;
+- gerar notas Markdown com frontmatter YAML;
+- criar Home, Operational Lessons, AI Bridge Local, Watcher Protocol e HelpUSAI Memory;
+- manter o vault como camada curada e navegavel, sem substituir banco/memoria runtime.
+
+Como abrir:
+Obsidian -> Open folder as vault -> D:\dev\ai\knowledge\obsidian\HelpUSAI
+
+Proximo passo futuro: exportar lessons reais gravadas no banco para Markdown, com status candidate/promoted/rejected e links por topico.
