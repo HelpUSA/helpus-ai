@@ -1523,3 +1523,18 @@ Notas geradas na v1:
 - AI Bridge Local Run Command.
 
 Proximo passo futuro: conectar este exportador a lessons reais gravadas no banco, mantendo fallback para lessons embutidas.
+
+## 2026-06-17 - Memory storage inspection for Obsidian export
+
+Contexto: apos criar o vault Obsidian e exportar lessons operacionais embutidas, o proximo passo e exportar lessons reais gravadas na memoria/banco. Antes disso, foi criada uma inspecao readonly para evitar suposicoes sobre tabela, colunas e payloads.
+
+Decisao: criar scripts/helpusai/inspect_memory_storage_for_obsidian.py para analisar arquivos locais de memoria, recorder, contextos e migrations, gerando reports/HELPUSAI_MEMORY_STORAGE_OBSIDIAN_EXPORT_INSPECTION_2026-06-17.md.
+
+Garantias:
+- nao abre conexao externa;
+- nao le dados de producao;
+- nao executa migracao;
+- nao altera schema;
+- apenas analisa codigo local e gera relatorio versionado.
+
+Resultado esperado: usar o relatorio para implementar o bloco 15B com exportador readonly e opt-in de lessons reais para Obsidian, mantendo fallback para lessons embutidas.
