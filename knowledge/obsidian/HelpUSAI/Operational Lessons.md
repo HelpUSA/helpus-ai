@@ -1,7 +1,7 @@
 ---
 title: Operational Lessons
 source: helpusai
-kind: obsidian_note
+kind: operational_lesson_index
 created: 2026-06-17
 tags:
   - helpusai
@@ -11,36 +11,25 @@ tags:
 
 # Operational Lessons
 
-## Conceito
+Este índice lista lessons operacionais exportadas para o Obsidian.
 
-Operational lessons são lições candidatas extraídas de erros, correções, smokes e uso real.
+## Lessons
 
-Fluxo recomendado:
+- [[Operational Lessons/AI Bridge Local Interchat|AI Bridge Local Interchat]] — `candidate`
+- [[Operational Lessons/AI Bridge Local Envelope|AI Bridge Local Envelope]] — `candidate`
+- [[Operational Lessons/AI Bridge Local Delivery|AI Bridge Local Delivery]] — `candidate`
+- [[Operational Lessons/AI Bridge Local Run Command|AI Bridge Local Run Command]] — `candidate`
 
-1. evento operacional acontece;
-2. HelpUSAI registra o problema;
-3. HelpUSAI registra a correção;
-4. a lição fica como candidate;
-5. após validação, pode virar regra promovida.
+## Fluxo recomendado
 
-## Lições iniciais
+1. HelpUSAI registra uma lesson candidata.
+2. A lesson é revisada no Obsidian.
+3. Lessons validadas podem virar regras promovidas.
+4. Rules promovidas entram no contexto operacional da HelpUSAI.
 
-### AI Bridge Local inter-chat
+## Links
 
-Problema: a HelpUSAI confundiu protocolo de mensagem entre chats e misturou explicação com envelope.
-
-Correção: para mensagem entre chats usar `send-chat-message`, `inter_agent_message`, `source_chat_id`, `target_chat_id`, `message` no topo do JSON, `payload_json` vazio e `no_reply` conforme necessário.
-
-Evidência: o envio `send_helpusai_simple_supervisor_test_20260616_009` chegou ao chat da HelpUSAI e ela respondeu `RECEBIDO_HELPUSAI_SUPERVISOR_009` no chat destino.
-
-### Envelope parse error
-
-Problema: o watcher pode tentar interpretar explicações como JSON quando exemplos com marcadores reais aparecem no chat observado.
-
-Correção: quando quiser executar, emitir somente o envelope puro. Quando quiser explicar, evitar marcadores reais e usar nomes substitutos.
-
-### Composer preso
-
-Problema: `submit_not_confirmed_composer_still_has_text` indica que o texto ficou no composer do chat destino.
-
-Correção: abrir a aba destino, limpar ou enviar o texto preso, confirmar a extensão ativa e reenviar com `command_id` novo.
+- [[Home]]
+- [[AI Bridge Local]]
+- [[Watcher Protocol]]
+- [[HelpUSAI Memory]]

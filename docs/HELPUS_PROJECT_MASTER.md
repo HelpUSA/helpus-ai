@@ -1502,3 +1502,24 @@ Como abrir:
 Obsidian -> Open folder as vault -> D:\dev\ai\knowledge\obsidian\HelpUSAI
 
 Proximo passo futuro: exportar lessons reais gravadas no banco para Markdown, com status candidate/promoted/rejected e links por topico.
+
+## 2026-06-17 - Obsidian operational lessons export v1
+
+Contexto: o vault Obsidian inicial criou notas gerais, mas ainda faltava separar lessons operacionais em notas individuais para revisao e curadoria.
+
+Decisao: criar scripts/helpusai/export_obsidian_operational_lessons.py para gerar um indice e uma nota por lesson operacional embutida. A primeira versao usa as lessons validadas em helpus_operational_lesson_context.py, sem ler banco diretamente.
+
+Escopo:
+- criar knowledge/obsidian/HelpUSAI/Operational Lessons/;
+- gerar Operational Lessons.md como indice;
+- gerar uma nota por lesson com frontmatter YAML;
+- preservar status, topic, confidence, problema, correcao e evidencia;
+- criar smoke especifico para validar os links e marcadores essenciais.
+
+Notas geradas na v1:
+- AI Bridge Local Interchat;
+- AI Bridge Local Envelope;
+- AI Bridge Local Delivery;
+- AI Bridge Local Run Command.
+
+Proximo passo futuro: conectar este exportador a lessons reais gravadas no banco, mantendo fallback para lessons embutidas.

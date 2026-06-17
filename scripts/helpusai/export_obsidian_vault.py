@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from export_obsidian_operational_lessons import export_operational_lessons
 
 
 DEFAULT_VAULT_DIR = Path("knowledge/obsidian/HelpUSAI")
@@ -226,6 +227,7 @@ def export_vault(output_dir: Path = DEFAULT_VAULT_DIR) -> list[Path]:
 
 def main() -> None:
     written = export_vault()
+    written.extend(export_operational_lessons())
     print("OBSIDIAN_VAULT_EXPORTED")
     for path in written:
         print(path.as_posix())
