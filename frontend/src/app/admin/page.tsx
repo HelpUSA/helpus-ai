@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
@@ -48,6 +48,7 @@ export default function AdminPage() {
   const [profileEmail, setProfileEmail] = useState('')
   const [statusData, setStatusData] = useState<StatusData | null>(null)
   const [telemetryData, setTelemetryData] = useState<TelemetrySummary | null>(null)
+ const [operationalLessons, setOperationalLessons] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
 
@@ -79,6 +80,9 @@ export default function AdminPage() {
         const telemetryResponse = await fetch(`${apiUrl}/admin/telemetry`, { cache: 'no-store', headers: { Authorization: `Bearer ${googleToken}` } })
         const telemetryData = await telemetryResponse.json().catch(() => ({}))
         if (mounted) setTelemetryData(telemetryResponse.ok ? telemetryData : null)
+ const lessonsResponse = await fetch(apiUrl + '/admin/operational-lessons', { cache: 'no-store', headers: { Authorization: 'Bearer ' + googleToken } })
+ const lessonsData = await lessonsResponse.json().catch(() => null)
+ if (mounted) setOperationalLessons(lessonsResponse.ok ? lessonsData : null)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erro desconhecido'
         if (mounted) setErro(message)
@@ -216,6 +220,17 @@ export default function AdminPage() {
               {loading ? 'Carregando status...' : 'Status carregado'}
             </span>
           </div>
+
+ <section className='mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4'>
+ <div className='mb-4 flex items-start justify-between gap-4'>
+ <div>
+ <h2 className='font-medium text-zinc-100'>Operational lessons</h2>
+ <p className='mt-1 text-sm text-zinc-400'>Painel readonly por status.</p>
+ </div>
+ <span className='text-xs text-zinc-500'>{operationalLessons?.source || 'waiting'}</span>
+ </div>
+ <pre className='max-h-96 overflow-auto rounded-xl bg-black/30 p-3 text-xs leading-5 text-zinc-300'>{JSON.stringify(operationalLessons || {}, null, 2)}</pre>
+ </section>
         </div>
       </div>
     </main>

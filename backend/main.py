@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
@@ -25,6 +25,7 @@ from local_readonly_files import LocalReadonlyFiles
 from local_repo_status import LocalRepoStatus
 from helpus_internal_memory_recorder import safe_record_chat_memory_event
 from helpus_operational_lesson_context import append_operational_lesson_context
+from helpus_operational_lessons import build_admin_operational_lessons_panel
 from helpus_memory_context import build_helpus_memory_context
 from helpus_internal_agents import (
     build_agent_trace_items,
@@ -252,6 +253,11 @@ async def admin_status(usuario = Depends(obter_admin_google)):
         **_provider_metrics()
     )
 
+
+@app.get("/admin/operational-lessons")
+async def admin_operational_lessons(usuario = Depends(obter_admin_google)):
+ """Readonly operational lessons panel for admin review."""
+ return build_admin_operational_lessons_panel()
 
 @app.get("/admin/telemetry")
 async def admin_telemetry(usuario = Depends(obter_admin_google)):

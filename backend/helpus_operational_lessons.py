@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -331,3 +331,15 @@ def recorder_status() -> dict[str, Any]:
         "automatic_rule_promotion": False,
         "requires_validation_before_promotion": True,
     }
+
+
+# ===== Admin readonly operational lessons panel =====
+
+_ADMIN_OPERATIONAL_LESSON_STATUSES = ['candidate', 'promoted', 'rejected']
+_ADMIN_OPERATIONAL_LESSON_FALLBACK = [{'id': 'ai-bridge-local-interchat', 'status': 'candidate', 'title': 'AI Bridge Local interchat', 'summary': 'Use send-chat-message with source_chat_id, target_chat_id and top-level message.', 'source': 'embedded-fallback'}, {'id': 'ai-bridge-local-envelope', 'status': 'candidate', 'title': 'AI Bridge Local envelope', 'summary': 'Markers must stay alone on their lines and JSON must be strict.', 'source': 'embedded-fallback'}, {'id': 'ai-bridge-local-delivery', 'status': 'candidate', 'title': 'AI Bridge Local delivery', 'summary': 'Composer and modal failures are delivery issues, not necessarily JSON issues.', 'source': 'embedded-fallback'}]
+
+def build_admin_operational_lessons_panel():
+ statuses = list(_ADMIN_OPERATIONAL_LESSON_STATUSES)
+ lessons = [dict(item) for item in _ADMIN_OPERATIONAL_LESSON_FALLBACK]
+ groups = {status: [lesson for lesson in lessons if lesson.get('status') == status] for status in statuses}
+ return {'statuses': statuses, 'counts': {status: len(groups[status]) for status in statuses}, 'lessons': groups, 'readonly': True, 'source': 'embedded-fallback'}
