@@ -1438,3 +1438,9 @@ Contexto: no primeiro teste real com HELPUS_INTERNAL_AGENTS_ENABLED e HELPUS_INT
 Decisao: ajustar os prompts internos do Auditor e do Finalizador para diferenciar dados sensiveis reais de codigos ficticios ou memorias de teste fornecidas pelo proprio usuario na conversa/contexto. Para esse caso, a resposta deve preservar o valor literal e responder diretamente, sem inventar autenticacao adicional.
 
 Validacao: scripts/helpusai/smoke_internal_agents.py passou a exigir que VERDE-913 seja preservado no resultado final e que a resposta nao invente exigencia de e-mail corporativo para codigo de teste. O objetivo e manter seguranca sem bloquear recall simples de memoria ficticia.
+
+## 2026-06-16 - Correcao do smoke de recall dos agentes internos
+
+Contexto: apos o ajuste dos prompts de recall ficticio, o commit principal foi enviado com sucesso, mas o smoke final ainda usava um cenario simulado antigo com AZUL-742 enquanto a nova validacao exigia VERDE-913. O resultado foi falha do smoke, nao falha da aplicacao.
+
+Correcao: alinhar o cenario simulado do smoke_internal_agents.py para usar VERDE-913 tanto no contexto quanto na resposta base. Isso garante que o teste valide exatamente o caso real observado: preservar codigo ficticio fornecido pelo usuario e nao inventar exigencia de e-mail corporativo.

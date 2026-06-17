@@ -65,10 +65,10 @@ async def main_async() -> None:
 
         result = await agents.run_internal_agents(
             pergunta="Qual e meu codigo?",
-            contexto_busca="Memoria: AZUL-742",
+            contexto_busca="Memoria: VERDE-913",
             historico=[],
             thinker=fake_thinker,
-            base_response="Seu codigo e AZUL-742.",
+            base_response="Seu codigo e VERDE-913.",
             base_tokens=5,
             base_latency_seconds=0.4,
         )
