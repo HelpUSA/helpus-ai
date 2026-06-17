@@ -1463,3 +1463,24 @@ Primeira licao operacional registrada como candidata: para mensagem inter-chat d
 Evidencia: o envio send_helpusai_simple_supervisor_test_20260616_009 chegou ao chat da HelpUSAI e ela respondeu RECEBIDO_HELPUSAI_SUPERVISOR_009 no chat destino. Isso confirmou o caminho Supervisor -> HelpUSAI via watcher, mas ainda nao confirmou retorno automatico HelpUSAI -> Supervisor.
 
 Proximo passo: integrar leitura de licoes por topico no contexto do chat, especialmente quando a pergunta envolver watcher, AI Bridge Local, envelopes, comandos locais, smokes ou erros AI_LOCAL.
+
+## 2026-06-16 - Operational lesson context v1
+
+Contexto: Operational Lessons v1 criou licoes candidatas estruturadas, mas ainda era necessario fazer a HelpUSAI usar essas licoes quando o assunto envolver watcher, AI Bridge Local, envelopes, command_id, AI_LOCAL_ERRO ou AI_LOCAL_RUN.
+
+Decisao: criar helpus_operational_lesson_context.py como camada de selecao e formatacao de licoes operacionais relevantes para o contexto do chat. A v1 usa licoes embutidas e validadas por smoke, incluindo o aprendizado do envio Supervisor -> HelpUSAI via watcher.
+
+Comportamento:
+- detectar automaticamente topicos operacionais no texto do usuario;
+- selecionar licoes relevantes por topico e tags;
+- formatar contexto curto para prompt;
+- herdar ativacao por HELPUS_OPERATIONAL_LESSONS_ENABLED=1 ou ativar explicitamente por HELPUS_OPERATIONAL_LESSON_CONTEXT_ENABLED=1;
+- nao mencionar memoria interna, lessons ou regras internas ao usuario salvo quando perguntado.
+
+Licoes iniciais usadas no contexto:
+- protocolo inter-chat: send-chat-message, inter_agent_message, source_chat_id, target_chat_id, message no topo, payload_json vazio;
+- cuidado com envelope_parse_error quando explicacoes ou exemplos sao copiados junto com envelope;
+- tratamento de submit_not_confirmed_composer_still_has_text;
+- diferenca entre send-chat-message e run-command.
+
+Integracao: backend/main.py passa a anexar contexto operacional aprendido ao contexto de busca antes de chamar o modelo, quando o texto do usuario indica que o assunto e watcher/AI Bridge Local. Isso e um passo para a HelpUSAI aprender com erros reais e aplicar esse aprendizado em respostas futuras.

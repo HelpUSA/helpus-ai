@@ -24,6 +24,7 @@ from admin_telemetry import summarize_events
 from local_readonly_files import LocalReadonlyFiles
 from local_repo_status import LocalRepoStatus
 from helpus_internal_memory_recorder import safe_record_chat_memory_event
+from helpus_operational_lesson_context import append_operational_lesson_context
 from helpus_memory_context import build_helpus_memory_context
 from helpus_internal_agents import (
     build_agent_trace_items,
@@ -395,6 +396,18 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             "label": "Consultando memoria interna",
             "status": "done" if contexto_memoria_interna else "skipped",
         })
+
+        # HELPUS_OPERATIONAL_LESSON_CONTEXT_V1
+        _helpus_user_message_for_lessons = (
+            getattr(mensagem, "mensagem", None)
+            or getattr(mensagem, "message", None)
+            or getattr(mensagem, "pergunta", None)
+            or ""
+        )
+        contexto_busca = append_operational_lesson_context(
+            base_context=contexto_busca,
+            user_message=str(_helpus_user_message_for_lessons),
+        )
 
         # Gera resposta
         agent_trace.append({"label": "Chamando modelo de IA", "status": "running"})
