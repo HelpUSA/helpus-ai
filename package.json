@@ -11,6 +11,7 @@
     "smoke:providers": "python scripts/30_smoke_ai_providers.py",
     "smoke:chat": "node scripts/31_smoke_prod_chat.js",
     "test:fallback": "python scripts/32_test_fallback_order.py",
-    "smoke:internal-chat": "node scripts/33_smoke_internal_chat_flow.js"
+    "smoke:internal-chat": "node scripts/33_smoke_internal_chat_flow.js",
+    "smoke:local-api": "python scripts/34_smoke_local_readonly_api.py"
   }
 }

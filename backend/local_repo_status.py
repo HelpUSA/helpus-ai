@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -13,29 +13,53 @@ class RepoCommandView:
     stderr: str
 
 
-class LocalRepoStatus:
-    """Read-only git status and diff helper for the local repo."""
+def _timeout_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
-    def __init__(self, root: Path | str) -> None:
+
+class LocalRepoStatus:
+    # Read-only git status and diff helper for the local repo.
+
+    def __init__(self, root: Path | str, timeout_seconds: int = 15) -> None:
         self.root = Path(root).resolve()
+        self.timeout_seconds = int(timeout_seconds)
 
     def _run(self, command: list[str]) -> dict:
-        result = subprocess.run(
-            command,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        return asdict(
-            RepoCommandView(
-                result.returncode == 0,
-                result.returncode,
-                result.stdout,
-                result.stderr,
+        try:
+            result = subprocess.run(
+                command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=self.timeout_seconds,
             )
-        )
+            return asdict(
+                RepoCommandView(
+                    result.returncode == 0,
+                    result.returncode,
+                    result.stdout,
+                    result.stderr,
+                )
+            )
+        except subprocess.TimeoutExpired as exc:
+            stderr = _timeout_text(exc.stderr)
+            if stderr:
+                stderr += "\n"
+            stderr += f"command timed out after {self.timeout_seconds}s: {' '.join(command)}"
+            return asdict(
+                RepoCommandView(
+                    False,
+                    -1,
+                    _timeout_text(exc.stdout),
+                    stderr,
+                )
+            )
 
     def status(self) -> dict:
         branch = self._run(["git", "branch", "--show-current"])
