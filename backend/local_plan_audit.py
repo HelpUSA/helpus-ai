@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 AUDIT_CONTRACT_VERSION = "local-plan-audit-v1"
+AUDIT_INTEGRITY_VERSION = "local-plan-audit-integrity-v1"
+AUDIT_HASH_ALGORITHM = "sha256-json-v1"
 PROPOSAL_STORE = Path("reports/local-plan-proposals.jsonl")
 MAX_STORED_PROPOSALS = 200
 
@@ -19,9 +21,33 @@ def _json_ready(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str))
 
 
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        _json_ready(value),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _proposal_id(record: dict[str, Any]) -> str:
-    payload = json.dumps(record, ensure_ascii=False, sort_keys=True, default=str)
+    payload = _canonical_json(record)
     return "plan_" + sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _record_hash(record: dict[str, Any]) -> str:
+    payload = dict(record)
+    payload.pop("record_hash", None)
+    digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+    return "sha256:" + digest
+
+
+def _last_record_hash(rows: list[dict[str, Any]]) -> str | None:
+    for row in reversed(rows):
+        value = row.get("record_hash")
+        if isinstance(value, str) and value.startswith("sha256:"):
+            return value
+    return None
 
 
 def _read_all() -> list[dict[str, Any]]:
@@ -57,10 +83,14 @@ def create_local_plan_proposal(payload: dict[str, Any] | None) -> dict[str, Any]
 
     payload = payload or {}
     plan = plan_local_action(payload)
+    rows = _read_all()
     record: dict[str, Any] = {
         "ok": True,
         "mode": "proposal_only",
         "version": AUDIT_CONTRACT_VERSION,
+        "integrity_version": AUDIT_INTEGRITY_VERSION,
+        "integrity_algorithm": AUDIT_HASH_ALGORITHM,
+        "previous_record_hash": _last_record_hash(rows),
         "created_at": _utcnow(),
         "created_by": str(payload.get("created_by") or "local-admin"),
         "note": str(payload.get("note") or ""),
@@ -71,7 +101,7 @@ def create_local_plan_proposal(payload: dict[str, Any] | None) -> dict[str, Any]
         "plan": _json_ready(plan),
     }
     record["proposal_id"] = _proposal_id(record)
-    rows = _read_all()
+    record["record_hash"] = _record_hash(record)
     rows.append(record)
     _write_all(rows)
     return record
@@ -84,7 +114,65 @@ def list_local_plan_proposals(limit: int = 50) -> dict[str, Any]:
         "ok": True,
         "mode": "proposal_only",
         "version": AUDIT_CONTRACT_VERSION,
+        "integrity_version": AUDIT_INTEGRITY_VERSION,
         "executed": False,
         "count": len(rows),
         "proposals": rows,
+    }
+
+
+def verify_local_plan_proposal_integrity() -> dict[str, Any]:
+    rows = _read_all()
+    errors: list[dict[str, Any]] = []
+    previous_hash: str | None = None
+    checked = 0
+    legacy = 0
+
+    for index, row in enumerate(rows):
+        row_hash = row.get("record_hash")
+        if not isinstance(row_hash, str) or not row_hash.startswith("sha256:"):
+            legacy += 1
+            previous_hash = None
+            continue
+
+        expected_hash = _record_hash(row)
+        actual_previous = row.get("previous_record_hash")
+
+        if row_hash != expected_hash:
+            errors.append(
+                {
+                    "index": index,
+                    "proposal_id": row.get("proposal_id"),
+                    "field": "record_hash",
+                    "expected": expected_hash,
+                    "actual": row_hash,
+                }
+            )
+
+        if checked > 0 and actual_previous != previous_hash:
+            errors.append(
+                {
+                    "index": index,
+                    "proposal_id": row.get("proposal_id"),
+                    "field": "previous_record_hash",
+                    "expected": previous_hash,
+                    "actual": actual_previous,
+                }
+            )
+
+        checked += 1
+        previous_hash = row_hash
+
+    return {
+        "ok": len(errors) == 0,
+        "mode": "proposal_only",
+        "version": AUDIT_CONTRACT_VERSION,
+        "integrity_version": AUDIT_INTEGRITY_VERSION,
+        "integrity_algorithm": AUDIT_HASH_ALGORITHM,
+        "executed": False,
+        "approved": False,
+        "count": len(rows),
+        "checked": checked,
+        "legacy_count": legacy,
+        "errors": errors,
     }

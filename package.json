@@ -21,6 +21,8 @@
     "smoke:phase-c-audit": "python scripts/37_smoke_local_plan_audit.py",
     "smoke:phase-c": "npm run smoke:phase-c-audit && npm run smoke:phase-c-ui && npm run smoke:phase-c-safety && npm run smoke:phase-b",
     "smoke:phase-c-ui": "python scripts/helpusai/smoke_admin_local_audit_proposals_panel.py",
-    "smoke:phase-c-safety": "python scripts/38_smoke_local_executor_absent.py"
+    "smoke:phase-c-safety": "python scripts/38_smoke_local_executor_absent.py",
+    "smoke:phase-d-integrity": "python scripts/39_smoke_local_audit_integrity.py",
+    "smoke:phase-d": "npm run smoke:phase-d-integrity && npm run smoke:phase-c"
   }
 }

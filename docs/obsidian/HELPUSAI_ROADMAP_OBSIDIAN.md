@@ -188,3 +188,19 @@ Delivered scope:
 - updated `docs/local-plan-audit.md`
 
 Maintained invariants: no `/local/execute`, no `/local/plan/execute`, no `/local/plan/run`, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
+
+## Checkpoint: Phase D Audit Integrity
+
+Added canonical hash integrity for local plan proposal records while keeping the system proposal-only.
+
+Delivered scope:
+
+- `record_hash` and `previous_record_hash` on new proposal records
+- `integrity_version = local-plan-audit-integrity-v1`
+- `integrity_algorithm = sha256-json-v1`
+- read-only `GET /local/plan/proposals/verify`
+- `scripts/39_smoke_local_audit_integrity.py`
+- `npm run smoke:phase-d-integrity`
+- `npm run smoke:phase-d` chains integrity, Phase C, Phase B, admin, and build validation
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.

@@ -41,3 +41,16 @@ The smoke checks that:
 - no `/local/execute`, `/local/commands`, `/local/plan/execute`, `/local/plan/run`, or approval endpoint exists;
 - the audit module does not call `subprocess`, `os.system`, `Popen`, `check_call`, or `check_output`;
 - proposal records keep `executed=false`, `approved=false`, and `approval_status=pending_human_review`.
+
+## Phase D audit integrity
+
+New proposal records include a canonical SHA-256 integrity envelope:
+
+- `integrity_version = "local-plan-audit-integrity-v1"`
+- `integrity_algorithm = "sha256-json-v1"`
+- `previous_record_hash`
+- `record_hash`
+
+The read-only endpoint `GET /local/plan/proposals/verify` verifies stored proposal rows without approving or executing anything. It reports checked rows, legacy rows, and integrity errors.
+
+The integrity layer remains proposal-only. It does not add approval endpoints, execution endpoints, subprocess calls, schedulers, or command runners.

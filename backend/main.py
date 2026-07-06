@@ -719,3 +719,11 @@ async def local_plan_proposal_list(limit: int = 50, usuario = Depends(obter_admi
     except ModuleNotFoundError:
         from local_plan_audit import list_local_plan_proposals
     return list_local_plan_proposals(limit)
+@app.get("/local/plan/proposals/verify")
+async def get_local_plan_proposal_integrity():
+    try:
+        from backend.local_plan_audit import verify_local_plan_proposal_integrity
+    except ModuleNotFoundError:
+        from local_plan_audit import verify_local_plan_proposal_integrity
+
+    return verify_local_plan_proposal_integrity()
