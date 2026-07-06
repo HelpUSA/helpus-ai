@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
@@ -103,6 +103,10 @@ export default function AdminLocalReadonlyPage() {
   const [customCommand, setCustomCommand] = useState('git diff --check')
   const [customPlan, setCustomPlan] = useState<LocalPlanResult | null>(null)
   const [planning, setPlanning] = useState(false)
+  const [proposalNote, setProposalNote] = useState('phase-c ui proposal')
+  const [proposalResult, setProposalResult] = useState<unknown>(null)
+  const [proposals, setProposals] = useState<unknown>(null)
+  const [proposalLoading, setProposalLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -209,6 +213,37 @@ export default function AdminLocalReadonlyPage() {
   useEffect(() => {
     if (googleToken) void carregarLocal()
   }, [carregarLocal, googleToken])
+
+
+  const criarPropostaAuditavel = useCallback(async () => {
+    try {
+      setProposalLoading(true)
+      setErro('')
+      const proposal = await postLocal<unknown>('/local/plan/proposals', {
+        intent: customIntent,
+        note: proposalNote,
+        created_by: 'admin-local-ui',
+      })
+      setProposalResult(proposal)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao criar proposta auditavel.')
+    } finally {
+      setProposalLoading(false)
+    }
+  }, [customIntent, postLocal, proposalNote])
+
+  const carregarPropostasAuditaveis = useCallback(async () => {
+    try {
+      setProposalLoading(true)
+      setErro('')
+      const proposalList = await fetchLocal<unknown>('/local/plan/proposals?limit=20')
+      setProposals(proposalList)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao listar propostas auditaveis.')
+    } finally {
+      setProposalLoading(false)
+    }
+  }, [fetchLocal])
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-8 text-slate-100">
@@ -362,6 +397,56 @@ export default function AdminLocalReadonlyPage() {
                   <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(customPlan)}</pre>
                 </div>
               ) : null}
+            </div>
+          </article>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 lg:col-span-2">
+            <h2 className="text-xl font-semibold">Propostas auditaveis</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Registra propostas em modo proposal_only para auditoria humana antes de qualquer execucao real.
+              Endpoints: POST /local/plan/proposals e GET /local/plan/proposals.
+            </p>
+            <div className="mt-4 grid gap-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <label className="grid gap-2 text-sm">
+                <span className="font-semibold text-slate-200">Nota da proposta</span>
+                <input
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                  maxLength={180}
+                  onChange={(event) => setProposalNote(event.target.value)}
+                  value={proposalNote}
+                />
+              </label>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={proposalLoading}
+                  onClick={() => void criarPropostaAuditavel()}
+                  type="button"
+                >
+                  Criar proposta auditavel sem executar
+                </button>
+                <button
+                  className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={proposalLoading}
+                  onClick={() => void carregarPropostasAuditaveis()}
+                  type="button"
+                >
+                  Listar propostas auditaveis
+                </button>
+              </div>
+              <p className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-400">
+                proposal_only: executed=false, approved=false, approval_status=pending_human_review.
+              </p>
+              <div>
+                <h3 className="font-semibold text-slate-100">Resultado da proposta</h3>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(proposalResult)}</pre>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-100">Lista de propostas</h3>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(proposals)}</pre>
+              </div>
             </div>
           </article>
         </section>

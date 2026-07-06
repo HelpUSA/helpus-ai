@@ -186,3 +186,18 @@ Escopo entregue:
 - `npm run smoke:phase-c`
 
 Invariantes mantidas: `executed=false`, `approved=false`, `approval_status=pending_human_review` e executor ainda inexistente/desabilitado.
+
+## Checkpoint: Fase C Audit UI
+
+Adicionado painel em `/admin/local` para registrar e listar propostas auditaveis sem execucao real.
+
+Escopo:
+- secao `Propostas auditaveis`
+- botao `Criar proposta auditavel sem executar`
+- botao `Listar propostas auditaveis`
+- uso de `POST /local/plan/proposals`
+- uso de `GET /local/plan/proposals`
+- smoke `scripts/helpusai/smoke_admin_local_audit_proposals_panel.py`
+- script `npm run smoke:phase-c-ui`
+
+Invariantes mantidas: proposal_only, executed=false, approved=false e approval_status=pending_human_review.
