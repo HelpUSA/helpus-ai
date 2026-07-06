@@ -47,3 +47,24 @@ A aplicacao deve evoluir com pequenas alteracoes verificaveis. A documentacao em
 
 - [[README|Indice Obsidian HelpUSAI]]
 - [[HELPUSAI_STATUS_2026-07-04|Estado atual e direcao]]
+
+## Checkpoint 2026-07-06 - Fase A Local Readonly API
+
+Status: concluido e validado.
+
+A API local read-only agora possui os blocos essenciais para diagnostico seguro do repositorio sem depender exclusivamente do watcher:
+
+- `/local/status` para status Git resumido.
+- `/local/diff` para diff/check read-only.
+- `/local/files/read` para leitura segura de arquivo allowlisted.
+- `/local/files/list` para listagem segura de arquivos allowlisted.
+- `/local/docs/search` para busca segura em documentos locais.
+
+Validacoes do checkpoint:
+
+- Smoke local da API read-only passando.
+- Build frontend passando.
+- `git diff --check` limpo.
+- Commit publicado: `ddd57bd feat: add local readonly file list and search`.
+
+Proxima direcao: usar esses endpoints como base para uma UI/operador local de diagnostico, mantendo todas as acoes destrutivas fora da Fase A.
