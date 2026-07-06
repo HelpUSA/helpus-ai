@@ -68,3 +68,26 @@ Validacoes do checkpoint:
 - Commit publicado: `ddd57bd feat: add local readonly file list and search`.
 
 Proxima direcao: usar esses endpoints como base para uma UI/operador local de diagnostico, mantendo todas as acoes destrutivas fora da Fase A.
+
+## Checkpoint 2026-07-06 - UI Admin Local Readonly
+
+Status: concluido e validado.
+
+Foi adicionada uma UI isolada em `/admin/local` para consumir os endpoints locais read-only da Fase A. A rota foi ligada ao painel `/admin` e recebeu smoke oficial via `npm run smoke:admin-local`.
+
+Escopo entregue:
+
+- Painel read-only para status Git local.
+- Painel read-only para diff local.
+- Listagem segura de `docs/`.
+- Busca segura em `docs/`.
+- Link de navegacao no admin principal.
+- Smokes dedicados para painel e link.
+
+Commits do checkpoint:
+
+- `adf140f feat: add admin local readonly panel`
+- `7538598 feat: link admin to local readonly panel`
+- `97a75a1 test: add admin local readonly smoke script`
+
+Proxima direcao: evoluir do diagnostico read-only para um operador de planejamento seguro, mantendo execucao real separada por gates explicitos.

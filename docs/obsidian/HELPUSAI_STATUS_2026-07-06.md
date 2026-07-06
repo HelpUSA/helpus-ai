@@ -44,3 +44,40 @@ A Fase A ganhou um checkpoint operacional importante: a API local read-only agor
 ### Proximo passo recomendado
 
 Avancar para uma camada de consumo interno desses endpoints pelo operador/agente, mantendo a mesma politica: primeiro read-only, depois planejamento seguro, e somente depois execucao controlada.
+
+## Checkpoint: UI Admin Local Readonly
+
+A Fase A tambem ganhou uma interface administrativa isolada para consumir os endpoints locais read-only.
+
+### UI adicionada
+
+- Rota frontend: `/admin/local`
+- Link de descoberta a partir de `/admin`
+- Painel consulta apenas endpoints read-only:
+  - `/local/status`
+  - `/local/diff`
+  - `/local/files/list?path=docs/`
+  - `/local/docs/search?q=HelpUS AI&path=docs/`
+
+### Smokes adicionados
+
+- `scripts/helpusai/smoke_admin_local_readonly_panel.py`
+- `scripts/helpusai/smoke_admin_local_readonly_link.py`
+- `npm run smoke:admin-local`
+
+### Commits relacionados
+
+- `adf140f` - `feat: add admin local readonly panel`
+- `7538598` - `feat: link admin to local readonly panel`
+- `97a75a1` - `test: add admin local readonly smoke script`
+
+### Validacoes executadas
+
+- `npm run smoke:admin-local`
+- `npm run smoke:local-api`
+- `npm run build`
+- `git diff --check`
+
+### Estado operacional
+
+O operador local read-only agora pode ser acessado pela UI administrativa sem alterar a pagina principal de admin e sem introduzir acoes destrutivas.
