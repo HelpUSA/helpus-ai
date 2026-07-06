@@ -100,6 +100,14 @@ export default function AdminPage() {
   if (!googleToken) {
     return (
       <main className="min-h-screen bg-[#212121] px-4 py-6 text-zinc-100">
+      <div className="mb-4 flex justify-end">
+        <Link
+          className="rounded-lg border border-cyan-700 bg-cyan-950/40 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-900/60"
+          href="/admin/local"
+        >
+          Operador local read-only
+        </Link>
+      </div>
         <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col justify-center">
           <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-8 shadow-2xl shadow-black/30">
             <p className="mb-3 text-sm font-medium text-zinc-400">HelpUS Admin</p>
