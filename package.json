@@ -15,6 +15,8 @@
     "smoke:local-api": "python scripts/34_smoke_local_readonly_api.py",
     "smoke:admin-local": "python scripts/helpusai/smoke_admin_local_readonly_panel.py && python scripts/helpusai/smoke_admin_local_readonly_link.py",
     "smoke:phase-a": "npm run smoke:local-api && npm run smoke:admin-local && npm run build",
-    "smoke:phase-b-plan": "python scripts/35_smoke_local_safe_plan.py"
+    "smoke:phase-b-plan": "python scripts/35_smoke_local_safe_plan.py",
+    "smoke:phase-b-ui": "python scripts/helpusai/smoke_admin_local_safe_plan_panel.py",
+    "smoke:phase-b": "npm run smoke:phase-b-plan && npm run smoke:phase-b-ui && npm run smoke:admin-local && npm run build"
   }
 }

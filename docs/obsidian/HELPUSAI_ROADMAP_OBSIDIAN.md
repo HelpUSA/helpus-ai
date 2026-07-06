@@ -124,3 +124,19 @@ Escopo entregue:
 - Smoke oficial: `npm run smoke:phase-b-plan`.
 
 Proxima direcao: expor este planner na UI `/admin/local`, ainda sem botao de execucao.
+
+## Checkpoint 2026-07-06 - Fase B Plan-only UI
+
+Status: concluido e validado.
+
+A UI `/admin/local` agora consome `POST /local/plan` e exibe planos seguros sem execucao.
+
+Escopo entregue:
+
+- Card de planejamento seguro no operador local.
+- Exibicao de plano read-only permitido para `phase_a_validation`.
+- Exibicao de plano bloqueado para `git push origin main`.
+- Smoke dedicado `npm run smoke:phase-b-ui`.
+- Smoke consolidado `npm run smoke:phase-b`.
+
+Proxima direcao: permitir entrada controlada de intent/comando na UI para planejamento customizado, mantendo execucao desabilitada.

@@ -34,11 +34,26 @@ interface LocalSearchResult {
   reason?: string
 }
 
+interface LocalPlanResult {
+  ok?: boolean
+  mode?: string
+  executed?: boolean
+  allowed?: boolean
+  risk?: string
+  reason?: string
+  intent?: string
+  commands?: string[]
+  blocked_reasons?: string[]
+  requires_human_confirmation?: boolean
+}
+
 interface LocalSnapshot {
   status: JsonObject | null
   diff: JsonObject | null
   files: LocalFilesResult | null
   search: LocalSearchResult | null
+  phaseAPlan: LocalPlanResult | null
+  blockedPlan: LocalPlanResult | null
 }
 
 function decodeJwtEmail(token: string) {
@@ -56,6 +71,17 @@ function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function RiskBadge({ plan }: { plan: LocalPlanResult | null }) {
+  const risk = plan?.risk || 'unknown'
+  const label = plan?.allowed ? 'permitido para planejar' : risk === 'blocked' ? 'bloqueado' : 'revisão necessária'
+  const className = plan?.allowed
+    ? 'border-emerald-700 bg-emerald-950/50 text-emerald-200'
+    : risk === 'blocked'
+      ? 'border-red-700 bg-red-950/50 text-red-200'
+      : 'border-amber-700 bg-amber-950/50 text-amber-200'
+  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>
+}
+
 export default function AdminLocalReadonlyPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
@@ -65,7 +91,14 @@ export default function AdminLocalReadonlyPage() {
 
   const [googleToken, setGoogleToken] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
-  const [snapshot, setSnapshot] = useState<LocalSnapshot>({ status: null, diff: null, files: null, search: null })
+  const [snapshot, setSnapshot] = useState<LocalSnapshot>({
+    status: null,
+    diff: null,
+    files: null,
+    search: null,
+    phaseAPlan: null,
+    blockedPlan: null,
+  })
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -93,6 +126,27 @@ export default function AdminLocalReadonlyPage() {
     [apiUrl, googleToken],
   )
 
+  const postLocal = useCallback(
+    async <T,>(path: string, body: JsonObject): Promise<T> => {
+      const response = await fetch(`${apiUrl}${path}`, {
+        body: JSON.stringify(body),
+        cache: 'no-store',
+        headers: {
+          Authorization: `Bearer ${googleToken}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const detail = typeof data?.detail === 'string' ? data.detail : `Erro HTTP ${response.status}`
+        throw new Error(detail)
+      }
+      return data as T
+    },
+    [apiUrl, googleToken],
+  )
+
   const carregarLocal = useCallback(async () => {
     if (!googleToken) {
       setErro('Token Google ausente. Volte ao painel principal e autentique primeiro.')
@@ -106,19 +160,21 @@ export default function AdminLocalReadonlyPage() {
     try {
       setLoading(true)
       setErro('')
-      const [status, diff, files, search] = await Promise.all([
+      const [status, diff, files, search, phaseAPlan, blockedPlan] = await Promise.all([
         fetchLocal<JsonObject>('/local/status'),
         fetchLocal<JsonObject>('/local/diff'),
         fetchLocal<LocalFilesResult>('/local/files/list?path=docs%2F&limit=25'),
         fetchLocal<LocalSearchResult>('/local/docs/search?q=HelpUS%20AI&path=docs%2F&limit=10'),
+        postLocal<LocalPlanResult>('/local/plan', { intent: 'phase_a_validation' }),
+        postLocal<LocalPlanResult>('/local/plan', { command: 'git push origin main' }),
       ])
-      setSnapshot({ status, diff, files, search })
+      setSnapshot({ status, diff, files, search, phaseAPlan, blockedPlan })
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Falha ao carregar diagnóstico local read-only.')
     } finally {
       setLoading(false)
     }
-  }, [fetchLocal, googleToken, isAdminAllowed])
+  }, [fetchLocal, googleToken, isAdminAllowed, postLocal])
 
   useEffect(() => {
     if (googleToken) void carregarLocal()
@@ -133,7 +189,7 @@ export default function AdminLocalReadonlyPage() {
               <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">HelpUSAI Admin</p>
               <h1 className="mt-2 text-3xl font-semibold">Operador local read-only</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-                Painel de diagnóstico seguro para consultar status, diff, listagem de documentos e busca local sem executar ações destrutivas.
+                Painel de diagnóstico seguro para consultar status, diff, listagem de documentos, busca local e planos seguros sem executar ações destrutivas.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -161,7 +217,7 @@ export default function AdminLocalReadonlyPage() {
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
               <p className="text-slate-400">Modo</p>
-              <p className="mt-1 font-mono text-emerald-300">read-only</p>
+              <p className="mt-1 font-mono text-emerald-300">read-only + plan-only</p>
             </div>
           </div>
         </header>
@@ -182,6 +238,27 @@ export default function AdminLocalReadonlyPage() {
 
         <section className="grid gap-6 lg:grid-cols-2">
           <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+            <h2 className="text-xl font-semibold">Planejamento seguro</h2>
+            <p className="mt-2 text-sm text-slate-400">Resultado de `POST /local/plan`. Nenhum comando é executado por este painel.</p>
+            <div className="mt-4 grid gap-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold text-slate-100">Plano permitido: phase_a_validation</h3>
+                  <RiskBadge plan={snapshot.phaseAPlan} />
+                </div>
+                <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(snapshot.phaseAPlan)}</pre>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold text-slate-100">Exemplo bloqueado: git push origin main</h3>
+                  <RiskBadge plan={snapshot.blockedPlan} />
+                </div>
+                <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(snapshot.blockedPlan)}</pre>
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
             <h2 className="text-xl font-semibold">Arquivos em docs/</h2>
             <p className="mt-2 text-sm text-slate-400">Resultado de `/local/files/list?path=docs/`.</p>
             <div className="mt-4 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950">
@@ -194,8 +271,10 @@ export default function AdminLocalReadonlyPage() {
               {snapshot.files && !(snapshot.files.files || []).length ? <p className="p-4 text-sm text-slate-400">Nenhum arquivo retornado.</p> : null}
             </div>
           </article>
+        </section>
 
-          <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+        <section className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 lg:col-span-2">
             <h2 className="text-xl font-semibold">Busca em docs/</h2>
             <p className="mt-2 text-sm text-slate-400">Resultado de `/local/docs/search?q=HelpUS AI`.</p>
             <div className="mt-4 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950">

@@ -140,3 +140,29 @@ A Fase B foi iniciada com um endpoint de planejamento seguro que nao executa com
 ### Estado operacional
 
 A AI-HelpUS agora consegue propor planos locais seguros em modo read-only/plan-only, mas ainda nao executa comandos. Isso prepara a ponte entre diagnostico da Fase A e execucao controlada futura.
+
+## Checkpoint: Fase B Plan-only UI
+
+O endpoint `POST /local/plan` agora aparece na UI `/admin/local`.
+
+### UI adicionada
+
+- Secao `Planejamento seguro` no operador local.
+- Plano permitido de exemplo: `phase_a_validation`.
+- Plano bloqueado de exemplo: `git push origin main`.
+- A UI mostra explicitamente que nenhum comando e executado.
+
+### Scripts oficiais
+
+- `npm run smoke:phase-b-ui`
+- `npm run smoke:phase-b`
+
+### Garantias
+
+- UI apenas consulta o planner.
+- Planner continua retornando `executed=false`.
+- Exemplo bloqueado valida visualmente a politica contra comandos destrutivos.
+
+### Proxima direcao
+
+Adicionar campos controlados para o usuario solicitar planos customizados, ainda sem execucao automatica.
