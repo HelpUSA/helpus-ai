@@ -166,3 +166,7 @@ O endpoint `POST /local/plan` agora aparece na UI `/admin/local`.
 ### Proxima direcao
 
 Adicionar campos controlados para o usuario solicitar planos customizados, ainda sem execucao automatica.
+
+## Checkpoint: Fase B Custom Planner Contract
+
+Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execução segue desabilitada.

@@ -140,3 +140,7 @@ Escopo entregue:
 - Smoke consolidado `npm run smoke:phase-b`.
 
 Proxima direcao: permitir entrada controlada de intent/comando na UI para planejamento customizado, mantendo execucao desabilitada.
+
+## Checkpoint: Fase B Custom Planner Contract
+
+Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execução segue desabilitada.

@@ -303,6 +303,14 @@ async def local_plan(request: dict, usuario = Depends(obter_admin_google)):
         from local_safe_plan import plan_local_action
     return plan_local_action(request)
 
+@app.get("/local/plan/intents")
+async def local_plan_intents(usuario = Depends(obter_admin_google)):
+    try:
+        from backend.local_safe_plan import list_local_plan_intents
+    except ModuleNotFoundError:
+        from local_safe_plan import list_local_plan_intents
+    return list_local_plan_intents()
+
 @app.post("/internal/smoke-chat", response_model=InternalSmokeChatResponse)
 async def internal_smoke_chat(
     request: InternalSmokeChatRequest,

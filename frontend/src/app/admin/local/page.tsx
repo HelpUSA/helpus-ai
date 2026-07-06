@@ -99,6 +99,10 @@ export default function AdminLocalReadonlyPage() {
     phaseAPlan: null,
     blockedPlan: null,
   })
+  const [customIntent, setCustomIntent] = useState('phase_b_validation')
+  const [customCommand, setCustomCommand] = useState('git diff --check')
+  const [customPlan, setCustomPlan] = useState<LocalPlanResult | null>(null)
+  const [planning, setPlanning] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -175,6 +179,32 @@ export default function AdminLocalReadonlyPage() {
       setLoading(false)
     }
   }, [fetchLocal, googleToken, isAdminAllowed, postLocal])
+
+  const planejarIntent = useCallback(async () => {
+    try {
+      setPlanning(true)
+      setErro('')
+      const plan = await postLocal<LocalPlanResult>('/local/plan', { intent: customIntent })
+      setCustomPlan(plan)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao planejar intent.')
+    } finally {
+      setPlanning(false)
+    }
+  }, [customIntent, postLocal])
+
+  const planejarComando = useCallback(async () => {
+    try {
+      setPlanning(true)
+      setErro('')
+      const plan = await postLocal<LocalPlanResult>('/local/plan', { command: customCommand })
+      setCustomPlan(plan)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao planejar comando.')
+    } finally {
+      setPlanning(false)
+    }
+  }, [customCommand, postLocal])
 
   useEffect(() => {
     if (googleToken) void carregarLocal()
@@ -269,6 +299,69 @@ export default function AdminLocalReadonlyPage() {
                 </div>
               ))}
               {snapshot.files && !(snapshot.files.files || []).length ? <p className="p-4 text-sm text-slate-400">Nenhum arquivo retornado.</p> : null}
+            </div>
+          </article>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 lg:col-span-2">
+            <h2 className="text-xl font-semibold">Planner customizado</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Teste intents ou comandos contra o contrato plan-only. Endpoint disponível: /local/plan/intents.
+            </p>
+            <div className="mt-4 grid gap-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <label className="grid gap-2 text-sm">
+                <span className="font-semibold text-slate-200">Intent controlada</span>
+                <select
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                  onChange={(event) => setCustomIntent(event.target.value)}
+                  value={customIntent}
+                >
+                  <option value="phase_b_validation">phase_b_validation</option>
+                  <option value="phase_a_validation">phase_a_validation</option>
+                  <option value="local_status">local_status</option>
+                  <option value="local_diff">local_diff</option>
+                  <option value="local_recent_commits">local_recent_commits</option>
+                  <option value="build">build</option>
+                </select>
+              </label>
+              <button
+                className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-950 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={planning}
+                onClick={() => void planejarIntent()}
+                type="button"
+              >
+                Planejar intent sem executar
+              </button>
+              <label className="grid gap-2 text-sm">
+                <span className="font-semibold text-slate-200">Comando para classificar</span>
+                <input
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-slate-100"
+                  maxLength={240}
+                  onChange={(event) => setCustomCommand(event.target.value)}
+                  value={customCommand}
+                />
+              </label>
+              <button
+                className="rounded-lg border border-amber-500 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-950 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={planning}
+                onClick={() => void planejarComando()}
+                type="button"
+              >
+                Classificar comando sem executar
+              </button>
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-400">
+                Contrato: máximo 5 comandos, 240 caracteres por comando, sem chaining, sem deploy, sem git push/commit/add/reset/clean.
+              </div>
+              {customPlan ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-semibold text-slate-100">Resultado customizado</h3>
+                    <RiskBadge plan={customPlan} />
+                  </div>
+                  <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(customPlan)}</pre>
+                </div>
+              ) : null}
             </div>
           </article>
         </section>
