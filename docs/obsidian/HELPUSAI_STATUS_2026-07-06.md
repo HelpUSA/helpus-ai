@@ -201,3 +201,16 @@ Escopo:
 - script `npm run smoke:phase-c-ui`
 
 Invariantes mantidas: proposal_only, executed=false, approved=false e approval_status=pending_human_review.
+
+## Checkpoint: Phase C Executor Absence Guard
+
+Added regression guard to ensure the local audit/proposal layer remains proposal-only and does not introduce command execution or approval endpoints.
+
+Delivered scope:
+
+- `scripts/38_smoke_local_executor_absent.py`
+- `npm run smoke:phase-c-safety`
+- `npm run smoke:phase-c` now includes audit, UI, safety, Phase B, admin, and build validations
+- updated `docs/local-plan-audit.md`
+
+Maintained invariants: no `/local/execute`, no `/local/plan/execute`, no `/local/plan/run`, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.

@@ -31,3 +31,13 @@ The smoke test redirects storage to a temporary file, so validation does not dir
 ## Next gate
 
 Before any execution is introduced, the project should add explicit human approval records, immutable audit entries, proposal-to-approval linking, and keep the executor disabled by default.
+
+## Executor absence guard
+
+The repository includes `scripts/38_smoke_local_executor_absent.py` to prevent accidental introduction of local execution endpoints before the human approval model is designed.
+
+The smoke checks that:
+
+- no `/local/execute`, `/local/commands`, `/local/plan/execute`, `/local/plan/run`, or approval endpoint exists;
+- the audit module does not call `subprocess`, `os.system`, `Popen`, `check_call`, or `check_output`;
+- proposal records keep `executed=false`, `approved=false`, and `approval_status=pending_human_review`.
