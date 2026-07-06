@@ -107,3 +107,36 @@ Este comando valida o conjunto atual da Fase A: API local read-only, painel admi
 ### Uso recomendado
 
 Rodar `npm run smoke:phase-a` antes de qualquer evolucao para Fase B ou antes de diagnosticar regressao no operador local read-only.
+
+## Checkpoint: Fase B Plan-only API
+
+A Fase B foi iniciada com um endpoint de planejamento seguro que nao executa comandos.
+
+### Endpoint adicionado
+
+- `POST /local/plan`
+
+### Garantias
+
+- Modo sempre `plan_only`.
+- Campo `executed` sempre `false`.
+- Comandos destrutivos sao classificados como bloqueados.
+- Comandos fora da allowlist read-only exigem revisao humana.
+- Mesmo planos permitidos exigem confirmacao humana antes de qualquer execucao futura.
+
+### Script oficial
+
+- `npm run smoke:phase-b-plan`
+
+### Validacoes do checkpoint
+
+- `python -m py_compile backend/main.py backend/local_safe_plan.py scripts/35_smoke_local_safe_plan.py`
+- `python scripts/35_smoke_local_safe_plan.py`
+- `npm run smoke:phase-b-plan`
+- `npm run smoke:phase-a`
+- `npm run build`
+- `git diff --check`
+
+### Estado operacional
+
+A AI-HelpUS agora consegue propor planos locais seguros em modo read-only/plan-only, mas ainda nao executa comandos. Isso prepara a ponte entre diagnostico da Fase A e execucao controlada futura.

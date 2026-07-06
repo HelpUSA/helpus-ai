@@ -293,6 +293,16 @@ async def local_docs_search(q: str, path: str = "docs/", limit: int = 50, usuari
     """Search allowlisted local text files with secret/path safeguards."""
     return local_readonly_files.search_text(q, path, limit=limit)
 
+
+@app.post("/local/plan")
+async def local_plan(request: dict, usuario = Depends(obter_admin_google)):
+    """Create a plan-only local action decision. This endpoint never executes commands."""
+    try:
+        from backend.local_safe_plan import plan_local_action
+    except ModuleNotFoundError:
+        from local_safe_plan import plan_local_action
+    return plan_local_action(request)
+
 @app.post("/internal/smoke-chat", response_model=InternalSmokeChatResponse)
 async def internal_smoke_chat(
     request: InternalSmokeChatRequest,

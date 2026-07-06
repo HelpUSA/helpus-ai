@@ -109,3 +109,18 @@ Commit do checkpoint:
 - `c2e1018 test: add phase A validation script`
 
 A partir daqui, a Fase A pode ser tratada como base operacional read-only concluida. A proxima frente recomendada e a Fase B: operador de planejamento seguro, ainda sem execucao automatica.
+
+## Checkpoint 2026-07-06 - Fase B Plan-only API
+
+Status: iniciado e validado.
+
+Foi criada a primeira camada da Fase B: `POST /local/plan`, um endpoint que gera decisoes de planejamento seguro sem executar comandos.
+
+Escopo entregue:
+
+- Planejamento por intent conhecido, como `phase_a_validation`, `local_status`, `local_diff`, `local_api_smoke`, `admin_local_smoke` e `build`.
+- Classificacao de comandos allowlisted read-only.
+- Bloqueio explicito de tokens destrutivos como `git push`, `git commit`, `git reset`, `git clean`, remocoes, deploys e downloads remotos.
+- Smoke oficial: `npm run smoke:phase-b-plan`.
+
+Proxima direcao: expor este planner na UI `/admin/local`, ainda sem botao de execucao.
