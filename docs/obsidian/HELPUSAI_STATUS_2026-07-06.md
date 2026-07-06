@@ -81,3 +81,29 @@ A Fase A tambem ganhou uma interface administrativa isolada para consumir os end
 ### Estado operacional
 
 O operador local read-only agora pode ser acessado pela UI administrativa sem alterar a pagina principal de admin e sem introduzir acoes destrutivas.
+
+## Checkpoint: Validacao Consolidada da Fase A
+
+A Fase A agora possui um comando unico de validacao operacional.
+
+### Script oficial
+
+- `npm run smoke:phase-a`
+
+### O que ele executa
+
+- `npm run smoke:local-api`
+- `npm run smoke:admin-local`
+- `npm run build`
+
+### Commit relacionado
+
+- `c2e1018` - `test: add phase A validation script`
+
+### Estado operacional
+
+Este comando valida o conjunto atual da Fase A: API local read-only, painel admin `/admin/local`, link no `/admin`, smokes dedicados e build Next.js.
+
+### Uso recomendado
+
+Rodar `npm run smoke:phase-a` antes de qualquer evolucao para Fase B ou antes de diagnosticar regressao no operador local read-only.

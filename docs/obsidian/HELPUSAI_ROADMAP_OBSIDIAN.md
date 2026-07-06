@@ -91,3 +91,21 @@ Commits do checkpoint:
 - `97a75a1 test: add admin local readonly smoke script`
 
 Proxima direcao: evoluir do diagnostico read-only para um operador de planejamento seguro, mantendo execucao real separada por gates explicitos.
+
+## Checkpoint 2026-07-06 - Validacao Consolidada da Fase A
+
+Status: concluido e validado.
+
+Foi criado o comando `npm run smoke:phase-a` para validar a Fase A inteira em uma unica execucao.
+
+Composicao do comando:
+
+- `npm run smoke:local-api`
+- `npm run smoke:admin-local`
+- `npm run build`
+
+Commit do checkpoint:
+
+- `c2e1018 test: add phase A validation script`
+
+A partir daqui, a Fase A pode ser tratada como base operacional read-only concluida. A proxima frente recomendada e a Fase B: operador de planejamento seguro, ainda sem execucao automatica.
