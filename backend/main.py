@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
@@ -702,3 +702,20 @@ async def verificar_saude():
         "status": "saudavel",
         "modelo_ok": cerebro is not None
     }
+
+@app.post("/local/plan/proposals")
+async def local_plan_proposal_create(request: dict, usuario = Depends(obter_admin_google)):
+    try:
+        from backend.local_plan_audit import create_local_plan_proposal
+    except ModuleNotFoundError:
+        from local_plan_audit import create_local_plan_proposal
+    return create_local_plan_proposal(request)
+
+
+@app.get("/local/plan/proposals")
+async def local_plan_proposal_list(limit: int = 50, usuario = Depends(obter_admin_google)):
+    try:
+        from backend.local_plan_audit import list_local_plan_proposals
+    except ModuleNotFoundError:
+        from local_plan_audit import list_local_plan_proposals
+    return list_local_plan_proposals(limit)

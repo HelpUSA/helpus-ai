@@ -170,3 +170,19 @@ Adicionar campos controlados para o usuario solicitar planos customizados, ainda
 ## Checkpoint: Fase B Custom Planner Contract
 
 Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execução segue desabilitada.
+
+## Checkpoint: Fase C Audit Proposal Queue
+
+Criada camada de auditoria proposal-only antes de qualquer execução real.
+
+Escopo entregue:
+
+- `backend/local_plan_audit.py`
+- `POST /local/plan/proposals`
+- `GET /local/plan/proposals`
+- `scripts/37_smoke_local_plan_audit.py`
+- `docs/local-plan-audit.md`
+- `npm run smoke:phase-c-audit`
+- `npm run smoke:phase-c`
+
+Invariantes mantidas: `executed=false`, `approved=false`, `approval_status=pending_human_review` e executor ainda inexistente/desabilitado.

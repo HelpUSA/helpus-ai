@@ -17,6 +17,8 @@
     "smoke:phase-a": "npm run smoke:local-api && npm run smoke:admin-local && npm run build",
     "smoke:phase-b-plan": "python scripts/35_smoke_local_safe_plan.py && python scripts/36_smoke_local_plan_contract.py",
     "smoke:phase-b-ui": "python scripts/helpusai/smoke_admin_local_safe_plan_panel.py && python scripts/helpusai/smoke_admin_local_custom_plan_panel.py",
-    "smoke:phase-b": "npm run smoke:phase-b-plan && npm run smoke:phase-b-ui && npm run smoke:admin-local && npm run build"
+    "smoke:phase-b": "npm run smoke:phase-b-plan && npm run smoke:phase-b-ui && npm run smoke:admin-local && npm run build",
+    "smoke:phase-c-audit": "python scripts/37_smoke_local_plan_audit.py",
+    "smoke:phase-c": "npm run smoke:phase-c-audit && npm run smoke:phase-b"
   }
 }
