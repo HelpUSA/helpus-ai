@@ -12,6 +12,7 @@
     "smoke:chat": "node scripts/31_smoke_prod_chat.js",
     "test:fallback": "python scripts/32_test_fallback_order.py",
     "smoke:internal-chat": "node scripts/33_smoke_internal_chat_flow.js",
-    "smoke:local-api": "python scripts/34_smoke_local_readonly_api.py"
+    "smoke:local-api": "python scripts/34_smoke_local_readonly_api.py",
+    "smoke:admin-local": "python scripts/helpusai/smoke_admin_local_readonly_panel.py && python scripts/helpusai/smoke_admin_local_readonly_link.py"
   }
 }
