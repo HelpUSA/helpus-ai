@@ -39,6 +39,31 @@ def main() -> None:
     assert_true(denied_secret_marker["ok"] is False, f"expected api_key marker to be denied: {denied_secret_marker}")
     assert_true(denied_secret_marker["reason"] == "secret_marker_blocked", denied_secret_marker["reason"])
 
+    listed = reader.list_files("docs/", limit=20)
+    assert_true(listed["ok"] is True, f"expected docs listing to be allowed: {listed}")
+    listed_paths = {item["path"] for item in listed["files"]}
+    assert_true("docs/HELPUS_PROJECT_MASTER.md" in listed_paths, f"expected project master in list: {listed_paths}")
+
+    denied_list_root = reader.list_files(".")
+    assert_true(denied_list_root["ok"] is False, f"expected root listing to be denied: {denied_list_root}")
+    assert_true(denied_list_root["reason"] == "path_not_allowed", denied_list_root["reason"])
+
+    denied_list_secret = reader.list_files("docs/api_key_notes")
+    assert_true(denied_list_secret["ok"] is False, f"expected secret marker list to be denied: {denied_list_secret}")
+    assert_true(denied_list_secret["reason"] == "secret_marker_blocked", denied_list_secret["reason"])
+
+    search = reader.search_text("HelpUS AI", "docs/", limit=10)
+    assert_true(search["ok"] is True, f"expected docs search to be allowed: {search}")
+    assert_true(any(match["path"] == "docs/HELPUS_PROJECT_MASTER.md" for match in search["matches"]), f"expected project master match: {search}")
+
+    denied_search = reader.search_text("HelpUS AI", "../outside", limit=10)
+    assert_true(denied_search["ok"] is False, f"expected traversal search to be denied: {denied_search}")
+    assert_true(denied_search["reason"] == "path_traversal_blocked", denied_search["reason"])
+
+    short_search = reader.search_text("H", "docs/", limit=10)
+    assert_true(short_search["ok"] is False, f"expected short query to be denied: {short_search}")
+    assert_true(short_search["reason"] == "query_too_short", short_search["reason"])
+
     repo = LocalRepoStatus(ROOT, timeout_seconds=10)
     status = repo.status()
     assert_true(isinstance(status["ok"], bool), f"status ok should be boolean: {status}")

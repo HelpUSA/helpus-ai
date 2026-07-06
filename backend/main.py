@@ -281,6 +281,18 @@ async def local_files_read(path: str, usuario = Depends(obter_admin_google)):
     """Read an allowlisted local file with secret/path safeguards."""
     return local_readonly_files.read_text(path)
 
+
+@app.get("/local/files/list")
+async def local_files_list(path: str = "docs/", limit: int = 200, usuario = Depends(obter_admin_google)):
+    """List allowlisted local files with secret/path safeguards."""
+    return local_readonly_files.list_files(path, limit=limit)
+
+
+@app.get("/local/docs/search")
+async def local_docs_search(q: str, path: str = "docs/", limit: int = 50, usuario = Depends(obter_admin_google)):
+    """Search allowlisted local text files with secret/path safeguards."""
+    return local_readonly_files.search_text(q, path, limit=limit)
+
 @app.post("/internal/smoke-chat", response_model=InternalSmokeChatResponse)
 async def internal_smoke_chat(
     request: InternalSmokeChatRequest,
