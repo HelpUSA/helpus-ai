@@ -1,4 +1,4 @@
-﻿---
+---
 type: roadmap
 project: HelpUSAI
 area: ai-helpus
@@ -143,11 +143,11 @@ Proxima direcao: permitir entrada controlada de intent/comando na UI para planej
 
 ## Checkpoint: Fase B Custom Planner Contract
 
-Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execução segue desabilitada.
+Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execuÃ§Ã£o segue desabilitada.
 
 ## Checkpoint: Fase C Audit Proposal Queue
 
-Criada camada de auditoria proposal-only antes de qualquer execução real.
+Criada camada de auditoria proposal-only antes de qualquer execuÃ§Ã£o real.
 
 Escopo entregue:
 
@@ -247,3 +247,19 @@ Delivered scope:
 - `npm run smoke:phase-g` chains Phase G, F, E, D, C, B, admin, and build validation
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
+
+## Checkpoint: Phase H Summary UI Contract
+
+Added the read-only proposal summary UI to the admin local panel.
+
+Delivered scope:
+
+- proposalSummary admin state
+- carregarResumoPropostas() read-only fetch helper
+- Carregar resumo auditavel action button
+- Resumo auditavel JSON display block
+- scripts/helpusai/smoke_admin_local_audit_summary_panel.py
+- npm run smoke:phase-h-ui
+- npm run smoke:phase-h chains Phase H, G, F, E, D, C, B, admin, and build validation
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain executed=false and approved=false.

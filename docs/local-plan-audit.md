@@ -1,4 +1,4 @@
-﻿# Local Plan Audit v1
+# Local Plan Audit v1
 
 Status: implemented for HelpUSAI Phase C preparation.
 
@@ -82,3 +82,16 @@ The proposal audit module now exposes a read-only summary helper and API:
 - `npm run smoke:phase-g`
 
 The summary reports counts by intent, creator, approval status, and mode. It also surfaces the latest proposal and record hash without mutating the proposal store or adding any executor or approval path.
+
+## Phase H summary UI contract
+
+The admin local panel now exposes the proposal summary API through a read-only UI block:
+
+- Carregar resumo auditavel
+- Resumo auditavel
+- GET /local/plan/proposals/summary?limit=200
+- scripts/helpusai/smoke_admin_local_audit_summary_panel.py
+- npm run smoke:phase-h-ui
+- npm run smoke:phase-h
+
+The UI only fetches and renders the summary JSON. It does not add any executor, run, command, or approval path.

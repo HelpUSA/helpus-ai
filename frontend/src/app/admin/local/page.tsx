@@ -1,5 +1,7 @@
 'use client'
 
+// Contrato: máximo 5 comandos, 240 caracteres por comando Nenhum comando é executado por este painel.
+
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -107,6 +109,7 @@ export default function AdminLocalReadonlyPage() {
   const [proposalResult, setProposalResult] = useState<unknown>(null)
   const [proposals, setProposals] = useState<unknown>(null)
   const [proposalIntegrity, setProposalIntegrity] = useState<unknown>(null)
+  const [proposalSummary, setProposalSummary] = useState<unknown>(null)
   const [proposalLoading, setProposalLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
@@ -256,6 +259,16 @@ export default function AdminLocalReadonlyPage() {
       setErro(error instanceof Error ? error.message : 'Falha ao verificar integridade das propostas.')
     } finally {
       setProposalLoading(false)
+    }
+  }, [fetchLocal])
+
+  const carregarResumoPropostas = useCallback(async () => {
+    setErro('')
+    try {
+      const summary = await fetchLocal<unknown>('/local/plan/proposals/summary?limit=200')
+      setProposalSummary(summary)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao carregar resumo auditavel.')
     }
   }, [fetchLocal])
 
@@ -450,6 +463,13 @@ export default function AdminLocalReadonlyPage() {
                   Listar propostas auditaveis
                 </button>
                 <button
+                  type="button"
+                  onClick={() => void carregarResumoPropostas()}
+                  className="rounded-md border px-3 py-2 text-sm font-medium"
+                >
+                  Carregar resumo auditavel
+                </button>
+                <button
                   className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-950 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={proposalLoading}
                   onClick={() => void verificarIntegridadePropostas()}
@@ -471,6 +491,14 @@ export default function AdminLocalReadonlyPage() {
                 <h3 className="font-semibold text-slate-100">Resultado da proposta</h3>
                 <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(proposalResult)}</pre>
               </div>
+              {proposalSummary ? (
+                <div>
+                  <h3 className="text-lg font-semibold">Resumo auditavel</h3>
+                  <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200">
+                    {JSON.stringify(proposalSummary, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
               <div>
                 <h3 className="font-semibold text-slate-100">Lista de propostas</h3>
                 <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(proposals)}</pre>
