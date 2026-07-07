@@ -289,3 +289,18 @@ Delivered scope:
 - npm run smoke:phase-h chains Phase H, G, F, E, D, C, B, admin, and build validation
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain executed=false and approved=false.
+
+
+## Checkpoint: Phase I Detail API Contract
+
+Added the read-only proposal detail API for retrieving one stored proposal by `proposal_id`.
+
+Delivered scope:
+
+- `get_local_plan_proposal(proposal_id)` in the audit module
+- `GET /local/plan/proposals/{proposal_id}` in the backend
+- `scripts/42_smoke_local_plan_detail_api_contract.py`
+- `npm run smoke:phase-i-detail-api`
+- `npm run smoke:phase-i` chaining Phase I through Phase H
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and detail lookups do not mutate the proposal store.

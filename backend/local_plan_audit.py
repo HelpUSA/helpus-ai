@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -120,6 +120,27 @@ def list_local_plan_proposals(limit: int = 50) -> dict[str, Any]:
         "proposals": rows,
     }
 
+
+
+def get_local_plan_proposal(proposal_id: str) -> dict[str, Any]:
+    rows = _read_all()
+    normalized_id = str(proposal_id or "")
+    proposal = next(
+        (row for row in reversed(rows) if str(row.get("proposal_id", "")) == normalized_id),
+        None,
+    )
+    return {
+        "ok": True,
+        "mode": "proposal_only",
+        "version": AUDIT_CONTRACT_VERSION,
+        "integrity_version": AUDIT_INTEGRITY_VERSION,
+        "integrity_algorithm": AUDIT_HASH_ALGORITHM,
+        "executed": False,
+        "approved": False,
+        "found": proposal is not None,
+        "proposal_id": normalized_id,
+        "proposal": proposal,
+    }
 
 def summarize_local_plan_proposals(limit: int = MAX_STORED_PROPOSALS) -> dict[str, Any]:
     try:

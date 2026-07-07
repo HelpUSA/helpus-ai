@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
@@ -737,3 +737,8 @@ async def get_local_plan_proposal_integrity():
         from local_plan_audit import verify_local_plan_proposal_integrity
 
     return verify_local_plan_proposal_integrity()
+
+
+@app.get("/local/plan/proposals/{proposal_id}")
+async def local_plan_proposal_detail(proposal_id: str, usuario=Depends(obter_admin_google)):
+    return get_local_plan_proposal(proposal_id)

@@ -31,6 +31,8 @@
     "smoke:phase-g-summary-api": "python scripts/41_smoke_local_plan_summary_api_contract.py",
     "smoke:phase-g": "npm run smoke:phase-g-summary-api && npm run smoke:phase-f",
     "smoke:phase-h-ui": "python scripts/helpusai/smoke_admin_local_audit_summary_panel.py",
-    "smoke:phase-h": "npm run smoke:phase-h-ui && npm run smoke:phase-g"
+    "smoke:phase-h": "npm run smoke:phase-h-ui && npm run smoke:phase-g",
+    "smoke:phase-i-detail-api": "python scripts/42_smoke_local_plan_detail_api_contract.py",
+    "smoke:phase-i": "npm run smoke:phase-i-detail-api && npm run smoke:phase-h"
   }
 }

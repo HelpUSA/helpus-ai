@@ -95,3 +95,16 @@ The admin local panel now exposes the proposal summary API through a read-only U
 - npm run smoke:phase-h
 
 The UI only fetches and renders the summary JSON. It does not add any executor, run, command, or approval path.
+
+
+## Phase I detail API contract
+
+The local proposal audit layer now exposes a read-only detail API for a single stored proposal:
+
+- `GET /local/plan/proposals/{proposal_id}`
+- `get_local_plan_proposal(proposal_id)`
+- `scripts/42_smoke_local_plan_detail_api_contract.py`
+- `npm run smoke:phase-i-detail-api`
+- `npm run smoke:phase-i`
+
+The endpoint only reads the JSONL proposal store and returns `found=true` with the matching proposal or `found=false` with `proposal=null`. It does not add any executor, run, command, mutation, or approval path.
