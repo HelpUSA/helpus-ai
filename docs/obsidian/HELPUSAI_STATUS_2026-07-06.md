@@ -230,3 +230,18 @@ Delivered scope:
 - `npm run smoke:phase-d` chains integrity, Phase C, Phase B, admin, and build validation
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
+
+## Checkpoint: Phase E Audit Integrity UI
+
+Added admin UI visibility for the read-only local plan proposal integrity verifier.
+
+Delivered scope:
+
+- `Verificar integridade auditavel` button in `/admin/local`
+- `Resultado da integridade` JSON panel
+- read-only call to `GET /local/plan/proposals/verify`
+- `scripts/helpusai/smoke_admin_local_audit_integrity_panel.py`
+- `npm run smoke:phase-e-ui`
+- `npm run smoke:phase-e` chains Phase E UI, Phase D, Phase C, Phase B, admin, and build validation
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.

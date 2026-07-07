@@ -106,6 +106,7 @@ export default function AdminLocalReadonlyPage() {
   const [proposalNote, setProposalNote] = useState('phase-c ui proposal')
   const [proposalResult, setProposalResult] = useState<unknown>(null)
   const [proposals, setProposals] = useState<unknown>(null)
+  const [proposalIntegrity, setProposalIntegrity] = useState<unknown>(null)
   const [proposalLoading, setProposalLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
@@ -240,6 +241,19 @@ export default function AdminLocalReadonlyPage() {
       setProposals(proposalList)
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Falha ao listar propostas auditaveis.')
+    } finally {
+      setProposalLoading(false)
+    }
+  }, [fetchLocal])
+
+  const verificarIntegridadePropostas = useCallback(async () => {
+    try {
+      setProposalLoading(true)
+      setErro('')
+      const integrity = await fetchLocal<unknown>('/local/plan/proposals/verify')
+      setProposalIntegrity(integrity)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao verificar integridade das propostas.')
     } finally {
       setProposalLoading(false)
     }
@@ -435,10 +449,24 @@ export default function AdminLocalReadonlyPage() {
                 >
                   Listar propostas auditaveis
                 </button>
+                <button
+                  className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={proposalLoading}
+                  onClick={() => void verificarIntegridadePropostas()}
+                  type="button"
+                >
+                  Verificar integridade auditavel
+                </button>
               </div>
               <p className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-400">
                 proposal_only: executed=false, approved=false, approval_status=pending_human_review.
               </p>
+              <div>
+                <h3 className="font-semibold text-slate-100">Resultado da integridade</h3>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-xl border border-emerald-900 bg-slate-950 p-4 text-xs text-emerald-100">
+                  {proposalIntegrity ? prettyJson(proposalIntegrity) : 'Clique em Verificar integridade auditavel para consultar /local/plan/proposals/verify.'}
+                </pre>
+              </div>
               <div>
                 <h3 className="font-semibold text-slate-100">Resultado da proposta</h3>
                 <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(proposalResult)}</pre>

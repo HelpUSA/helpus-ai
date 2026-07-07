@@ -54,3 +54,9 @@ New proposal records include a canonical SHA-256 integrity envelope:
 The read-only endpoint `GET /local/plan/proposals/verify` verifies stored proposal rows without approving or executing anything. It reports checked rows, legacy rows, and integrity errors.
 
 The integrity layer remains proposal-only. It does not add approval endpoints, execution endpoints, subprocess calls, schedulers, or command runners.
+
+## Phase E admin integrity UI
+
+The admin local read-only panel now exposes the proposal integrity check through a UI action named `Verificar integridade auditavel`.
+
+The UI calls `GET /local/plan/proposals/verify` and displays the JSON result under `Resultado da integridade`. This remains read-only and does not add approval, execution, scheduling, subprocess calls, or command runners.
