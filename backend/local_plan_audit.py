@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -120,6 +120,64 @@ def list_local_plan_proposals(limit: int = 50) -> dict[str, Any]:
         "proposals": rows,
     }
 
+
+def summarize_local_plan_proposals(limit: int = MAX_STORED_PROPOSALS) -> dict[str, Any]:
+    try:
+        safe_limit = int(limit)
+    except (TypeError, ValueError):
+        safe_limit = MAX_STORED_PROPOSALS
+    safe_limit = max(1, min(safe_limit, MAX_STORED_PROPOSALS))
+
+    rows = _read_all()
+    selected = rows[-safe_limit:]
+
+    def bump(bucket: dict[str, int], value: Any) -> None:
+        key = str(value or "unknown")
+        bucket[key] = bucket.get(key, 0) + 1
+
+    by_intent: dict[str, int] = {}
+    by_created_by: dict[str, int] = {}
+    by_approval_status: dict[str, int] = {}
+    by_mode: dict[str, int] = {}
+
+    pending_human_review = 0
+    requires_human_confirmation = 0
+
+    for row in selected:
+        plan = row.get("plan") if isinstance(row.get("plan"), dict) else {}
+        bump(by_intent, plan.get("intent") or row.get("intent"))
+        bump(by_created_by, row.get("created_by"))
+        bump(by_approval_status, row.get("approval_status"))
+        bump(by_mode, row.get("mode"))
+
+        if row.get("approval_status") == "pending_human_review":
+            pending_human_review += 1
+        if row.get("requires_human_confirmation") is True:
+            requires_human_confirmation += 1
+
+    latest = selected[-1] if selected else None
+
+    return {
+        "ok": True,
+        "mode": "proposal_only",
+        "version": AUDIT_CONTRACT_VERSION,
+        "integrity_version": AUDIT_INTEGRITY_VERSION,
+        "integrity_algorithm": AUDIT_HASH_ALGORITHM,
+        "executed": False,
+        "approved": False,
+        "count": len(rows),
+        "summarized": len(selected),
+        "limit": safe_limit,
+        "by_intent": by_intent,
+        "by_created_by": by_created_by,
+        "by_approval_status": by_approval_status,
+        "by_mode": by_mode,
+        "pending_human_review": pending_human_review,
+        "requires_human_confirmation": requires_human_confirmation,
+        "latest_created_at": latest.get("created_at") if latest else None,
+        "latest_proposal_id": latest.get("proposal_id") if latest else None,
+        "latest_record_hash": latest.get("record_hash") if latest else None,
+    }
 
 def verify_local_plan_proposal_integrity() -> dict[str, Any]:
     rows = _read_all()

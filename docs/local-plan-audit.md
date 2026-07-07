@@ -70,3 +70,15 @@ The verify endpoint now has a dedicated regression smoke for its read-only contr
 - `npm run smoke:phase-f`
 
 The smoke guards that `GET /local/plan/proposals/verify` delegates to `verify_local_plan_proposal_integrity`, is not exposed through mutating HTTP methods, returns `proposal_only` integrity data, and does not mutate the local proposal store.
+
+## Phase G summary API contract
+
+The proposal audit module now exposes a read-only summary helper and API:
+
+- `summarize_local_plan_proposals(limit=200)`
+- `GET /local/plan/proposals/summary`
+- `scripts/41_smoke_local_plan_summary_api_contract.py`
+- `npm run smoke:phase-g-summary-api`
+- `npm run smoke:phase-g`
+
+The summary reports counts by intent, creator, approval status, and mode. It also surfaces the latest proposal and record hash without mutating the proposal store or adding any executor or approval path.

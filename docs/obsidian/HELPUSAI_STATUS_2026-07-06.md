@@ -259,3 +259,17 @@ Delivered scope:
 The smoke confirms that the verify endpoint is GET-only, that it delegates to the audit integrity verifier, and that the verifier does not mutate the proposal store.
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
+
+## Checkpoint: Phase G Summary API Contract
+
+Added a read-only proposal summary API contract.
+
+Delivered scope:
+
+- `summarize_local_plan_proposals(limit=200)`
+- `GET /local/plan/proposals/summary`
+- `scripts/41_smoke_local_plan_summary_api_contract.py`
+- `npm run smoke:phase-g-summary-api`
+- `npm run smoke:phase-g` chains Phase G, F, E, D, C, B, admin, and build validation
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
