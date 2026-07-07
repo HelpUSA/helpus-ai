@@ -1,4 +1,4 @@
-# HelpUSAI Status - 2026-07-06
+﻿# HelpUSAI Status - 2026-07-06
 
 ## Checkpoint: Fase A Local Readonly API
 
@@ -169,11 +169,11 @@ Adicionar campos controlados para o usuario solicitar planos customizados, ainda
 
 ## Checkpoint: Fase B Custom Planner Contract
 
-Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execução segue desabilitada.
+Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execuÃ§Ã£o segue desabilitada.
 
 ## Checkpoint: Fase C Audit Proposal Queue
 
-Criada camada de auditoria proposal-only antes de qualquer execução real.
+Criada camada de auditoria proposal-only antes de qualquer execuÃ§Ã£o real.
 
 Escopo entregue:
 
@@ -243,5 +243,19 @@ Delivered scope:
 - `scripts/helpusai/smoke_admin_local_audit_integrity_panel.py`
 - `npm run smoke:phase-e-ui`
 - `npm run smoke:phase-e` chains Phase E UI, Phase D, Phase C, Phase B, admin, and build validation
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
+
+2# Checkpoint: Phase F Verify API Contract
+
+Added a dedicated regression smoke for the read-only verify API contract.
+
+Delivered scope:
+
+- `scripts/40_smoke_local_plan_verify_api_contract.py`
+- `npm run smoke:phase-f-verify-api`
+- `npm run smoke:phase-f` chains Phase F, E, D, C, B, admin, and build validation
+
+The smoke confirms that the verify endpoint is GET-only, that it delegates to the audit integrity verifier, and that the verifier does not mutate the proposal store.
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.

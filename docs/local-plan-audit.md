@@ -1,4 +1,4 @@
-# Local Plan Audit v1
+﻿# Local Plan Audit v1
 
 Status: implemented for HelpUSAI Phase C preparation.
 
@@ -60,3 +60,13 @@ The integrity layer remains proposal-only. It does not add approval endpoints, e
 The admin local read-only panel now exposes the proposal integrity check through a UI action named `Verificar integridade auditavel`.
 
 The UI calls `GET /local/plan/proposals/verify` and displays the JSON result under `Resultado da integridade`. This remains read-only and does not add approval, execution, scheduling, subprocess calls, or command runners.
+
+## Phase F verify API contract
+
+The verify endpoint now has a dedicated regression smoke for its read-only contract:
+
+- `scripts/40_smoke_local_plan_verify_api_contract.py`
+- `npm run smoke:phase-f-verify-api`
+- `npm run smoke:phase-f`
+
+The smoke guards that `GET /local/plan/proposals/verify` delegates to `verify_local_plan_proposal_integrity`, is not exposed through mutating HTTP methods, returns `proposal_only` integrity data, and does not mutate the local proposal store.

@@ -219,3 +219,17 @@ Delivered scope:
 - `npm run smoke:phase-e` chains Phase E UI, Phase D, Phase C, Phase B, admin, and build validation
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.
+
+2# Checkpoint: Phase F Verify API Contract
+
+Added a dedicated regression smoke for the read-only verify API contract.
+
+Delivered scope:
+
+- `scripts/40_smoke_local_plan_verify_api_contract.py`
+- `npm run smoke:phase-f-verify-api`
+- `npm run smoke:phase-f` chains Phase F, E, D, C, B, admin, and build validation
+
+The smoke confirms that the verify endpoint is GET-only, that it delegates to the audit integrity verifier, and that the verifier does not mutate the proposal store.
+
+Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and proposal records remain `executed=false` and `approved=false`.

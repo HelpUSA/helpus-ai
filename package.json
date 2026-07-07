@@ -25,6 +25,8 @@
     "smoke:phase-d-integrity": "python scripts/39_smoke_local_audit_integrity.py",
     "smoke:phase-d": "npm run smoke:phase-d-integrity && npm run smoke:phase-c",
     "smoke:phase-e-ui": "python scripts/helpusai/smoke_admin_local_audit_integrity_panel.py",
-    "smoke:phase-e": "npm run smoke:phase-e-ui && npm run smoke:phase-d"
+    "smoke:phase-e": "npm run smoke:phase-e-ui && npm run smoke:phase-d",
+    "smoke:phase-f-verify-api": "python scripts/40_smoke_local_plan_verify_api_contract.py",
+    "smoke:phase-f": "npm run smoke:phase-f-verify-api && npm run smoke:phase-e"
   }
 }
