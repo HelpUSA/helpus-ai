@@ -367,3 +367,11 @@ Status: implemented.
 - UI `/admin/local` now shows `Checklist GET detalhe auditavel`.
 - The checklist is static/read-only and does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
 - It documents the safe user flow before clicking `Carregar detalhe auditavel`.
+
+## Checkpoint Phase R Detail GET boundary UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `Limite da consulta GET de detalhe`.
+- The boundary is static/read-only and does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
+- It documents that the detail GET lookup happens only via `Carregar detalhe auditavel`.

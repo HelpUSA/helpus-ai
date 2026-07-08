@@ -355,3 +355,13 @@ Deliverables:
 - UI checklist `Checklist GET detalhe auditavel`.
 - Smoke `smoke_admin_local_audit_detail_get_checklist_panel`.
 - Script chain `smoke:phase-q = npm run smoke:phase-q-ui && npm run smoke:phase-p`.
+
+## Phase R Detail GET boundary UI read-only
+
+Goal: make the detail lookup boundary explicit before the user clicks `Carregar detalhe auditavel`.
+
+Deliverables:
+
+- UI guidance `Limite da consulta GET de detalhe`.
+- Smoke `smoke_admin_local_audit_detail_get_boundary_panel`.
+- Script chain `smoke:phase-r = npm run smoke:phase-r-ui && npm run smoke:phase-q`.

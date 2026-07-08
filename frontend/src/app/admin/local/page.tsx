@@ -535,6 +535,14 @@ export default function AdminLocalReadonlyPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">Limite da consulta GET de detalhe</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-400">
+                  <li>Status, normalizacao, codificacao, checklist e preview sao somente leitura.</li>
+                  <li>A consulta GET de detalhe acontece apenas ao clicar em Carregar detalhe auditavel.</li>
+                  <li>Estes blocos nao criam proposta, nao aprovam nada e nao executam comandos.</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
                 <p className="font-semibold text-slate-200">Checklist GET detalhe auditavel</p>
                 <ol className="mt-2 list-decimal space-y-1 pl-4 text-slate-400">
                   <li>Confirme o proposal_id normalizado.</li>

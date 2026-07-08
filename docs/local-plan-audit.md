@@ -203,3 +203,16 @@ Preserved contract:
 - It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-q-ui`.
 - Chain: `npm run smoke:phase-q`.
+
+## Phase R: Detail GET boundary UI read-only
+
+The admin local read-only panel now shows a non-mutating detail GET boundary block labeled `Limite da consulta GET de detalhe`.
+
+Preserved contract:
+
+- The block is static/read-only guidance for the detail lookup flow.
+- It states that status, normalization, encoding, checklist, and preview blocks are read-only.
+- It states that the detail GET lookup happens only when the user clicks `Carregar detalhe auditavel`.
+- It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-r-ui`.
+- Chain: `npm run smoke:phase-r`.
