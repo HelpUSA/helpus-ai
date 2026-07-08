@@ -535,6 +535,18 @@ export default function AdminLocalReadonlyPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">Checklist GET detalhe auditavel</p>
+                <ol className="mt-2 list-decimal space-y-1 pl-4 text-slate-400">
+                  <li>Confirme o proposal_id normalizado.</li>
+                  <li>Confira o proposal_id codificado.</li>
+                  <li>Revise o Preview GET detalhe auditavel.</li>
+                  <li>Clique em Carregar detalhe auditavel somente quando quiser consultar.</li>
+                </ol>
+                <p className="mt-2 text-slate-400">
+                  Checklist read-only: este bloco nao chama API, nao preenche campos e nao executa comandos.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
                 <p className="font-semibold text-slate-200">proposal_id codificado para endpoint de detalhe</p>
                 <p className="mt-1 font-mono text-cyan-200">
                   {proposalDetailId.trim()

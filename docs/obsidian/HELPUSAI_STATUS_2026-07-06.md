@@ -359,3 +359,11 @@ Status: implemented.
 - UI `/admin/local` now shows `proposal_id codificado para endpoint de detalhe`.
 - The encoded value is computed from the manual/detail input state only.
 - It does not call any API, mutate audit records, approve anything, or execute commands.
+
+## Checkpoint Phase Q Detail GET checklist UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `Checklist GET detalhe auditavel`.
+- The checklist is static/read-only and does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
+- It documents the safe user flow before clicking `Carregar detalhe auditavel`.

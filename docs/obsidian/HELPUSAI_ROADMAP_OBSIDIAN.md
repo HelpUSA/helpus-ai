@@ -345,3 +345,13 @@ Deliverables:
 - UI status `proposal_id codificado para endpoint de detalhe`.
 - Smoke `smoke_admin_local_audit_detail_encoded_id_panel`.
 - Script chain `smoke:phase-p = npm run smoke:phase-p-ui && npm run smoke:phase-o`.
+
+## Phase Q Detail GET checklist UI read-only
+
+Goal: make the safe detail lookup sequence explicit before the user clicks `Carregar detalhe auditavel`.
+
+Deliverables:
+
+- UI checklist `Checklist GET detalhe auditavel`.
+- Smoke `smoke_admin_local_audit_detail_get_checklist_panel`.
+- Script chain `smoke:phase-q = npm run smoke:phase-q-ui && npm run smoke:phase-p`.

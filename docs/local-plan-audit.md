@@ -191,3 +191,15 @@ Preserved contract:
 - It does not fetch automatically, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-p-ui`.
 - Chain: `npm run smoke:phase-p`.
+
+## Phase Q: Detail GET checklist UI read-only
+
+The admin local read-only panel now shows a non-mutating detail GET checklist block labeled `Checklist GET detalhe auditavel`.
+
+Preserved contract:
+
+- The checklist is static/read-only guidance for the detail lookup flow.
+- It reminds the user to confirm the normalized proposal id, check the encoded proposal id, review the preview endpoint, and only then click `Carregar detalhe auditavel`.
+- It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-q-ui`.
+- Chain: `npm run smoke:phase-q`.
