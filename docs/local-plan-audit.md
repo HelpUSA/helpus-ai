@@ -136,3 +136,7 @@ Preserved contract:
 - No execution endpoint, approval endpoint, or command runner is added.
 - Smoke: `npm run smoke:phase-k-ui`.
 - Chain: `npm run smoke:phase-k`.
+
+## Phase L: Detected proposal_id hint UI read-only
+
+The admin local read-only panel now shows `proposal_id detectado automaticamente`, derived only from existing UI state with `findProposalId(proposalResult) || findProposalId(proposals)`. It does not fetch, approve, mutate, or execute. Smoke: `npm run smoke:phase-l-ui`; chain: `npm run smoke:phase-l`.

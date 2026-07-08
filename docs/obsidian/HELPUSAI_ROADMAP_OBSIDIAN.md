@@ -301,3 +301,7 @@ Deliverables:
 - Buttons `Preencher id da proposta criada` and `Preencher id da lista`.
 - Smoke `smoke_admin_local_audit_detail_quickfill_panel`.
 - Script `smoke:phase-k = npm run smoke:phase-k-ui && npm run smoke:phase-j`.
+
+## Phase L Detected proposal_id hint UI read-only
+
+Goal: show the proposal id already detectable from created/listed proposal responses. Deliverables: UI hint, smoke script, `smoke:phase-l` chain.

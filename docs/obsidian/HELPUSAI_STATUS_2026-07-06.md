@@ -323,3 +323,7 @@ Status: implemented.
 - Actions `Preencher id da proposta criada` and `Preencher id da lista` only fill the detail input.
 - Detail lookup remains separate in `Carregar detalhe auditavel`, via read-only GET.
 - Contract preserved: no executor, no approval, no execution endpoint.
+
+## Checkpoint Phase L Detected proposal_id hint UI read-only
+
+Status: implemented. The admin local panel shows the detected proposal id from local UI state only, preserving read-only/proposal-only behavior.

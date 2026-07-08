@@ -508,6 +508,15 @@ export default function AdminLocalReadonlyPage() {
                   value={proposalDetailId}
                 />
               </label>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">proposal_id detectado automaticamente</p>
+                <p className="mt-1 font-mono text-cyan-200">
+                  {findProposalId(proposalResult) || findProposalId(proposals) || 'Nenhum proposal_id detectado na proposta criada ou na lista.'}
+                </p>
+                <p className="mt-1 text-slate-400">
+                  Hint read-only: use os botões abaixo para preencher o campo; o detalhe só carrega no botão Carregar detalhe auditavel.
+                </p>
+              </div>
               <div className="flex flex-wrap gap-3">
                 <button
                   className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-950 disabled:cursor-not-allowed disabled:opacity-60"
