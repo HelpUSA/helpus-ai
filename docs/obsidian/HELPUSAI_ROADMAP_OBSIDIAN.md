@@ -375,3 +375,13 @@ Deliverables:
 - UI guide `Guia do resultado do detalhe`.
 - Smoke `smoke_admin_local_audit_detail_result_guide_panel`.
 - Script chain `smoke:phase-r = npm run smoke:phase-r-ui && npm run smoke:phase-q`.
+
+## Phase R Detail GET contract UI read-only
+
+Goal: make the read-only detail lookup contract explicit near the detail result area.
+
+Deliverables:
+
+- UI contract `Contrato GET detalhe auditavel`.
+- Smoke `smoke_admin_local_audit_detail_get_contract_panel`.
+- Script chain `smoke:phase-r = npm run smoke:phase-r-ui && npm run smoke:phase-q`.

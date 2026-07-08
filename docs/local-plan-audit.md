@@ -228,3 +228,16 @@ Preserved contract:
 - It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-r-ui`.
 - Chain: `npm run smoke:phase-r`.
+
+## Phase R: Detail GET contract UI read-only
+
+The admin local read-only panel now shows a non-mutating detail GET contract block labeled `Contrato GET detalhe auditavel`.
+
+Preserved contract:
+
+- The contract block is static/read-only guidance for the detail lookup flow.
+- It documents the allowed endpoint shape as `GET /local/plan/proposals/[proposal_id]`.
+- It states that the lookup is read-only and does not create, approve, or execute proposals.
+- It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-r-ui`.
+- Chain: `npm run smoke:phase-r`.

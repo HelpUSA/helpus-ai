@@ -383,3 +383,11 @@ Status: implemented.
 - UI `/admin/local` now shows `Guia do resultado do detalhe`.
 - The guide explains `found`, `proposal`, and the expectation that `executed` and `approved` remain false.
 - It is static/read-only and does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
+
+## Checkpoint Phase R Detail GET contract UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `Contrato GET detalhe auditavel`.
+- The contract is static/read-only and documents the safe GET detail lookup behavior.
+- It does not call any API, fill fields, approve anything, mutate audit records, or execute commands.

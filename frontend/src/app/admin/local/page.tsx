@@ -577,6 +577,14 @@ export default function AdminLocalReadonlyPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">Contrato GET detalhe auditavel</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-400">
+                  <li>Endpoint permitido: GET /local/plan/proposals/[proposal_id].</li>
+                  <li>Consulta somente leitura: nao cria, nao aprova e nao executa propostas.</li>
+                  <li>Resultado exibido apenas apos clicar em Carregar detalhe auditavel.</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
                 <p className="font-semibold text-slate-200">Preview GET detalhe auditavel</p>
                 <p className="mt-1 font-mono text-emerald-200">
                   {proposalDetailId.trim()

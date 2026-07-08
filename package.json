@@ -50,7 +50,7 @@
     "smoke:phase-p": "npm run smoke:phase-p-ui && npm run smoke:phase-o",
     "smoke:phase-q-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_get_checklist_panel.py",
     "smoke:phase-q": "npm run smoke:phase-q-ui && npm run smoke:phase-p",
-    "smoke:phase-r-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_result_guide_panel.py",
+    "smoke:phase-r-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_get_contract_panel.py",
     "smoke:phase-r": "npm run smoke:phase-r-ui && npm run smoke:phase-q"
   }
 }
