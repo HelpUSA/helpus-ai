@@ -391,3 +391,11 @@ Status: implemented.
 - UI `/admin/local` now shows `Contrato GET detalhe auditavel`.
 - The contract is static/read-only and documents the safe GET detail lookup behavior.
 - It does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
+
+## Checkpoint Phase S Detail safety aggregate smoke
+
+Status: implemented.
+
+- Added `scripts/43_smoke_local_detail_ui_safety_contract.py`.
+- Added `smoke:phase-s-detail-safety` and `smoke:phase-s`.
+- The aggregate safety smoke validates the detail read-only guidance area and guards against unsafe executor/approval patterns.

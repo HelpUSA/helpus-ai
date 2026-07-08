@@ -385,3 +385,13 @@ Deliverables:
 - UI contract `Contrato GET detalhe auditavel`.
 - Smoke `smoke_admin_local_audit_detail_get_contract_panel`.
 - Script chain `smoke:phase-r = npm run smoke:phase-r-ui && npm run smoke:phase-q`.
+
+## Phase S Detail safety aggregate smoke
+
+Goal: add an aggregate safety smoke for the admin local detail lookup guidance surface.
+
+Deliverables:
+
+- Smoke `43_smoke_local_detail_ui_safety_contract.py`.
+- Script chain `smoke:phase-s = npm run smoke:phase-s-detail-safety && npm run smoke:phase-r`.
+- Documentation checkpoint for the detail read-only safety contract.

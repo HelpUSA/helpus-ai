@@ -241,3 +241,15 @@ Preserved contract:
 - It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-r-ui`.
 - Chain: `npm run smoke:phase-r`.
+
+## Phase S: Detail safety aggregate smoke
+
+The local admin audit panel now has an aggregate safety smoke for the detail lookup guidance surface.
+
+Preserved contract:
+
+- Smoke: `python scripts/43_smoke_local_detail_ui_safety_contract.py`.
+- Chain: `npm run smoke:phase-s`.
+- The smoke verifies the detail read-only guidance markers from phases J through R.
+- It checks the guidance blocks remain free of proposal execution, approval, unsafe local command endpoints, automatic POSTs, and field mutations.
+- It does not add any endpoint, executor, approval path, or automatic detail fetch.
