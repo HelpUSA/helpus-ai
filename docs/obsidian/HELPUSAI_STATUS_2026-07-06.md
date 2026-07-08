@@ -304,3 +304,13 @@ Delivered scope:
 - `npm run smoke:phase-i` chaining Phase I through Phase H
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and detail lookups do not mutate the proposal store.
+
+## Checkpoint Phase J Detail UI read-only
+
+Status: implementado.
+
+- UI `/admin/local` ganhou campo `proposal_id para detalhe auditavel`.
+- Botao `Carregar detalhe auditavel` consulta `GET /local/plan/proposals/{proposal_id}`.
+- Resultado exibido no bloco `Detalhe da proposta`.
+- Contrato mantido: read-only/proposal-only, sem approval, sem executor.
+- Validacao planejada: `npm run smoke:phase-j`.

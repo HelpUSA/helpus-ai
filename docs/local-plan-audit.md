@@ -108,3 +108,17 @@ The local proposal audit layer now exposes a read-only detail API for a single s
 - `npm run smoke:phase-i`
 
 The endpoint only reads the JSONL proposal store and returns `found=true` with the matching proposal or `found=false` with `proposal=null`. It does not add any executor, run, command, mutation, or approval path.
+
+## Phase J: Detail UI read-only
+
+A UI administrativa em `/admin/local` agora consegue consultar uma proposta auditavel especifica em modo read-only.
+
+Contrato preservado:
+
+- Campo `proposal_id para detalhe auditavel`.
+- Botao `Carregar detalhe auditavel`.
+- Chamada GET para `/local/plan/proposals/{proposal_id}`.
+- Bloco `Detalhe da proposta` para exibir o JSON retornado.
+- Sem executar comando, aprovar proposta ou criar endpoint de execucao.
+- Smoke: `npm run smoke:phase-j-ui`.
+- Cadeia: `npm run smoke:phase-j`.

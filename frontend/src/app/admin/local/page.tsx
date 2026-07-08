@@ -110,6 +110,8 @@ export default function AdminLocalReadonlyPage() {
   const [proposals, setProposals] = useState<unknown>(null)
   const [proposalIntegrity, setProposalIntegrity] = useState<unknown>(null)
   const [proposalSummary, setProposalSummary] = useState<unknown>(null)
+  const [proposalDetailId, setProposalDetailId] = useState('')
+  const [proposalDetail, setProposalDetail] = useState<unknown>(null)
   const [proposalLoading, setProposalLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
@@ -271,6 +273,24 @@ export default function AdminLocalReadonlyPage() {
       setErro(error instanceof Error ? error.message : 'Falha ao carregar resumo auditavel.')
     }
   }, [fetchLocal])
+
+  const carregarDetalheProposta = useCallback(async () => {
+    const normalized = proposalDetailId.trim()
+    if (!normalized) {
+      setErro('Informe um proposal_id para carregar detalhe auditavel.')
+      return
+    }
+    try {
+      setProposalLoading(true)
+      setErro('')
+      const detail = await fetchLocal<unknown>(`/local/plan/proposals/${encodeURIComponent(normalized)}`)
+      setProposalDetail(detail)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Falha ao carregar detalhe auditavel.')
+    } finally {
+      setProposalLoading(false)
+    }
+  }, [fetchLocal, proposalDetailId])
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-8 text-slate-100">
@@ -445,6 +465,16 @@ export default function AdminLocalReadonlyPage() {
                   value={proposalNote}
                 />
               </label>
+              <label className="grid gap-2 text-sm">
+                <span className="font-semibold text-slate-200">proposal_id para detalhe auditavel</span>
+                <input
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-slate-100"
+                  maxLength={120}
+                  onChange={(event) => setProposalDetailId(event.target.value)}
+                  placeholder="Cole o proposal_id"
+                  value={proposalDetailId}
+                />
+              </label>
               <div className="flex flex-wrap gap-3">
                 <button
                   className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-950 disabled:cursor-not-allowed disabled:opacity-60"
@@ -461,6 +491,14 @@ export default function AdminLocalReadonlyPage() {
                   type="button"
                 >
                   Listar propostas auditaveis
+                </button>
+                <button
+                  className="rounded-lg border border-sky-500 px-4 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={proposalLoading || !proposalDetailId.trim()}
+                  onClick={() => void carregarDetalheProposta()}
+                  type="button"
+                >
+                  Carregar detalhe auditavel
                 </button>
                 <button
                   type="button"
@@ -502,6 +540,13 @@ export default function AdminLocalReadonlyPage() {
               <div>
                 <h3 className="font-semibold text-slate-100">Lista de propostas</h3>
                 <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">{prettyJson(proposals)}</pre>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-100">Detalhe da proposta</h3>
+                <p className="mt-1 text-xs text-slate-400">{'GET /local/plan/proposals/{proposal_id}'}</p>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-5 text-slate-200">
+                  {proposalDetail ? prettyJson(proposalDetail) : 'Informe proposal_id e clique em Carregar detalhe auditavel.'}
+                </pre>
               </div>
             </div>
           </article>

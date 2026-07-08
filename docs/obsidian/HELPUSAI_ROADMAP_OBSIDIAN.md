@@ -278,3 +278,14 @@ Delivered scope:
 - `npm run smoke:phase-i` chaining Phase I through Phase H
 
 Maintained invariants: no local execution endpoint, no approval endpoint, no subprocess execution in the audit module, and detail lookups do not mutate the proposal store.
+
+## Phase J Detail UI read-only
+
+Objetivo: permitir que o painel admin visualize o detalhe de uma proposta auditavel por `proposal_id`.
+
+Entregaveis:
+
+- Estado de UI para `proposalDetailId` e `proposalDetail`.
+- Acao `carregarDetalheProposta` usando GET read-only.
+- Marcadores de UI e smoke `smoke_admin_local_audit_detail_panel`.
+- Script agregado `smoke:phase-j = npm run smoke:phase-j-ui && npm run smoke:phase-i`.
