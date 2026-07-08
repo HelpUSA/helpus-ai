@@ -325,3 +325,13 @@ Deliverables:
 - UI status `Status do proposal_id para detalhe`.
 - Smoke `smoke_admin_local_audit_detail_id_status_panel`.
 - Script chain `smoke:phase-n = npm run smoke:phase-n-ui && npm run smoke:phase-m`.
+
+## Phase O Detail normalized proposal_id UI read-only
+
+Goal: make the exact normalized detail id visible before the user clicks `Carregar detalhe auditavel`.
+
+Deliverables:
+
+- UI status `proposal_id normalizado para detalhe`.
+- Smoke `smoke_admin_local_audit_detail_normalized_id_panel`.
+- Script chain `smoke:phase-o = npm run smoke:phase-o-ui && npm run smoke:phase-n`.
