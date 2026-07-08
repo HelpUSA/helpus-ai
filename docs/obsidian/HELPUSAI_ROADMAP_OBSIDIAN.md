@@ -305,3 +305,13 @@ Deliverables:
 ## Phase L Detected proposal_id hint UI read-only
 
 Goal: show the proposal id already detectable from created/listed proposal responses. Deliverables: UI hint, smoke script, `smoke:phase-l` chain.
+
+## Phase M Endpoint preview UI read-only
+
+Goal: show the exact GET detail endpoint before the user clicks `Carregar detalhe auditavel`.
+
+Deliverables:
+
+- UI preview `Preview GET detalhe auditavel`.
+- Smoke `smoke_admin_local_audit_detail_endpoint_preview_panel`.
+- Script chain `smoke:phase-m = npm run smoke:phase-m-ui && npm run smoke:phase-l`.

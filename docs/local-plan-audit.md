@@ -140,3 +140,16 @@ Preserved contract:
 ## Phase L: Detected proposal_id hint UI read-only
 
 The admin local read-only panel now shows `proposal_id detectado automaticamente`, derived only from existing UI state with `findProposalId(proposalResult) || findProposalId(proposals)`. It does not fetch, approve, mutate, or execute. Smoke: `npm run smoke:phase-l-ui`; chain: `npm run smoke:phase-l`.
+
+## Phase M: Endpoint preview UI read-only
+
+The admin local read-only panel now shows a non-mutating detail endpoint preview labeled `Preview GET detalhe auditavel`.
+
+Preserved contract:
+
+- The preview derives only from `proposalDetailId.trim()`.
+- It renders `/local/plan/proposals/{proposal_id}` until an id is present.
+- When an id is present, it renders `/local/plan/proposals/${encodeURIComponent(proposalDetailId.trim())}`.
+- It does not fetch automatically, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-m-ui`.
+- Chain: `npm run smoke:phase-m`.

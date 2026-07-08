@@ -327,3 +327,11 @@ Status: implemented.
 ## Checkpoint Phase L Detected proposal_id hint UI read-only
 
 Status: implemented. The admin local panel shows the detected proposal id from local UI state only, preserving read-only/proposal-only behavior.
+
+## Checkpoint Phase M Endpoint preview UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `Preview GET detalhe auditavel`.
+- The preview is computed from the manual/detail input state only.
+- It does not call any API, mutate audit records, approve anything, or execute commands.
