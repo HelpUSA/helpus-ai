@@ -535,6 +535,17 @@ export default function AdminLocalReadonlyPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">proposal_id codificado para endpoint de detalhe</p>
+                <p className="mt-1 font-mono text-cyan-200">
+                  {proposalDetailId.trim()
+                    ? encodeURIComponent(proposalDetailId.trim())
+                    : 'Nenhum proposal_id para codificar.'}
+                </p>
+                <p className="mt-1 text-slate-400">
+                  Valor read-only: apenas mostra a codificacao que sera usada no Preview GET detalhe auditavel.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
                 <p className="font-semibold text-slate-200">Preview GET detalhe auditavel</p>
                 <p className="mt-1 font-mono text-emerald-200">
                   {proposalDetailId.trim()

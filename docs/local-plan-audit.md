@@ -178,3 +178,16 @@ Preserved contract:
 - It does not fetch automatically, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-o-ui`.
 - Chain: `npm run smoke:phase-o`.
+
+## Phase P: Detail encoded proposal_id UI read-only
+
+The admin local read-only panel now shows a non-mutating encoded detail id block labeled `proposal_id codificado para endpoint de detalhe`.
+
+Preserved contract:
+
+- The encoded value reads only from `proposalDetailId.trim()`.
+- It shows `Nenhum proposal_id para codificar.` while the detail id field is empty.
+- It uses `encodeURIComponent(proposalDetailId.trim())` only for display.
+- It does not fetch automatically, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-p-ui`.
+- Chain: `npm run smoke:phase-p`.

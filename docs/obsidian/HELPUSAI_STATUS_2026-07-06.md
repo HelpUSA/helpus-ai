@@ -351,3 +351,11 @@ Status: implemented.
 - UI `/admin/local` now shows `proposal_id normalizado para detalhe`.
 - The normalized value is computed from the manual/detail input state only.
 - It does not call any API, mutate audit records, approve anything, or execute commands.
+
+## Checkpoint Phase P Detail encoded proposal_id UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `proposal_id codificado para endpoint de detalhe`.
+- The encoded value is computed from the manual/detail input state only.
+- It does not call any API, mutate audit records, approve anything, or execute commands.

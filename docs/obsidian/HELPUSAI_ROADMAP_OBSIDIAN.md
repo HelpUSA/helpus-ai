@@ -335,3 +335,13 @@ Deliverables:
 - UI status `proposal_id normalizado para detalhe`.
 - Smoke `smoke_admin_local_audit_detail_normalized_id_panel`.
 - Script chain `smoke:phase-o = npm run smoke:phase-o-ui && npm run smoke:phase-n`.
+
+## Phase P Detail encoded proposal_id UI read-only
+
+Goal: make the encoded detail id visible before the user clicks `Carregar detalhe auditavel`.
+
+Deliverables:
+
+- UI status `proposal_id codificado para endpoint de detalhe`.
+- Smoke `smoke_admin_local_audit_detail_encoded_id_panel`.
+- Script chain `smoke:phase-p = npm run smoke:phase-p-ui && npm run smoke:phase-o`.
