@@ -73,6 +73,29 @@ function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function findProposalId(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  const record = value as Record<string, unknown>
+  const direct = record.proposal_id
+  if (typeof direct === 'string' && direct.trim()) return direct
+
+  const proposal = record.proposal
+  if (proposal && typeof proposal === 'object') {
+    const nested = (proposal as Record<string, unknown>).proposal_id
+    if (typeof nested === 'string' && nested.trim()) return nested
+  }
+
+  const proposals = record.proposals
+  if (Array.isArray(proposals)) {
+    for (const item of proposals) {
+      const candidate = findProposalId(item)
+      if (candidate) return candidate
+    }
+  }
+
+  return ''
+}
+
 function RiskBadge({ plan }: { plan: LocalPlanResult | null }) {
   const risk = plan?.risk || 'unknown'
   const label = plan?.allowed ? 'permitido para planejar' : risk === 'blocked' ? 'bloqueado' : 'revisão necessária'
@@ -273,6 +296,16 @@ export default function AdminLocalReadonlyPage() {
       setErro(error instanceof Error ? error.message : 'Falha ao carregar resumo auditavel.')
     }
   }, [fetchLocal])
+
+  const usarPropostaIdAuditavel = useCallback((source: unknown) => {
+    const id = findProposalId(source)
+    if (!id) {
+      setErro('Nenhum proposal_id encontrado para preencher o detalhe auditavel.')
+      return
+    }
+    setProposalDetailId(id)
+    setErro('')
+  }, [])
 
   const carregarDetalheProposta = useCallback(async () => {
     const normalized = proposalDetailId.trim()
@@ -491,6 +524,22 @@ export default function AdminLocalReadonlyPage() {
                   type="button"
                 >
                   Listar propostas auditaveis
+                </button>
+                <button
+                  className="rounded-lg border border-indigo-500 px-4 py-2 text-sm font-semibold text-indigo-100 hover:bg-indigo-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={proposalLoading || !findProposalId(proposalResult)}
+                  onClick={() => usarPropostaIdAuditavel(proposalResult)}
+                  type="button"
+                >
+                  Preencher id da proposta criada
+                </button>
+                <button
+                  className="rounded-lg border border-indigo-500 px-4 py-2 text-sm font-semibold text-indigo-100 hover:bg-indigo-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={proposalLoading || !findProposalId(proposals)}
+                  onClick={() => usarPropostaIdAuditavel(proposals)}
+                  type="button"
+                >
+                  Preencher id da lista
                 </button>
                 <button
                   className="rounded-lg border border-sky-500 px-4 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-950 disabled:cursor-not-allowed disabled:opacity-60"

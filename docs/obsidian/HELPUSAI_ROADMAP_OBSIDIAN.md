@@ -289,3 +289,15 @@ Entregaveis:
 - Acao `carregarDetalheProposta` usando GET read-only.
 - Marcadores de UI e smoke `smoke_admin_local_audit_detail_panel`.
 - Script agregado `smoke:phase-j = npm run smoke:phase-j-ui && npm run smoke:phase-i`.
+
+## Phase K Detail quick-fill UI read-only
+
+Goal: reduce friction when viewing auditable proposal details in the admin panel.
+
+Deliverables:
+
+- UI helper `findProposalId`.
+- Action `usarPropostaIdAuditavel` that only fills the detail field.
+- Buttons `Preencher id da proposta criada` and `Preencher id da lista`.
+- Smoke `smoke_admin_local_audit_detail_quickfill_panel`.
+- Script `smoke:phase-k = npm run smoke:phase-k-ui && npm run smoke:phase-j`.

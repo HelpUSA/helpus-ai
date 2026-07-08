@@ -314,3 +314,12 @@ Status: implementado.
 - Resultado exibido no bloco `Detalhe da proposta`.
 - Contrato mantido: read-only/proposal-only, sem approval, sem executor.
 - Validacao planejada: `npm run smoke:phase-j`.
+
+## Checkpoint Phase K Detail quick-fill UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` gained helper `findProposalId` to extract `proposal_id` from created/listed proposal responses.
+- Actions `Preencher id da proposta criada` and `Preencher id da lista` only fill the detail input.
+- Detail lookup remains separate in `Carregar detalhe auditavel`, via read-only GET.
+- Contract preserved: no executor, no approval, no execution endpoint.

@@ -122,3 +122,17 @@ Contrato preservado:
 - Sem executar comando, aprovar proposta ou criar endpoint de execucao.
 - Smoke: `npm run smoke:phase-j-ui`.
 - Cadeia: `npm run smoke:phase-j`.
+
+## Phase K: Detail quick-fill UI read-only
+
+The admin local read-only panel now includes a convenience layer for proposal detail lookup.
+
+Preserved contract:
+
+- Button `Preencher id da proposta criada` extracts `proposal_id` from the last created proposal response.
+- Button `Preencher id da lista` extracts `proposal_id` from the listed proposals response.
+- Both actions only fill the existing `proposal_id para detalhe auditavel` input.
+- The existing `Carregar detalhe auditavel` action remains the only detail fetch and uses GET `/local/plan/proposals/{proposal_id}`.
+- No execution endpoint, approval endpoint, or command runner is added.
+- Smoke: `npm run smoke:phase-k-ui`.
+- Chain: `npm run smoke:phase-k`.
