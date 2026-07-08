@@ -315,3 +315,13 @@ Deliverables:
 - UI preview `Preview GET detalhe auditavel`.
 - Smoke `smoke_admin_local_audit_detail_endpoint_preview_panel`.
 - Script chain `smoke:phase-m = npm run smoke:phase-m-ui && npm run smoke:phase-l`.
+
+## Phase N Detail proposal_id status UI read-only
+
+Goal: make detail lookup readiness explicit before the user clicks `Carregar detalhe auditavel`.
+
+Deliverables:
+
+- UI status `Status do proposal_id para detalhe`.
+- Smoke `smoke_admin_local_audit_detail_id_status_panel`.
+- Script chain `smoke:phase-n = npm run smoke:phase-n-ui && npm run smoke:phase-m`.

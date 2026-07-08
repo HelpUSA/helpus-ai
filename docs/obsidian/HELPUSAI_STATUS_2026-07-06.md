@@ -335,3 +335,11 @@ Status: implemented.
 - UI `/admin/local` now shows `Preview GET detalhe auditavel`.
 - The preview is computed from the manual/detail input state only.
 - It does not call any API, mutate audit records, approve anything, or execute commands.
+
+## Checkpoint Phase N Detail proposal_id status UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `Status do proposal_id para detalhe`.
+- The status is computed from the manual/detail input state only.
+- It does not call any API, mutate audit records, approve anything, or execute commands.

@@ -153,3 +153,16 @@ Preserved contract:
 - It does not fetch automatically, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-m-ui`.
 - Chain: `npm run smoke:phase-m`.
+
+## Phase N: Detail proposal_id status UI read-only
+
+The admin local read-only panel now shows a non-mutating detail id status block labeled `Status do proposal_id para detalhe`.
+
+Preserved contract:
+
+- The status reads only from `proposalDetailId.trim()`.
+- It shows `Pronto para consulta GET read-only.` when an id is present.
+- It shows `Informe ou preencha um proposal_id antes de carregar o detalhe.` when the field is empty.
+- It does not fetch automatically, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-n-ui`.
+- Chain: `npm run smoke:phase-n`.

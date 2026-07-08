@@ -518,6 +518,14 @@ export default function AdminLocalReadonlyPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">Status do proposal_id para detalhe</p>
+                <p className="mt-1 text-slate-400">
+                  {proposalDetailId.trim()
+                    ? 'Pronto para consulta GET read-only.'
+                    : 'Informe ou preencha um proposal_id antes de carregar o detalhe.'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
                 <p className="font-semibold text-slate-200">Preview GET detalhe auditavel</p>
                 <p className="mt-1 font-mono text-emerald-200">
                   {proposalDetailId.trim()

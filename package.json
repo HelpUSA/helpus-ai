@@ -41,6 +41,8 @@
     "smoke:phase-l-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_detected_id_panel.py",
     "smoke:phase-l": "npm run smoke:phase-l-ui && npm run smoke:phase-k",
     "smoke:phase-m-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_endpoint_preview_panel.py",
-    "smoke:phase-m": "npm run smoke:phase-m-ui && npm run smoke:phase-l"
+    "smoke:phase-m": "npm run smoke:phase-m-ui && npm run smoke:phase-l",
+    "smoke:phase-n-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_id_status_panel.py",
+    "smoke:phase-n": "npm run smoke:phase-n-ui && npm run smoke:phase-m"
   }
 }
