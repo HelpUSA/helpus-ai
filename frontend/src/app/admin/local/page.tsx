@@ -566,6 +566,17 @@ export default function AdminLocalReadonlyPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">Guia do resultado do detalhe</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-400">
+                  <li><span className="font-mono text-slate-300">found</span>: indica se o proposal_id foi localizado.</li>
+                  <li><span className="font-mono text-slate-300">proposal</span>: mostra o registro auditavel retornado pelo GET.</li>
+                  <li><span className="font-mono text-slate-300">executed</span> e <span className="font-mono text-slate-300">approved</span>: devem permanecer false.</li>
+                </ul>
+                <p className="mt-2 text-slate-400">
+                  Guia read-only: este bloco apenas explica o resultado carregado e nao chama API, aprova ou executa comandos.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
                 <p className="font-semibold text-slate-200">Preview GET detalhe auditavel</p>
                 <p className="mt-1 font-mono text-emerald-200">
                   {proposalDetailId.trim()

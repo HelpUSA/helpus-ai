@@ -365,3 +365,13 @@ Deliverables:
 - UI guidance `Limite da consulta GET de detalhe`.
 - Smoke `smoke_admin_local_audit_detail_get_boundary_panel`.
 - Script chain `smoke:phase-r = npm run smoke:phase-r-ui && npm run smoke:phase-q`.
+
+## Phase R Detail result guide UI read-only
+
+Goal: make interpretation of the detail lookup result explicit while preserving the no-executor, no-approval contract.
+
+Deliverables:
+
+- UI guide `Guia do resultado do detalhe`.
+- Smoke `smoke_admin_local_audit_detail_result_guide_panel`.
+- Script chain `smoke:phase-r = npm run smoke:phase-r-ui && npm run smoke:phase-q`.

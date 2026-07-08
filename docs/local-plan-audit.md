@@ -216,3 +216,15 @@ Preserved contract:
 - It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
 - Smoke: `npm run smoke:phase-r-ui`.
 - Chain: `npm run smoke:phase-r`.
+
+## Phase R: Detail result guide UI read-only
+
+The admin local read-only panel now shows a non-mutating result guide block labeled `Guia do resultado do detalhe`.
+
+Preserved contract:
+
+- The guide is static/read-only guidance for interpreting detail lookup results.
+- It explains `found`, `proposal`, and the safety expectation that `executed` and `approved` remain false.
+- It does not fetch automatically, fill fields, create proposals, approve proposals, mutate audit records, or execute commands.
+- Smoke: `npm run smoke:phase-r-ui`.
+- Chain: `npm run smoke:phase-r`.

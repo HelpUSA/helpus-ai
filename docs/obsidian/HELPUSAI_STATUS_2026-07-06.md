@@ -375,3 +375,11 @@ Status: implemented.
 - UI `/admin/local` now shows `Limite da consulta GET de detalhe`.
 - The boundary is static/read-only and does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
 - It documents that the detail GET lookup happens only via `Carregar detalhe auditavel`.
+
+## Checkpoint Phase R Detail result guide UI read-only
+
+Status: implemented.
+
+- UI `/admin/local` now shows `Guia do resultado do detalhe`.
+- The guide explains `found`, `proposal`, and the expectation that `executed` and `approved` remain false.
+- It is static/read-only and does not call any API, fill fields, approve anything, mutate audit records, or execute commands.
