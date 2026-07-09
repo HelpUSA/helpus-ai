@@ -253,3 +253,15 @@ Preserved contract:
 - The smoke verifies the detail read-only guidance markers from phases J through R.
 - It checks the guidance blocks remain free of proposal execution, approval, unsafe local command endpoints, automatic POSTs, and field mutations.
 - It does not add any endpoint, executor, approval path, or automatic detail fetch.
+
+## Phase T: Detail safety smoke alias
+
+The local admin audit detail safety checks now have a direct smoke alias named `smoke:local-detail-safety`.
+
+Preserved contract:
+
+- Alias: `npm run smoke:local-detail-safety`.
+- The alias runs the aggregate detail UI safety contract plus the executor absence guard.
+- Phase chain: `npm run smoke:phase-t`.
+- Validation smoke: `python scripts/44_smoke_local_detail_safety_alias.py`.
+- It does not add any endpoint, executor, approval path, or automatic detail fetch.

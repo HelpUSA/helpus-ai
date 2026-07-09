@@ -395,3 +395,13 @@ Deliverables:
 - Smoke `43_smoke_local_detail_ui_safety_contract.py`.
 - Script chain `smoke:phase-s = npm run smoke:phase-s-detail-safety && npm run smoke:phase-r`.
 - Documentation checkpoint for the detail read-only safety contract.
+
+## Phase T Detail safety smoke alias
+
+Goal: provide a stable, direct smoke alias for the admin local detail read-only safety checks.
+
+Deliverables:
+
+- Script alias `smoke:local-detail-safety`.
+- Smoke `44_smoke_local_detail_safety_alias.py`.
+- Script chain `smoke:phase-t = npm run smoke:phase-t-alias && npm run smoke:local-detail-safety && npm run smoke:phase-s`.

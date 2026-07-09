@@ -399,3 +399,12 @@ Status: implemented.
 - Added `scripts/43_smoke_local_detail_ui_safety_contract.py`.
 - Added `smoke:phase-s-detail-safety` and `smoke:phase-s`.
 - The aggregate safety smoke validates the detail read-only guidance area and guards against unsafe executor/approval patterns.
+
+## Checkpoint Phase T Detail safety smoke alias
+
+Status: implemented.
+
+- Added `smoke:local-detail-safety`.
+- Added `smoke:phase-t-alias` and `smoke:phase-t`.
+- Added `scripts/44_smoke_local_detail_safety_alias.py`.
+- The alias combines the aggregate detail safety contract with the executor absence guard.

@@ -53,6 +53,9 @@
     "smoke:phase-r-ui": "python scripts/helpusai/smoke_admin_local_audit_detail_get_contract_panel.py",
     "smoke:phase-r": "npm run smoke:phase-r-ui && npm run smoke:phase-q",
     "smoke:phase-s-detail-safety": "python scripts/43_smoke_local_detail_ui_safety_contract.py",
-    "smoke:phase-s": "npm run smoke:phase-s-detail-safety && npm run smoke:phase-r"
+    "smoke:phase-s": "npm run smoke:phase-s-detail-safety && npm run smoke:phase-r",
+    "smoke:local-detail-safety": "npm run smoke:phase-s-detail-safety && python scripts/38_smoke_local_executor_absent.py",
+    "smoke:phase-t-alias": "python scripts/44_smoke_local_detail_safety_alias.py",
+    "smoke:phase-t": "npm run smoke:phase-t-alias && npm run smoke:local-detail-safety && npm run smoke:phase-s"
   }
 }
