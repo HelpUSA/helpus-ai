@@ -417,3 +417,19 @@ Status: implemented.
 - Added `smoke:phase-u-index` and `smoke:phase-u`.
 - Added `scripts/45_smoke_local_audit_safety_index.py`.
 - The index validates Phase T aliases, detail read-only safety markers, docs markers, and executor absence guard coverage.
+
+## Checkpoint docs AI capabilities and next steps
+
+Status: implemented.
+
+Added `docs/ai/CAPABILITIES_AND_NEXT_STEPS.md` with:
+
+- current AI capabilities;
+- current Phase U safety baseline;
+- validated smoke markers;
+- validated npm aliases;
+- recommended next phases V through Z.
+
+Current baseline remains `076c495 test: add local audit safety index`.
+
+Primary safety command: `npm run smoke:local-audit-safety`.

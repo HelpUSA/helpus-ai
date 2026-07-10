@@ -277,3 +277,22 @@ Preserved contract:
 - Validation smoke: `python scripts/45_smoke_local_audit_safety_index.py`.
 - The index validates the Phase T detail safety alias, the aggregate detail UI safety contract, and the executor absence guard.
 - It does not add any endpoint, executor, approval path, or automatic detail fetch.
+
+## AI capability summary after Phase U
+
+Phase U is the current validated baseline for local audit safety.
+
+Current validated commit: `076c495 test: add local audit safety index`.
+
+Current safety aliases:
+
+- `npm run smoke:local-audit-safety`
+- `npm run smoke:local-detail-safety`
+- `npm run smoke:phase-u`
+- `npm run smoke:phase-t`
+
+The local AI workflow can assist with status review, diff review, file inspection, documentation search, proposal summaries, proposal details, local admin audit review, smoke validation, and explicit gateway-assisted patch workflows.
+
+The app-level local workflow remains read-only, proposal-oriented, non-executing, and non-approving.
+
+Expanded capability and roadmap notes are in `docs/ai/CAPABILITIES_AND_NEXT_STEPS.md`.

@@ -415,3 +415,21 @@ Deliverables:
 - Script alias `smoke:local-audit-safety`.
 - Smoke `45_smoke_local_audit_safety_index.py`.
 - Script chain `smoke:phase-u = npm run smoke:phase-u-index && npm run smoke:local-audit-safety && npm run smoke:phase-t`.
+
+## Docs update: AI capabilities and next steps
+
+Added a consolidated AI capabilities and next steps document after Phase U.
+
+New doc:
+
+- `docs/ai/CAPABILITIES_AND_NEXT_STEPS.md`
+
+Recommended next phases:
+
+- Phase V: AI capabilities status panel.
+- Phase W: structured proposal risk scoring.
+- Phase X: CI safety workflow.
+- Phase Y: multi-agent handoff docs.
+- Phase Z: patch proposal mode.
+
+All phases should preserve the current read-only, proposal-oriented, non-executing, and non-approving safety posture.
