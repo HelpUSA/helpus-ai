@@ -265,3 +265,15 @@ Preserved contract:
 - Phase chain: `npm run smoke:phase-t`.
 - Validation smoke: `python scripts/44_smoke_local_detail_safety_alias.py`.
 - It does not add any endpoint, executor, approval path, or automatic detail fetch.
+
+## Phase U: Local audit safety index
+
+The local admin audit safety checks now include a stable index smoke named `smoke:local-audit-safety`.
+
+Preserved contract:
+
+- Alias: `npm run smoke:local-audit-safety`.
+- Phase chain: `npm run smoke:phase-u`.
+- Validation smoke: `python scripts/45_smoke_local_audit_safety_index.py`.
+- The index validates the Phase T detail safety alias, the aggregate detail UI safety contract, and the executor absence guard.
+- It does not add any endpoint, executor, approval path, or automatic detail fetch.

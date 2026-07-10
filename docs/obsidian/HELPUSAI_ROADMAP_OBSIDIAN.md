@@ -405,3 +405,13 @@ Deliverables:
 - Script alias `smoke:local-detail-safety`.
 - Smoke `44_smoke_local_detail_safety_alias.py`.
 - Script chain `smoke:phase-t = npm run smoke:phase-t-alias && npm run smoke:local-detail-safety && npm run smoke:phase-s`.
+
+## Phase U Local audit safety index
+
+Goal: provide a stable audit safety index for local admin read-only checks.
+
+Deliverables:
+
+- Script alias `smoke:local-audit-safety`.
+- Smoke `45_smoke_local_audit_safety_index.py`.
+- Script chain `smoke:phase-u = npm run smoke:phase-u-index && npm run smoke:local-audit-safety && npm run smoke:phase-t`.

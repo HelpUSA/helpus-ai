@@ -408,3 +408,12 @@ Status: implemented.
 - Added `smoke:phase-t-alias` and `smoke:phase-t`.
 - Added `scripts/44_smoke_local_detail_safety_alias.py`.
 - The alias combines the aggregate detail safety contract with the executor absence guard.
+
+## Checkpoint Phase U Local audit safety index
+
+Status: implemented.
+
+- Added `smoke:local-audit-safety`.
+- Added `smoke:phase-u-index` and `smoke:phase-u`.
+- Added `scripts/45_smoke_local_audit_safety_index.py`.
+- The index validates Phase T aliases, detail read-only safety markers, docs markers, and executor absence guard coverage.
