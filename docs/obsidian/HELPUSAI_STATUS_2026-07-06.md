@@ -512,3 +512,15 @@ Validation:
 - `npm run smoke:phase-z`
 
 Safety posture remains proposal-only and non-executing inside the application.
+
+## Checkpoint Phase AB handoff summary preview
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/52_smoke_handoff_summary_preview.py`
+- `npm run smoke:phase-ab`
+- `npm run smoke:phase-aa`
+
+The panel remains read-only and does not contact another agent automatically.

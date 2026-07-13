@@ -215,6 +215,80 @@ function buildPatchProposalPreview(value: unknown): PatchProposalPreview {
   }
 }
 
+
+interface HandoffSummaryPreview {
+  format: string
+  phase: string
+  repo: string
+  branch: string
+  source: string
+  changedFiles: string[]
+  validation: string[]
+  risk: string
+  safetyPosture: string
+  nextAction: string
+  rollback: string
+  ready: boolean
+}
+
+function buildHandoffSummaryPreview(
+  patch: PatchProposalPreview,
+  risk: StructuredProposalRisk,
+): HandoffSummaryPreview {
+  return {
+    format: 'HANDOFF_START/HANDOFF_END',
+    phase: 'Phase AB handoff summary preview',
+    repo: 'HelpUSA/helpus-ai',
+    branch: 'main',
+    source: patch.source,
+    changedFiles: patch.changedFiles,
+    validation: Array.from(
+      new Set([
+        'smoke:phase-ab',
+        'smoke:phase-aa',
+        ...patch.validations,
+      ]),
+    ),
+    risk: risk.label,
+    safetyPosture:
+      'read-only/proposal-oriented/non-executing/non-approving inside app',
+    nextAction: patch.readyForHumanReview
+      ? 'Revisar o handoff, conferir arquivos e executar somente um script explicitamente autorizado.'
+      : 'Carregar uma proposta ou detalhe auditavel antes de preparar o handoff.',
+    rollback: patch.rollback,
+    ready: patch.readyForHumanReview,
+  }
+}
+
+function formatHandoffSummaryPreview(
+  handoff: HandoffSummaryPreview,
+): string {
+  const changedFiles = handoff.changedFiles.length
+    ? handoff.changedFiles.map((file) => `- ${file}`).join('\n')
+    : '- nenhum arquivo declarado'
+
+  const validation = handoff.validation
+    .map((item) => `- ${item}`)
+    .join('\n')
+
+  return [
+    'HANDOFF_START',
+    `repo=${handoff.repo}`,
+    `branch=${handoff.branch}`,
+    `phase=${handoff.phase}`,
+    `source=${handoff.source}`,
+    `risk=${handoff.risk}`,
+    'changed_files=',
+    changedFiles,
+    'validation=',
+    validation,
+    `safety_posture=${handoff.safetyPosture}`,
+    `next_action=${handoff.nextAction}`,
+    `rollback=${handoff.rollback}`,
+    'HANDOFF_END',
+  ].join('\n')
+}
+
 function findProposalId(value: unknown): string {
   if (!value || typeof value !== 'object') return ''
   const record = value as Record<string, unknown>
@@ -285,6 +359,11 @@ export default function AdminLocalReadonlyPage() {
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
   const patchProposalPreview = buildPatchProposalPreview(
     proposalDetail || proposalResult || customPlan || proposals,
+  )
+
+  const handoffSummaryPreview = buildHandoffSummaryPreview(
+    patchProposalPreview,
+    structuredProposalRisk,
   )
 
   useEffect(() => {
@@ -1018,6 +1097,152 @@ export default function AdminLocalReadonlyPage() {
               Limite de seguranca: a proposta pode orientar um script futuro, mas a aplicacao
               continua dependendo de comando explicito no shell ou gateway, seguida de smoke,
               revisao de diff, commit e push.
+            </p>
+          </article>
+        </section>
+
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl border border-fuchsia-900/60 bg-slate-900/70 p-5 lg:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-fuchsia-300">
+                  Phase AB
+                </p>
+                <h2 className="mt-2 text-xl font-semibold">
+                  Resumo de handoff multiagente
+                </h2>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
+                  Monta um resumo auditavel para continuidade entre chats, agentes,
+                  gateway, watcher e shell. O preview nao envia mensagens, nao chama
+                  outro agente e nao executa comandos.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 px-4 py-3 text-xs text-fuchsia-100">
+                <p className="font-semibold">Formato</p>
+                <p className="mt-1 font-mono">
+                  {handoffSummaryPreview.format}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Repositorio e branch
+                </p>
+                <p className="mt-2 font-mono text-xs text-cyan-200">
+                  {handoffSummaryPreview.repo}
+                </p>
+                <p className="mt-1 font-mono text-xs text-slate-400">
+                  {handoffSummaryPreview.branch}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Fonte do contexto
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-200">
+                  {handoffSummaryPreview.source}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Risco derivado
+                </p>
+                <p className="mt-2 text-xs text-slate-400">
+                  {handoffSummaryPreview.risk}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Estado do handoff
+                </p>
+                <p className="mt-2 font-mono text-xs text-fuchsia-200">
+                  {handoffSummaryPreview.ready
+                    ? 'pronto_para_revisao'
+                    : 'aguardando_contexto'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Arquivos para handoff
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {handoffSummaryPreview.changedFiles.length ? (
+                    handoffSummaryPreview.changedFiles.map((file) => (
+                      <li className="break-all font-mono text-xs text-cyan-200" key={file}>
+                        {file}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-xs text-slate-400">
+                      Nenhum arquivo declarado.
+                    </li>
+                  )}
+                </ul>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Validacao do handoff
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {handoffSummaryPreview.validation.map((item) => (
+                    <li className="font-mono text-xs text-cyan-200" key={item}>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Postura de seguranca
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {handoffSummaryPreview.safetyPosture}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">
+                  Proxima acao segura
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {handoffSummaryPreview.nextAction}
+                </p>
+
+                <p className="mt-4 text-xs font-semibold text-slate-300">
+                  Rollback
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {handoffSummaryPreview.rollback}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-300">
+                  Preview HANDOFF_START
+                </p>
+                <pre className="mt-2 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-fuchsia-100">
+                  {formatHandoffSummaryPreview(handoffSummaryPreview)}
+                </pre>
+              </div>
+            </div>
+
+            <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
+              Limite de handoff: este painel apenas prepara texto para revisao humana.
+              O envio para outro chat ou agente continua sendo uma acao explicita.
             </p>
           </article>
         </section>

@@ -370,3 +370,12 @@ Validation:
 - `npm run smoke:phase-z`
 
 The previous Phase X and Phase W checks remain present for backward contract validation.
+
+## Handoff summary preview after Phase AB
+
+The admin local page now shows a read-only handoff summary derived from the loaded patch proposal and structured risk state.
+
+Validation:
+
+- `python scripts/52_smoke_handoff_summary_preview.py`
+- `npm run smoke:phase-ab`

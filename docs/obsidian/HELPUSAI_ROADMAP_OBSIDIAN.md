@@ -504,3 +504,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AB add a read-only handoff summary preview to the local admin panel.
+
+## Phase AB handoff summary preview
+
+Deliverables:
+
+- read-only handoff summary panel;
+- `scripts/52_smoke_handoff_summary_preview.py`;
+- `smoke:phase-ab`;
+- documentation updates.
+
+Next recommended phase: Phase AC add copy-to-clipboard support with no automatic transmission.

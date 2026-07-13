@@ -191,3 +191,22 @@ Validation:
 - `npm run smoke:phase-z`
 
 The CI workflow retains read-only repository permissions and does not apply patches, approve proposals, create commits, or push changes.
+
+## Phase AB implementation contract
+
+Status: implemented.
+
+Phase AB adds a read-only multi-agent handoff summary preview to `/admin/local`.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/52_smoke_handoff_summary_preview.py`
+
+Validation:
+
+- `python scripts/52_smoke_handoff_summary_preview.py`
+- `npm run smoke:phase-ab`
+- `npm run smoke:phase-aa`
+
+The preview derives handoff text from the current patch proposal and structured risk state. It does not send messages, invoke another agent, execute commands, approve changes, create commits, or push code.

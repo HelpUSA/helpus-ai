@@ -101,3 +101,14 @@ HANDOFF_FAILURE_END
 - Phase Y: multi-agent handoff docs.
 
 Next recommended phase: Phase Z patch proposal mode.
+
+## Admin handoff summary preview after Phase AB
+
+The local admin page now provides a read-only preview following the `HANDOFF_START` and `HANDOFF_END` format.
+
+Validation:
+
+- `python scripts/52_smoke_handoff_summary_preview.py`
+- `npm run smoke:phase-ab`
+
+The preview does not transmit the handoff automatically.
