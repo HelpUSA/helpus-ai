@@ -49,3 +49,9 @@ jobs:
 
       - name: Run complete patch proposal smoke chain
         run: npm run smoke:phase-z
+
+      - name: Validate Phase AC CI contract
+        run: python scripts/54_smoke_ci_phase_ac_chain.py
+
+      - name: Run complete handoff copy smoke chain
+        run: npm run smoke:phase-ac

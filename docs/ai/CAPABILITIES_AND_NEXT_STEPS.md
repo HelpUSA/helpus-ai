@@ -229,3 +229,22 @@ Validation:
 - `npm run smoke:phase-ab`
 
 Copying requires a user click. It does not transmit the handoff, contact another agent, execute commands, approve changes, create commits, or push code.
+
+## Phase AD implementation contract
+
+Status: implemented.
+
+Phase AD updates the GitHub Actions workflow so CI validates the complete Phase AC handoff-copy safety chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/54_smoke_ci_phase_ac_chain.py`
+
+Validation:
+
+- `python scripts/54_smoke_ci_phase_ac_chain.py`
+- `npm run smoke:phase-ad`
+- `npm run smoke:phase-ac`
+
+The workflow retains read-only repository permissions and does not transmit handoffs, execute commands, approve changes, create commits, or push code.

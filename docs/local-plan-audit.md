@@ -390,3 +390,13 @@ Validation:
 - `npm run smoke:phase-ac`
 
 No automatic transmission or execution is introduced.
+
+## Phase AC CI chain after Phase AD
+
+The GitHub Actions safety workflow now validates the complete Phase AC handoff-copy chain.
+
+Validation:
+
+- `python scripts/54_smoke_ci_phase_ac_chain.py`
+- `npm run smoke:phase-ad`
+- `npm run smoke:phase-ac`

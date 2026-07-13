@@ -527,3 +527,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AD update CI to validate the complete Phase AC chain.
+
+## Phase AD CI Phase AC chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-ac`;
+- `scripts/54_smoke_ci_phase_ac_chain.py`;
+- `smoke:phase-ad`;
+- documentation updates.
+
+Next recommended phase: Phase AE add explicit local handoff text download.

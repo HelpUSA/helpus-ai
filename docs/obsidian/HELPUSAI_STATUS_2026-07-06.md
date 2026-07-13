@@ -536,3 +536,15 @@ Validation:
 - `npm run smoke:phase-ab`
 
 Copying requires an explicit click and remains local to the browser clipboard.
+
+## Checkpoint Phase AD CI Phase AC chain
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/54_smoke_ci_phase_ac_chain.py`
+- `npm run smoke:phase-ad`
+- `npm run smoke:phase-ac`
+
+CI now covers the complete handoff-copy safety chain.
