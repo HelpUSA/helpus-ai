@@ -515,3 +515,15 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AC add copy-to-clipboard support with no automatic transmission.
+
+## Phase AC handoff copy support
+
+Deliverables:
+
+- explicit `Copiar handoff` button;
+- local clipboard status feedback;
+- `scripts/53_smoke_handoff_copy_clipboard.py`;
+- `smoke:phase-ac`;
+- documentation updates.
+
+Next recommended phase: Phase AD update CI to validate the complete Phase AC chain.

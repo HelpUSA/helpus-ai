@@ -524,3 +524,15 @@ Validation:
 - `npm run smoke:phase-aa`
 
 The panel remains read-only and does not contact another agent automatically.
+
+## Checkpoint Phase AC handoff copy support
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/53_smoke_handoff_copy_clipboard.py`
+- `npm run smoke:phase-ac`
+- `npm run smoke:phase-ab`
+
+Copying requires an explicit click and remains local to the browser clipboard.

@@ -210,3 +210,22 @@ Validation:
 - `npm run smoke:phase-aa`
 
 The preview derives handoff text from the current patch proposal and structured risk state. It does not send messages, invoke another agent, execute commands, approve changes, create commits, or push code.
+
+## Phase AC implementation contract
+
+Status: implemented.
+
+Phase AC adds explicit copy-to-clipboard support to the read-only handoff summary panel.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/53_smoke_handoff_copy_clipboard.py`
+
+Validation:
+
+- `python scripts/53_smoke_handoff_copy_clipboard.py`
+- `npm run smoke:phase-ac`
+- `npm run smoke:phase-ab`
+
+Copying requires a user click. It does not transmit the handoff, contact another agent, execute commands, approve changes, create commits, or push code.

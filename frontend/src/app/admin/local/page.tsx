@@ -244,6 +244,7 @@ function buildHandoffSummaryPreview(
     changedFiles: patch.changedFiles,
     validation: Array.from(
       new Set([
+        'smoke:phase-ac',
         'smoke:phase-ab',
         'smoke:phase-aa',
         ...patch.validations,
@@ -354,6 +355,7 @@ export default function AdminLocalReadonlyPage() {
   const [proposalLoading, setProposalLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
+  const [handoffCopyStatus, setHandoffCopyStatus] = useState('')
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
@@ -365,6 +367,28 @@ export default function AdminLocalReadonlyPage() {
     patchProposalPreview,
     structuredProposalRisk,
   )
+
+  const copiarResumoHandoff = async () => {
+    const handoffText = formatHandoffSummaryPreview(
+      handoffSummaryPreview,
+    )
+
+    try {
+      if (!navigator.clipboard) {
+        throw new Error('clipboard_unavailable')
+      }
+
+      await navigator.clipboard.writeText(handoffText)
+
+      setHandoffCopyStatus(
+        'Handoff copiado para a area de transferencia.',
+      )
+    } catch {
+      setHandoffCopyStatus(
+        'Copia automatica indisponivel. Selecione o preview manualmente.',
+      )
+    }
+  }
 
   useEffect(() => {
     const token = window.localStorage.getItem('helpus_google_token') || ''
@@ -1231,9 +1255,23 @@ export default function AdminLocalReadonlyPage() {
               </div>
 
               <div>
-                <p className="text-xs font-semibold text-slate-300">
-                  Preview HANDOFF_START
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs font-semibold text-slate-300">
+                    Preview HANDOFF_START
+                  </p>
+                  <button
+                    className="rounded-lg border border-fuchsia-600 px-3 py-2 text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950"
+                    onClick={() => void copiarResumoHandoff()}
+                    type="button"
+                  >
+                    Copiar handoff
+                  </button>
+                </div>
+                {handoffCopyStatus ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    {handoffCopyStatus}
+                  </p>
+                ) : null}
                 <pre className="mt-2 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-fuchsia-100">
                   {formatHandoffSummaryPreview(handoffSummaryPreview)}
                 </pre>
@@ -1242,7 +1280,7 @@ export default function AdminLocalReadonlyPage() {
 
             <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
               Limite de handoff: este painel apenas prepara texto para revisao humana.
-              O envio para outro chat ou agente continua sendo uma acao explicita.
+              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff.
             </p>
           </article>
         </section>

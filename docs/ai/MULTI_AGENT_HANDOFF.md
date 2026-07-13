@@ -112,3 +112,14 @@ Validation:
 - `npm run smoke:phase-ab`
 
 The preview does not transmit the handoff automatically.
+
+## Copy-to-clipboard after Phase AC
+
+The admin handoff preview now includes an explicit `Copiar handoff` button.
+
+Validation:
+
+- `python scripts/53_smoke_handoff_copy_clipboard.py`
+- `npm run smoke:phase-ac`
+
+The action only copies text to the local clipboard after a user click. It does not transmit or execute the handoff.

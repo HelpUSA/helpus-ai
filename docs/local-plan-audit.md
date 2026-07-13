@@ -379,3 +379,14 @@ Validation:
 
 - `python scripts/52_smoke_handoff_summary_preview.py`
 - `npm run smoke:phase-ab`
+
+## Handoff copy support after Phase AC
+
+The read-only handoff preview can now be copied to the local clipboard through an explicit button.
+
+Validation:
+
+- `python scripts/53_smoke_handoff_copy_clipboard.py`
+- `npm run smoke:phase-ac`
+
+No automatic transmission or execution is introduced.
