@@ -77,6 +77,8 @@
     "smoke:phase-ac-ui": "python scripts/53_smoke_handoff_copy_clipboard.py",
     "smoke:phase-ac": "npm run smoke:phase-ac-ui && npm run smoke:phase-ab",
     "smoke:phase-ad-ci": "python scripts/54_smoke_ci_phase_ac_chain.py",
-    "smoke:phase-ad": "npm run smoke:phase-ad-ci && npm run smoke:phase-ac"
+    "smoke:phase-ad": "npm run smoke:phase-ad-ci && npm run smoke:phase-ac",
+    "smoke:phase-ae-ui": "python scripts/55_smoke_handoff_download.py",
+    "smoke:phase-ae": "npm run smoke:phase-ae-ui && npm run smoke:phase-ad"
   }
 }

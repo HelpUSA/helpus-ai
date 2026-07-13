@@ -548,3 +548,15 @@ Validation:
 - `npm run smoke:phase-ac`
 
 CI now covers the complete handoff-copy safety chain.
+
+## Checkpoint Phase AE handoff download
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/55_smoke_handoff_download.py`
+- `npm run smoke:phase-ae`
+- `npm run smoke:phase-ad`
+
+The handoff download is local, explicit, non-transmitting, and non-executing.

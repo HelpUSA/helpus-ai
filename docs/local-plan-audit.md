@@ -400,3 +400,14 @@ Validation:
 - `python scripts/54_smoke_ci_phase_ac_chain.py`
 - `npm run smoke:phase-ad`
 - `npm run smoke:phase-ac`
+
+## Handoff download after Phase AE
+
+The local admin handoff preview can now be downloaded as `helpusai-handoff.txt`.
+
+Validation:
+
+- `python scripts/55_smoke_handoff_download.py`
+- `npm run smoke:phase-ae`
+
+The download remains local and requires an explicit user click.

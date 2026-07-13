@@ -244,6 +244,7 @@ function buildHandoffSummaryPreview(
     changedFiles: patch.changedFiles,
     validation: Array.from(
       new Set([
+        'smoke:phase-ae',
         'smoke:phase-ac',
         'smoke:phase-ab',
         'smoke:phase-aa',
@@ -356,6 +357,7 @@ export default function AdminLocalReadonlyPage() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const [handoffCopyStatus, setHandoffCopyStatus] = useState('')
+  const [handoffDownloadStatus, setHandoffDownloadStatus] = useState('')
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
@@ -386,6 +388,39 @@ export default function AdminLocalReadonlyPage() {
     } catch {
       setHandoffCopyStatus(
         'Copia automatica indisponivel. Selecione o preview manualmente.',
+      )
+    }
+  }
+
+  const baixarResumoHandoff = () => {
+    const handoffText = formatHandoffSummaryPreview(
+      handoffSummaryPreview,
+    )
+
+    try {
+      const blob = new Blob(
+        [handoffText],
+        { type: 'text/plain;charset=utf-8' },
+      )
+
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+
+      link.href = url
+      link.download = 'helpusai-handoff.txt'
+
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+
+      URL.revokeObjectURL(url)
+
+      setHandoffDownloadStatus(
+        'Arquivo de handoff preparado localmente.',
+      )
+    } catch {
+      setHandoffDownloadStatus(
+        'Download indisponivel. Use o botao Copiar handoff.',
       )
     }
   }
@@ -1266,10 +1301,22 @@ export default function AdminLocalReadonlyPage() {
                   >
                     Copiar handoff
                   </button>
+                  <button
+                    className="rounded-lg border border-cyan-700 px-3 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-950"
+                    onClick={baixarResumoHandoff}
+                    type="button"
+                  >
+                    Baixar .txt
+                  </button>
                 </div>
                 {handoffCopyStatus ? (
                   <p className="mt-2 text-xs text-slate-400">
                     {handoffCopyStatus}
+                  </p>
+                ) : null}
+                {handoffDownloadStatus ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    {handoffDownloadStatus}
                   </p>
                 ) : null}
                 <pre className="mt-2 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-fuchsia-100">
@@ -1280,7 +1327,7 @@ export default function AdminLocalReadonlyPage() {
 
             <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
               Limite de handoff: este painel apenas prepara texto para revisao humana.
-              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff.
+              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera apenas um arquivo de texto local apos um clique explicito.
             </p>
           </article>
         </section>

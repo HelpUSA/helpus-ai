@@ -538,3 +538,16 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AE add explicit local handoff text download.
+
+## Phase AE handoff download
+
+Deliverables:
+
+- explicit `Baixar .txt` button;
+- local file `helpusai-handoff.txt`;
+- local status feedback;
+- `scripts/55_smoke_handoff_download.py`;
+- `smoke:phase-ae`;
+- documentation updates.
+
+Next recommended phase: Phase AF update CI to validate the complete Phase AE chain.

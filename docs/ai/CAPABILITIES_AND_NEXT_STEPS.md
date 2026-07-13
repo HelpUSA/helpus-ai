@@ -248,3 +248,22 @@ Validation:
 - `npm run smoke:phase-ac`
 
 The workflow retains read-only repository permissions and does not transmit handoffs, execute commands, approve changes, create commits, or push code.
+
+## Phase AE implementation contract
+
+Status: implemented.
+
+Phase AE adds an explicit local `.txt` download to the read-only handoff summary panel.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/55_smoke_handoff_download.py`
+
+Validation:
+
+- `python scripts/55_smoke_handoff_download.py`
+- `npm run smoke:phase-ae`
+- `npm run smoke:phase-ad`
+
+The download requires a user click and creates only a local text file. It does not transmit the handoff, contact another agent, execute commands, approve changes, create commits, or push code.

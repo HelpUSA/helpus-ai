@@ -123,3 +123,14 @@ Validation:
 - `npm run smoke:phase-ac`
 
 The action only copies text to the local clipboard after a user click. It does not transmit or execute the handoff.
+
+## Downloadable handoff after Phase AE
+
+The admin handoff preview now includes an explicit `Baixar .txt` button.
+
+Validation:
+
+- `python scripts/55_smoke_handoff_download.py`
+- `npm run smoke:phase-ae`
+
+The action creates a local text file only after a user click. It does not transmit or execute the handoff.
