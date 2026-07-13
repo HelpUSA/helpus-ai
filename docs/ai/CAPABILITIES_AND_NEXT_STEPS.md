@@ -89,3 +89,19 @@ Safety contract:
 - no app-level approval;
 - no automatic detail fetch;
 - patch, commit, and push remain explicit gateway or shell actions.
+
+## Phase W: structured proposal risk scoring
+
+Status: implemented.
+
+Phase W adds a read-only structured proposal risk scoring panel to `frontend/src/app/admin/local/page.tsx`.
+
+Validated contract:
+
+- UI marker: `Matriz de risco estruturado`.
+- Smoke alias: `npm run smoke:phase-w`.
+- UI smoke: `python scripts/47_smoke_structured_proposal_risk_panel.py`.
+- Safety chain preserved: `npm run smoke:phase-v` and `npm run smoke:local-audit-safety`.
+- No app-level execution, approval, or automatic fetch is introduced.
+
+The panel classifies loaded proposals/plans into readable risk states and shows required smokes plus rollback guidance.

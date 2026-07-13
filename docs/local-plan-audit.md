@@ -309,3 +309,17 @@ It shows:
 - validated smoke aliases including `smoke:phase-v` and `smoke:local-audit-safety`.
 
 Validation smoke: `python scripts/46_smoke_ai_capabilities_panel.py`.
+
+## Structured proposal risk scoring after Phase W
+
+The admin local page now includes a read-only structured risk panel for proposal and plan review.
+
+It shows:
+
+- derived risk level;
+- required smoke aliases;
+- rollback suggestion;
+- risk justification.
+
+Validation smoke: `python scripts/47_smoke_structured_proposal_risk_panel.py`.
+Alias: `npm run smoke:phase-w`.

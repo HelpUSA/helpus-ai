@@ -73,6 +73,80 @@ function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+
+interface StructuredProposalRisk {
+  level: string
+  label: string
+  reason: string
+  requiredSmokes: string[]
+  rollback: string
+  badgeClass: string
+}
+
+function summarizeStructuredProposalRisk(value: unknown): StructuredProposalRisk {
+  const fallback: StructuredProposalRisk = {
+    level: 'desconhecido',
+    label: 'Sem proposta carregada',
+    reason: 'Carregue uma proposta, plano customizado ou detalhe auditavel para classificar o risco.',
+    requiredSmokes: ['smoke:phase-w', 'smoke:local-audit-safety'],
+    rollback: 'Nenhum rollback necessario enquanto nao houver patch aplicado.',
+    badgeClass: 'border-slate-700 bg-slate-950 text-slate-200',
+  }
+
+  if (!value || typeof value !== 'object') return fallback
+
+  const record = value as Record<string, unknown>
+  const rawRisk = typeof record.risk === 'string' ? record.risk.toLowerCase() : ''
+  const allowed = record.allowed === true
+  const blockedReasons = Array.isArray(record.blocked_reasons) ? record.blocked_reasons.length : 0
+
+  if (rawRisk === 'blocked' || blockedReasons > 0) {
+    return {
+      level: 'bloqueado',
+      label: 'Bloqueado',
+      reason: 'A proposta possui risco blocked ou razoes de bloqueio e deve permanecer apenas em revisao humana.',
+      requiredSmokes: ['smoke:phase-w', 'smoke:local-audit-safety'],
+      rollback: 'Nao aplicar patch; revisar a proposta e manter o estado atual.',
+      badgeClass: 'border-red-700 bg-red-950/50 text-red-200',
+    }
+  }
+
+  if (rawRisk === 'high') {
+    return {
+      level: 'alto',
+      label: 'Risco alto',
+      reason: 'A proposta parece envolver area sensivel e exige revisao manual antes de qualquer patch.',
+      requiredSmokes: ['smoke:phase-w', 'smoke:local-audit-safety'],
+      rollback: 'Preparar rollback por commit revert ou restauracao seletiva dos arquivos alterados.',
+      badgeClass: 'border-orange-700 bg-orange-950/50 text-orange-200',
+    }
+  }
+
+  if (rawRisk === 'medium') {
+    return {
+      level: 'medio',
+      label: 'Risco medio',
+      reason: 'A proposta pode ser segura, mas exige validacao dos arquivos alterados e smokes obrigatorios.',
+      requiredSmokes: ['smoke:phase-w', 'smoke:local-audit-safety'],
+      rollback: 'Usar git restore nos arquivos da proposta se qualquer smoke falhar.',
+      badgeClass: 'border-amber-700 bg-amber-950/50 text-amber-200',
+    }
+  }
+
+  if (rawRisk === 'low' || allowed) {
+    return {
+      level: 'baixo',
+      label: 'Risco baixo',
+      reason: 'A proposta parece limitada e permitida para planejamento, mantendo validacao obrigatoria antes de commit.',
+      requiredSmokes: ['smoke:phase-w', 'smoke:local-audit-safety'],
+      rollback: 'Reverter o commit ou restaurar somente os arquivos alterados se a validacao falhar.',
+      badgeClass: 'border-emerald-700 bg-emerald-950/50 text-emerald-200',
+    }
+  }
+
+  return fallback
+}
+
 function findProposalId(value: unknown): string {
   if (!value || typeof value !== 'object') return ''
   const record = value as Record<string, unknown>
@@ -140,6 +214,7 @@ export default function AdminLocalReadonlyPage() {
   const [erro, setErro] = useState('')
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
+  const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
 
   useEffect(() => {
     const token = window.localStorage.getItem('helpus_google_token') || ''
@@ -424,6 +499,39 @@ export default function AdminLocalReadonlyPage() {
             <p className="mt-2 text-sm text-slate-400">
               Teste intents ou comandos contra o contrato plan-only. Endpoint disponível: /local/plan/intents.
             </p>
+
+            <div className="mt-4 grid gap-4 rounded-xl border border-amber-900/60 bg-slate-950/70 p-4 lg:grid-cols-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Phase W</p>
+                <h3 className="mt-2 font-semibold text-slate-100">Matriz de risco estruturado</h3>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  Classificacao read-only derivada da proposta ou plano carregado. Nao aprova, nao executa e nao chama API automaticamente.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                <p className="text-xs font-semibold text-slate-300">Nivel de risco</p>
+                <p className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${structuredProposalRisk.badgeClass}`}>
+                  {structuredProposalRisk.label}
+                </p>
+                <p className="mt-2 font-mono text-xs text-cyan-200">{structuredProposalRisk.level}</p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                <p className="text-xs font-semibold text-slate-300">Smokes obrigatorios</p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-400">
+                  {structuredProposalRisk.requiredSmokes.map((smoke) => (
+                    <li className="font-mono text-cyan-200" key={smoke}>{smoke}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                <p className="text-xs font-semibold text-slate-300">Rollback sugerido</p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">{structuredProposalRisk.rollback}</p>
+              </div>
+              <div className="lg:col-span-4 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                <p className="text-xs font-semibold text-slate-300">Justificativa do risco</p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">{structuredProposalRisk.reason}</p>
+              </div>
+            </div>
             <div className="mt-4 grid gap-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
               <label className="grid gap-2 text-sm">
                 <span className="font-semibold text-slate-200">Intent controlada</span>
@@ -737,6 +845,7 @@ export default function AdminLocalReadonlyPage() {
                 <p className="text-sm font-semibold text-slate-100">Smokes validados</p>
                 <ul className="mt-3 space-y-2 text-xs text-slate-400">
                   <li><span className="font-mono text-cyan-200">smoke:phase-u</span></li>
+                  <li><span className="font-mono text-cyan-200">smoke:phase-v</span></li>
                   <li><span className="font-mono text-cyan-200">smoke:local-audit-safety</span></li>
                   <li><span className="font-mono text-cyan-200">SMOKE_LOCAL_AUDIT_SAFETY_INDEX_OK</span></li>
                   <li><span className="font-mono text-cyan-200">SMOKE_LOCAL_EXECUTOR_ABSENT_OK</span></li>

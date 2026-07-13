@@ -447,3 +447,18 @@ Validation:
 - `npm run smoke:local-audit-safety`
 
 Safety posture remains read-only, proposal-oriented, non-executing, and non-approving inside the application.
+
+## Checkpoint Phase W structured proposal risk scoring
+
+Status: implemented.
+
+Added a read-only structured risk panel to `/admin/local`.
+
+Validation:
+
+- `python scripts/47_smoke_structured_proposal_risk_panel.py`
+- `npm run smoke:phase-w`
+- `npm run smoke:phase-v`
+- `npm run smoke:local-audit-safety`
+
+Safety posture remains read-only, proposal-oriented, non-executing, and non-approving inside the application.

@@ -446,3 +446,16 @@ Deliverables:
 - Documentation updates.
 
 Next recommended phase: Phase W structured proposal risk scoring.
+
+## Phase W structured proposal risk scoring
+
+Goal: expose structured proposal risk scoring in the admin local UI.
+
+Deliverables:
+
+- Read-only risk panel in `/admin/local`.
+- Smoke `47_smoke_structured_proposal_risk_panel.py`.
+- Alias `smoke:phase-w`.
+- Documentation updates.
+
+Next recommended phase: Phase X CI safety workflow.
