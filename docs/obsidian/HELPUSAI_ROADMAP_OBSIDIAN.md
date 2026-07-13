@@ -575,3 +575,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AH update CI to validate the complete Phase AG chain.
+
+## Phase AH CI Phase AG chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-ag`;
+- `scripts/58_smoke_ci_phase_ag_chain.py`;
+- `smoke:phase-ah`;
+- documentation updates.
+
+Next recommended phase: Phase AI add a machine-readable JSON handoff export.

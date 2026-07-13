@@ -61,3 +61,9 @@ jobs:
 
       - name: Run complete handoff download smoke chain
         run: npm run smoke:phase-ae
+
+      - name: Validate Phase AG CI contract
+        run: python scripts/58_smoke_ci_phase_ag_chain.py
+
+      - name: Run complete handoff readiness smoke chain
+        run: npm run smoke:phase-ag

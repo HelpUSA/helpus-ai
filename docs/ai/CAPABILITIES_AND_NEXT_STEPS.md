@@ -305,3 +305,22 @@ Validation:
 - `npm run smoke:phase-af`
 
 The checklist verifies repository, branch, source, declared files, smoke chain, risk, safety posture, next action, and rollback. It does not approve, transmit, or execute the handoff.
+
+## Phase AH implementation contract
+
+Status: implemented.
+
+Phase AH updates GitHub Actions so CI validates the complete Phase AG handoff-readiness chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/58_smoke_ci_phase_ag_chain.py`
+
+Validation:
+
+- `python scripts/58_smoke_ci_phase_ag_chain.py`
+- `npm run smoke:phase-ah`
+- `npm run smoke:phase-ag`
+
+The workflow retains read-only repository permissions and does not approve, transmit, or execute handoffs.

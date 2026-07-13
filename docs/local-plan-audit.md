@@ -432,3 +432,13 @@ Validation:
 - `npm run smoke:phase-ag`
 
 Missing fields are shown as requiring attention. No automatic approval is introduced.
+
+## Phase AG CI chain after Phase AH
+
+The GitHub Actions safety workflow now validates the complete Phase AG readiness-checklist chain.
+
+Validation:
+
+- `python scripts/58_smoke_ci_phase_ag_chain.py`
+- `npm run smoke:phase-ah`
+- `npm run smoke:phase-ag`

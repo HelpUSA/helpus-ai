@@ -584,3 +584,15 @@ Validation:
 - `npm run smoke:phase-af`
 
 The checklist remains read-only, informational, non-approving, non-transmitting, and non-executing.
+
+## Checkpoint Phase AH CI Phase AG chain
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/58_smoke_ci_phase_ag_chain.py`
+- `npm run smoke:phase-ah`
+- `npm run smoke:phase-ag`
+
+CI now covers the complete read-only handoff-readiness chain.
