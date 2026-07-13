@@ -386,7 +386,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         if request.pesquisar_web and buscador:
             try:
-                resultados = await buscador.buscar(request._helpus_user_message_for_lessons)
+                resultados = await buscador.buscar(request.mensagem)
                 if resultados:
                     contexto_busca = "ðŸ“š Informacoes encontradas:\n\n"
                     for i, r in enumerate(resultados[:5], 1):
@@ -407,10 +407,10 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             await banco.salvar_mensagem(
             session_id,
             "user",
-            request._helpus_user_message_for_lessons,
+            request.mensagem,
             user_email=usuario["email"] if usuario else None,
             project_id=project_id,
-            title=request._helpus_user_message_for_lessons[:80],
+            title=request.mensagem[:80],
         )
         except:
             pass
@@ -435,9 +435,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         # HELPUS_OPERATIONAL_LESSON_CONTEXT_V1
         _helpus_user_message_for_lessons = (
-            getattr(_helpus_user_message_for_lessons, "mensagem", None)
-            or getattr(_helpus_user_message_for_lessons, "message", None)
-            or getattr(_helpus_user_message_for_lessons, "pergunta", None)
+            getattr(request, "mensagem", None)
+            or getattr(request, "message", None)
+            or getattr(request, "pergunta", None)
             or ""
         )
         contexto_busca = append_operational_lesson_context(
@@ -448,12 +448,12 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         # Gera resposta
         agent_trace.append({"label": "Chamando modelo de IA", "status": "running"})
         resposta, tokens, tempo_ia = await cerebro.pensar(
-            pergunta=request._helpus_user_message_for_lessons,
+            pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico
         )
         internal_agents_result = await run_internal_agents(
-            pergunta=request._helpus_user_message_for_lessons,
+            pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico,
             thinker=cerebro.pensar,
@@ -489,7 +489,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         # Grava evento de memoria interna sem afetar a resposta do chat.
         await run_in_threadpool(
             safe_record_chat_memory_event,
-            user_message=request._helpus_user_message_for_lessons,
+            user_message=request.mensagem,
             assistant_reply=resposta,
             conversation_id=session_id,
             actor="assistant",
