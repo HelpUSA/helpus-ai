@@ -459,3 +459,16 @@ Deliverables:
 - Documentation updates.
 
 Next recommended phase: Phase X CI safety workflow.
+
+## Phase X CI safety workflow
+
+Goal: run the current local audit safety smoke chain in CI.
+
+Deliverables:
+
+- GitHub Actions workflow `.github/workflows/local-audit-safety.yml`.
+- Smoke `48_smoke_ci_safety_workflow.py`.
+- Alias `smoke:phase-x`.
+- Documentation updates.
+
+Next recommended phase: Phase Y multi-agent handoff docs.

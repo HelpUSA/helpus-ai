@@ -323,3 +323,18 @@ It shows:
 
 Validation smoke: `python scripts/47_smoke_structured_proposal_risk_panel.py`.
 Alias: `npm run smoke:phase-w`.
+
+## CI safety workflow after Phase X
+
+The project now includes a GitHub Actions safety workflow for local audit checks.
+
+Workflow:
+
+- `.github/workflows/local-audit-safety.yml`
+
+Local smoke:
+
+- `python scripts/48_smoke_ci_safety_workflow.py`
+- `npm run smoke:phase-x`
+
+The workflow validates the current read-only local audit safety chain through `npm run smoke:phase-w`.

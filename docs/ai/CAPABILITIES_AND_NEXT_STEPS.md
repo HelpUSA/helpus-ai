@@ -105,3 +105,28 @@ Validated contract:
 - No app-level execution, approval, or automatic fetch is introduced.
 
 The panel classifies loaded proposals/plans into readable risk states and shows required smokes plus rollback guidance.
+
+## Phase X: CI safety workflow
+
+Status: implemented.
+
+Phase X adds a GitHub Actions workflow for the local audit safety smoke chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/48_smoke_ci_safety_workflow.py`
+
+Validated contract:
+
+- CI runs on `push` to `main`.
+- CI runs on `pull_request`.
+- CI uses read-only repository permissions.
+- CI validates the workflow contract.
+- CI runs `npm run smoke:phase-w`.
+
+Local validation alias:
+
+- `npm run smoke:phase-x`
+
+The workflow does not add app-level execution, approval, or automatic patch behavior.

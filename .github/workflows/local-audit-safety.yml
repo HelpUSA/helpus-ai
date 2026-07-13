@@ -1,0 +1,45 @@
+
+name: Local audit safety
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  local-audit-safety:
+    name: Local audit safety smoke chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Validate CI workflow contract
+        run: python scripts/48_smoke_ci_safety_workflow.py
+
+      - name: Run structured proposal risk smoke chain
+        run: npm run smoke:phase-w

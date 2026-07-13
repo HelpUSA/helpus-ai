@@ -462,3 +462,17 @@ Validation:
 - `npm run smoke:local-audit-safety`
 
 Safety posture remains read-only, proposal-oriented, non-executing, and non-approving inside the application.
+
+## Checkpoint Phase X CI safety workflow
+
+Status: implemented.
+
+Added GitHub Actions workflow `.github/workflows/local-audit-safety.yml`.
+
+Validation:
+
+- `python scripts/48_smoke_ci_safety_workflow.py`
+- `npm run smoke:phase-x`
+- `npm run smoke:phase-w`
+
+Safety posture remains read-only, proposal-oriented, non-executing, and non-approving inside the application.
