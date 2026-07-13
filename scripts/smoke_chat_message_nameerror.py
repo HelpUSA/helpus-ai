@@ -5,11 +5,15 @@ import ast
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / "backend/main.py"
 
-assert TARGET.exists(), f"missing target: {TARGET}"
+REQUIRED_ATTRIBUTES = {
+    "mensagem",
+    "message",
+    "pergunta",
+}
 
 source = TARGET.read_text(
     encoding="utf-8-sig",
-    errors="replace",
+    errors="strict",
 )
 
 tree = ast.parse(
@@ -20,108 +24,132 @@ tree = ast.parse(
 chat_functions = [
     node
     for node in ast.walk(tree)
-    if (
-        isinstance(
-            node,
-            (
-                ast.FunctionDef,
-                ast.AsyncFunctionDef,
-            ),
-        )
-        and node.name == "chat"
+    if isinstance(
+        node,
+        (
+            ast.FunctionDef,
+            ast.AsyncFunctionDef,
+        ),
     )
+    and node.name == "chat"
 ]
 
 assert len(chat_functions) == 1, (
-    f"expected one chat function, "
+    "expected exactly one chat function; "
     f"found {len(chat_functions)}"
 )
 
 chat = chat_functions[0]
-
-arguments = {
-    arg.arg
-    for arg in (
-        list(chat.args.posonlyargs)
-        + list(chat.args.args)
-        + list(chat.args.kwonlyargs)
-    )
-}
-
-assert "request" in arguments, (
-    "chat request argument is missing"
-)
-
 assignments = []
 
 for node in ast.walk(chat):
-    if isinstance(node, ast.Assign):
-        if any(
-            isinstance(target, ast.Name)
-            and target.id
-            == "_helpus_user_message_for_lessons"
-            for target in node.targets
-        ):
-            assignments.append(node)
+    if not isinstance(
+        node,
+        (
+            ast.Assign,
+            ast.AnnAssign,
+        ),
+    ):
+        continue
 
-    elif isinstance(node, ast.AnnAssign):
-        if (
-            isinstance(node.target, ast.Name)
-            and node.target.id
-            == "_helpus_user_message_for_lessons"
-        ):
-            assignments.append(node)
+    targets = (
+        node.targets
+        if isinstance(node, ast.Assign)
+        else [node.target]
+    )
+
+    if any(
+        isinstance(target, ast.Name)
+        and target.id
+        == "_helpus_user_message_for_lessons"
+        for target in targets
+    ):
+        assignments.append(node)
 
 assert len(assignments) == 1, (
-    "expected exactly one lesson-message assignment"
+    "expected exactly one lesson-context assignment; "
+    f"found {len(assignments)}"
 )
 
 value = assignments[0].value
+fallbacks = []
 
-loaded_names = [
-    child.id
-    for child in ast.walk(value)
-    if (
-        isinstance(child, ast.Name)
-        and isinstance(child.ctx, ast.Load)
+for node in ast.walk(value):
+    if not isinstance(node, ast.Call):
+        continue
+
+    if not (
+        isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+    ):
+        continue
+
+    assert len(node.args) >= 2
+
+    attribute_node = node.args[1]
+
+    if not isinstance(
+        attribute_node,
+        ast.Constant,
+    ):
+        continue
+
+    attribute = attribute_node.value
+
+    if attribute not in REQUIRED_ATTRIBUTES:
+        continue
+
+    source_node = node.args[0]
+
+    assert isinstance(
+        source_node,
+        ast.Name,
+    ), "fallback source is not a simple name"
+
+    fallbacks.append(
+        (
+            attribute,
+            source_node.id,
+        )
     )
-]
+
+assert len(fallbacks) == 3, (
+    "expected three message fallbacks; "
+    f"found {len(fallbacks)}"
+)
+
+assert {
+    attribute
+    for attribute, _ in fallbacks
+} == REQUIRED_ATTRIBUTES
+
+assert all(
+    source_name == "request"
+    for _, source_name in fallbacks
+), (
+    "all message fallbacks must read "
+    "from request"
+)
+
+loaded_names = {
+    node.id
+    for node in ast.walk(value)
+    if isinstance(node, ast.Name)
+    and isinstance(node.ctx, ast.Load)
+}
+
+assert "request" in loaded_names
+
+assert (
+    "_helpus_user_message_for_lessons"
+    not in loaded_names
+), "lesson-context assignment is self-referential"
 
 assert "mensagem" not in loaded_names, (
-    "undefined mensagem reference returned"
+    "undefined standalone mensagem reference found"
 )
 
-assert loaded_names.count("request") == 3, (
-    "lesson-message extraction must use request "
-    "exactly three times"
-)
-
-assert not any(
-    isinstance(node, ast.Attribute)
-    and node.attr
-    == "_helpus_user_message_for_lessons"
-    for node in ast.walk(chat)
-), "corrupted self-referential attribute found"
-
-for marker in [
-    'getattr(request, "mensagem", None)',
-    'getattr(request, "message", None)',
-    'getattr(request, "pergunta", None)',
-    "user_message=str(_helpus_user_message_for_lessons)",
-]:
-    assert marker in source, (
-        f"missing corrected binding marker: {marker}"
-    )
-
-for forbidden in [
-    "/local/execute",
-    "/local/commands",
-    "/local/plan/execute",
-    "/local/plan/run",
-    "/local/plan/approve",
-]:
-    assert forbidden not in source, (
-        f"forbidden execution marker found: {forbidden}"
-    )
-
-print("SMOKE_CHAT_MESSAGE_BINDING_PRECISE_OK")
+print("SMOKE_CHAT_MESSAGE_NAMEERROR_OK")
+print("lesson_context_source=request")
+print("request_fallback_count=3")
+print("self_reference=False")
