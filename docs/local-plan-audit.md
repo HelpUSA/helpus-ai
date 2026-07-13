@@ -453,3 +453,13 @@ Validation:
 - `npm run smoke:phase-ai`
 
 The JSON download remains local and requires an explicit click.
+
+## Phase AI CI chain after Phase AJ
+
+The GitHub Actions safety workflow now validates the complete Phase AI JSON-export chain.
+
+Validation:
+
+- `python scripts/60_smoke_ci_phase_ai_chain.py`
+- `npm run smoke:phase-aj`
+- `npm run smoke:phase-ai`

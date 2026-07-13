@@ -600,3 +600,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AJ update CI to validate the complete Phase AI chain.
+
+## Phase AJ CI Phase AI chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-ai`;
+- `scripts/60_smoke_ci_phase_ai_chain.py`;
+- `smoke:phase-aj`;
+- documentation updates.
+
+Next recommended phase: Phase AK add a read-only handoff fingerprint for local integrity comparison.

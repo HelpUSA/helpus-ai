@@ -87,6 +87,8 @@
     "smoke:phase-ah-ci": "python scripts/58_smoke_ci_phase_ag_chain.py",
     "smoke:phase-ah": "npm run smoke:phase-ah-ci && npm run smoke:phase-ag",
     "smoke:phase-ai-ui": "python scripts/59_smoke_handoff_json_export.py",
-    "smoke:phase-ai": "npm run smoke:phase-ai-ui && npm run smoke:phase-ah"
+    "smoke:phase-ai": "npm run smoke:phase-ai-ui && npm run smoke:phase-ah",
+    "smoke:phase-aj-ci": "python scripts/60_smoke_ci_phase_ai_chain.py",
+    "smoke:phase-aj": "npm run smoke:phase-aj-ci && npm run smoke:phase-ai"
   }
 }

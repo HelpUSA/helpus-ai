@@ -67,3 +67,9 @@ jobs:
 
       - name: Run complete handoff readiness smoke chain
         run: npm run smoke:phase-ag
+
+      - name: Validate Phase AI CI contract
+        run: python scripts/60_smoke_ci_phase_ai_chain.py
+
+      - name: Run complete handoff JSON export smoke chain
+        run: npm run smoke:phase-ai

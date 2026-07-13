@@ -608,3 +608,15 @@ Validation:
 - `npm run smoke:phase-ah`
 
 The export is read-only, local, non-transmitting, non-approving, and non-executing.
+
+## Checkpoint Phase AJ CI Phase AI chain
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/60_smoke_ci_phase_ai_chain.py`
+- `npm run smoke:phase-aj`
+- `npm run smoke:phase-ai`
+
+CI now covers the complete read-only handoff JSON-export chain.

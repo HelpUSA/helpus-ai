@@ -345,3 +345,22 @@ Validation:
 The export includes repository, branch, risk, changed files, validation, safety posture, next action, rollback, readiness, `humanReviewRequired: true`, `approved: false`, and `executed: false`.
 
 The JSON remains local and is generated only after explicit user interaction.
+
+## Phase AJ implementation contract
+
+Status: implemented.
+
+Phase AJ updates GitHub Actions so CI validates the complete Phase AI machine-readable handoff JSON chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/60_smoke_ci_phase_ai_chain.py`
+
+Validation:
+
+- `python scripts/60_smoke_ci_phase_ai_chain.py`
+- `npm run smoke:phase-aj`
+- `npm run smoke:phase-ai`
+
+The workflow retains read-only repository permissions and does not approve, transmit, download, or execute handoffs.
