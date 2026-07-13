@@ -463,3 +463,14 @@ Validation:
 - `python scripts/60_smoke_ci_phase_ai_chain.py`
 - `npm run smoke:phase-aj`
 - `npm run smoke:phase-ai`
+
+## Handoff fingerprint after Phase AK
+
+The local admin page now supports a browser-generated SHA-256 fingerprint for comparing the current JSON handoff content.
+
+Validation:
+
+- `python scripts/61_smoke_handoff_fingerprint.py`
+- `npm run smoke:phase-ak`
+
+The fingerprint remains local and informational.

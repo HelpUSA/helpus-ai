@@ -611,3 +611,16 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AK add a read-only handoff fingerprint for local integrity comparison.
+
+## Phase AK handoff fingerprint
+
+Deliverables:
+
+- explicit `Gerar SHA-256` action;
+- browser-local Web Crypto calculation;
+- visible `sha256:` fingerprint;
+- `scripts/61_smoke_handoff_fingerprint.py`;
+- `smoke:phase-ak`;
+- documentation updates.
+
+Next recommended phase: Phase AL update CI to validate the complete Phase AK chain.

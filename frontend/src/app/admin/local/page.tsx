@@ -244,6 +244,8 @@ function buildHandoffSummaryPreview(
     changedFiles: patch.changedFiles,
     validation: Array.from(
       new Set([
+        'smoke:phase-ak',
+        'smoke:phase-aj',
         'smoke:phase-ai',
         'smoke:phase-ah',
         'smoke:phase-ae',
@@ -529,6 +531,8 @@ export default function AdminLocalReadonlyPage() {
   const [handoffCopyStatus, setHandoffCopyStatus] = useState('')
   const [handoffDownloadStatus, setHandoffDownloadStatus] = useState('')
   const [handoffJsonDownloadStatus, setHandoffJsonDownloadStatus] = useState('')
+  const [handoffFingerprint, setHandoffFingerprint] = useState('')
+  const [handoffFingerprintStatus, setHandoffFingerprintStatus] = useState('')
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
@@ -643,6 +647,49 @@ export default function AdminLocalReadonlyPage() {
     } catch {
       setHandoffJsonDownloadStatus(
         'Download JSON indisponivel. Use o preview para revisao manual.',
+      )
+    }
+  }
+
+  const gerarFingerprintHandoff = async () => {
+    const jsonText = JSON.stringify(
+      handoffJsonExport,
+    )
+
+    try {
+      if (!window.crypto?.subtle) {
+        throw new Error('web_crypto_unavailable')
+      }
+
+      const bytes = new TextEncoder().encode(
+        jsonText,
+      )
+
+      const digest = await window.crypto.subtle.digest(
+        'SHA-256',
+        bytes,
+      )
+
+      const hexadecimal = Array.from(
+        new Uint8Array(digest),
+      )
+        .map((byte) =>
+          byte.toString(16).padStart(2, '0'),
+        )
+        .join('')
+
+      setHandoffFingerprint(
+        `sha256:${hexadecimal}`,
+      )
+
+      setHandoffFingerprintStatus(
+        'Fingerprint SHA-256 gerado localmente.',
+      )
+    } catch {
+      setHandoffFingerprint('')
+
+      setHandoffFingerprintStatus(
+        'Fingerprint indisponivel neste navegador.',
       )
     }
   }
@@ -1623,6 +1670,48 @@ export default function AdminLocalReadonlyPage() {
                     {prettyJson(handoffJsonExport)}
                   </pre>
                 </details>
+
+                <div className="mt-3 rounded-lg border border-indigo-900/70 bg-indigo-950/10 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-indigo-200">
+                        Fingerprint local do handoff
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        Calcula SHA-256 sobre o JSON atual para comparacao local de integridade.
+                      </p>
+                    </div>
+
+                    <button
+                      className="rounded-lg border border-indigo-700 px-3 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-950"
+                      onClick={() => void gerarFingerprintHandoff()}
+                      type="button"
+                    >
+                      Gerar SHA-256
+                    </button>
+                  </div>
+
+                  {handoffFingerprintStatus ? (
+                    <p className="mt-3 text-xs text-slate-400">
+                      {handoffFingerprintStatus}
+                    </p>
+                  ) : null}
+
+                  {handoffFingerprint ? (
+                    <p className="mt-2 break-all rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-xs leading-5 text-indigo-100">
+                      {handoffFingerprint}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Nenhum fingerprint foi gerado nesta sessao.
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs leading-5 text-slate-400">
+                    O fingerprint nao e assinatura digital e nao aprova,
+                    transmite ou executa o handoff.
+                  </p>
+                </div>
                 <pre className="mt-2 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-fuchsia-100">
                   {formatHandoffSummaryPreview(handoffSummaryPreview)}
                 </pre>
@@ -1631,7 +1720,7 @@ export default function AdminLocalReadonlyPage() {
 
             <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
               Limite de handoff: este painel apenas prepara texto para revisao humana.
-              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera um arquivo de texto local ou um arquivo JSON local apos um clique explicito. O JSON registra humanReviewRequired=true, approved=false e executed=false.
+              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera um arquivo de texto local ou um arquivo JSON local apos um clique explicito. O JSON registra humanReviewRequired=true, approved=false e executed=false. O fingerprint SHA-256 serve apenas para comparacao local e nao funciona como assinatura ou aprovacao.
             </p>
           </article>
         </section>

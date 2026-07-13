@@ -156,3 +156,14 @@ Validation:
 - `npm run smoke:phase-ai`
 
 The export records human review as required and records approval and execution as false. It does not transmit or execute the handoff.
+
+## Local fingerprint after Phase AK
+
+The admin handoff panel can now calculate a local SHA-256 fingerprint over the current JSON handoff representation.
+
+Validation:
+
+- `python scripts/61_smoke_handoff_fingerprint.py`
+- `npm run smoke:phase-ak`
+
+The action requires an explicit click. The fingerprint is not a signature, approval, transmission, or execution.

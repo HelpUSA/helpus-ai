@@ -364,3 +364,24 @@ Validation:
 - `npm run smoke:phase-ai`
 
 The workflow retains read-only repository permissions and does not approve, transmit, download, or execute handoffs.
+
+## Phase AK implementation contract
+
+Status: implemented.
+
+Phase AK adds an explicit local SHA-256 fingerprint action to the read-only handoff JSON preview.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/61_smoke_handoff_fingerprint.py`
+
+Validation:
+
+- `python scripts/61_smoke_handoff_fingerprint.py`
+- `npm run smoke:phase-ak`
+- `npm run smoke:phase-aj`
+
+The browser calculates the fingerprint locally only after an explicit click.
+
+The fingerprint supports local integrity comparison. It is not a digital signature and does not approve, transmit, execute, commit, or push anything.

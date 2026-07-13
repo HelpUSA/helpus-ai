@@ -620,3 +620,15 @@ Validation:
 - `npm run smoke:phase-ai`
 
 CI now covers the complete read-only handoff JSON-export chain.
+
+## Checkpoint Phase AK handoff fingerprint
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/61_smoke_handoff_fingerprint.py`
+- `npm run smoke:phase-ak`
+- `npm run smoke:phase-aj`
+
+The fingerprint is local, explicit, informational, non-approving, non-transmitting, and non-executing.
