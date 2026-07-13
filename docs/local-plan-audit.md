@@ -411,3 +411,13 @@ Validation:
 - `npm run smoke:phase-ae`
 
 The download remains local and requires an explicit user click.
+
+## Phase AE CI chain after Phase AF
+
+The GitHub Actions safety workflow now validates the complete Phase AE handoff-download chain.
+
+Validation:
+
+- `python scripts/56_smoke_ci_phase_ae_chain.py`
+- `npm run smoke:phase-af`
+- `npm run smoke:phase-ae`

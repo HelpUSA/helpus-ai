@@ -551,3 +551,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AF update CI to validate the complete Phase AE chain.
+
+## Phase AF CI Phase AE chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-ae`;
+- `scripts/56_smoke_ci_phase_ae_chain.py`;
+- `smoke:phase-af`;
+- documentation updates.
+
+Next recommended phase: Phase AG add a read-only handoff readiness checklist.

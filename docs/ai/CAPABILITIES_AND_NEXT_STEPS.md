@@ -267,3 +267,22 @@ Validation:
 - `npm run smoke:phase-ad`
 
 The download requires a user click and creates only a local text file. It does not transmit the handoff, contact another agent, execute commands, approve changes, create commits, or push code.
+
+## Phase AF implementation contract
+
+Status: implemented.
+
+Phase AF updates the GitHub Actions workflow so CI validates the complete Phase AE handoff-download safety chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/56_smoke_ci_phase_ae_chain.py`
+
+Validation:
+
+- `python scripts/56_smoke_ci_phase_ae_chain.py`
+- `npm run smoke:phase-af`
+- `npm run smoke:phase-ae`
+
+The workflow retains read-only repository permissions and does not transmit handoffs, execute commands, approve changes, create commits, or push code.

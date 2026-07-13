@@ -560,3 +560,15 @@ Validation:
 - `npm run smoke:phase-ad`
 
 The handoff download is local, explicit, non-transmitting, and non-executing.
+
+## Checkpoint Phase AF CI Phase AE chain
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/56_smoke_ci_phase_ae_chain.py`
+- `npm run smoke:phase-af`
+- `npm run smoke:phase-ae`
+
+CI now covers the complete local handoff-download safety chain.
