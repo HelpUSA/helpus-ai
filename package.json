@@ -69,6 +69,8 @@
     "smoke:phase-y-handoff": "python scripts/49_smoke_multi_agent_handoff_docs.py",
     "smoke:phase-y": "npm run smoke:phase-y-handoff && npm run smoke:phase-x",
     "smoke:phase-z-ui": "python scripts/50_smoke_patch_proposal_mode.py",
-    "smoke:phase-z": "npm run smoke:phase-z-ui && npm run smoke:phase-y"
+    "smoke:phase-z": "npm run smoke:phase-z-ui && npm run smoke:phase-y",
+    "smoke:phase-aa-ci": "python scripts/51_smoke_ci_phase_z_chain.py",
+    "smoke:phase-aa": "npm run smoke:phase-aa-ci && npm run smoke:phase-z"
   }
 }

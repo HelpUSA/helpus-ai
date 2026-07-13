@@ -493,3 +493,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AA update the CI workflow to validate the complete Phase Z chain.
+
+## Phase AA CI Phase Z chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-z`;
+- `scripts/51_smoke_ci_phase_z_chain.py`;
+- `smoke:phase-aa`;
+- documentation updates.
+
+Next recommended phase: Phase AB add a read-only handoff summary preview to the local admin panel.

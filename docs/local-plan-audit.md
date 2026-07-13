@@ -358,3 +358,15 @@ Validation:
 
 - `python scripts/50_smoke_patch_proposal_mode.py`
 - `npm run smoke:phase-z`
+
+## Phase Z CI chain after Phase AA
+
+The GitHub Actions workflow now validates the complete Phase Z safety chain.
+
+Validation:
+
+- `python scripts/51_smoke_ci_phase_z_chain.py`
+- `npm run smoke:phase-aa`
+- `npm run smoke:phase-z`
+
+The previous Phase X and Phase W checks remain present for backward contract validation.

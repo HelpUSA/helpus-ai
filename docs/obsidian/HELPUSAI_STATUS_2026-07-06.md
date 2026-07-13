@@ -498,3 +498,17 @@ Validation:
 - `npm run smoke:phase-y`
 
 No application-level patch execution or automatic approval was added.
+
+## Checkpoint Phase AA CI Phase Z chain
+
+Status: implemented.
+
+The local audit safety workflow now validates the complete Phase Z chain.
+
+Validation:
+
+- `python scripts/51_smoke_ci_phase_z_chain.py`
+- `npm run smoke:phase-aa`
+- `npm run smoke:phase-z`
+
+Safety posture remains proposal-only and non-executing inside the application.

@@ -43,3 +43,9 @@ jobs:
 
       - name: Run structured proposal risk smoke chain
         run: npm run smoke:phase-w
+
+      - name: Validate Phase Z CI contract
+        run: python scripts/51_smoke_ci_phase_z_chain.py
+
+      - name: Run complete patch proposal smoke chain
+        run: npm run smoke:phase-z

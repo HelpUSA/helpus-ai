@@ -172,3 +172,22 @@ Validation:
 The panel derives an auditable proposal preview from the loaded plan or proposal.
 
 It does not apply patches, execute commands, create commits, perform pushes, or approve changes.
+
+## Phase AA implementation contract
+
+Status: implemented.
+
+Phase AA updates the GitHub Actions safety workflow so CI also validates the complete Phase Z patch proposal chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/51_smoke_ci_phase_z_chain.py`
+
+Validation:
+
+- `python scripts/51_smoke_ci_phase_z_chain.py`
+- `npm run smoke:phase-aa`
+- `npm run smoke:phase-z`
+
+The CI workflow retains read-only repository permissions and does not apply patches, approve proposals, create commits, or push changes.
