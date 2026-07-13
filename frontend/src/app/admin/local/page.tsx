@@ -688,6 +688,71 @@ export default function AdminLocalReadonlyPage() {
           </article>
         </section>
 
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl border border-cyan-900/60 bg-slate-900/70 p-5 lg:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">Painel read-only</p>
+                <h2 className="mt-2 text-xl font-semibold">Capacidades da IA</h2>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
+                  Visao operacional da HelpUSAI local: o que esta ativo, o que permanece bloqueado e quais smokes validam a postura atual.
+                </p>
+              </div>
+              <div className="rounded-xl border border-emerald-900/70 bg-emerald-950/30 px-4 py-3 text-xs text-emerald-100">
+                <p className="font-semibold">Baseline Phase U</p>
+                <p className="mt-1 font-mono">smoke:local-audit-safety</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-slate-100">Leitura e auditoria</p>
+                <ul className="mt-3 space-y-2 text-xs text-slate-400">
+                  <li>Status local: ativo</li>
+                  <li>Diff local: ativo</li>
+                  <li>Leitura de arquivos: ativo</li>
+                  <li>Busca em docs: ativo</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-slate-100">Propostas</p>
+                <ul className="mt-3 space-y-2 text-xs text-slate-400">
+                  <li>Propostas auditaveis: ativo</li>
+                  <li>Resumo auditavel: ativo</li>
+                  <li>Detalhe de proposta: ativo</li>
+                  <li>proposal_id assistido: ativo</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-slate-100">Bloqueios de seguranca</p>
+                <ul className="mt-3 space-y-2 text-xs text-slate-400">
+                  <li>Execucao local no app: bloqueada</li>
+                  <li>Aprovacao automatica no app: bloqueada</li>
+                  <li>Fetch automatico de detalhe: bloqueado</li>
+                  <li>Patch/commit via gateway ou shell explicito</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-slate-100">Smokes validados</p>
+                <ul className="mt-3 space-y-2 text-xs text-slate-400">
+                  <li><span className="font-mono text-cyan-200">smoke:phase-u</span></li>
+                  <li><span className="font-mono text-cyan-200">smoke:local-audit-safety</span></li>
+                  <li><span className="font-mono text-cyan-200">SMOKE_LOCAL_AUDIT_SAFETY_INDEX_OK</span></li>
+                  <li><span className="font-mono text-cyan-200">SMOKE_LOCAL_EXECUTOR_ABSENT_OK</span></li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400">
+              <p className="font-semibold text-slate-200">Uso pratico atual</p>
+              <p className="mt-2 leading-6">
+                A HelpUSAI pode apoiar revisao de status, diffs, arquivos, docs, propostas e smokes. Mudancas reais continuam dependentes de comando explicito via gateway ou shell, com validacao antes de commit e push.
+              </p>
+            </div>
+          </article>
+        </section>
+
         <section className="grid gap-6 lg:grid-cols-2">
           <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 lg:col-span-2">
             <h2 className="text-xl font-semibold">Busca em docs/</h2>

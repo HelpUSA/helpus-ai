@@ -69,3 +69,23 @@ Standardize handoff information between chats and gateway runs: source, target, 
 ### Phase Z: patch proposal mode
 
 Prepare auditable patch proposals without adding app-level execution. The patch can be reviewed, then applied only through explicit user-directed gateway workflow.
+
+
+## Phase V implementation contract
+
+Status: implemented.
+
+Phase V adds the read-only `Capacidades da IA` panel to `frontend/src/app/admin/local/page.tsx`.
+
+Validated commands:
+
+- `python scripts/46_smoke_ai_capabilities_panel.py`
+- `npm run smoke:phase-v`
+- `npm run smoke:local-audit-safety`
+
+Safety contract:
+
+- no app-level execution;
+- no app-level approval;
+- no automatic detail fetch;
+- patch, commit, and push remain explicit gateway or shell actions.

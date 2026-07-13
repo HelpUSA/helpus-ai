@@ -433,3 +433,17 @@ Added `docs/ai/CAPABILITIES_AND_NEXT_STEPS.md` with:
 Current baseline remains `076c495 test: add local audit safety index`.
 
 Primary safety command: `npm run smoke:local-audit-safety`.
+
+## Checkpoint Phase V AI capabilities panel
+
+Status: implemented.
+
+Added a read-only AI capabilities panel to `/admin/local`.
+
+Validation:
+
+- `python scripts/46_smoke_ai_capabilities_panel.py`
+- `npm run smoke:phase-v`
+- `npm run smoke:local-audit-safety`
+
+Safety posture remains read-only, proposal-oriented, non-executing, and non-approving inside the application.

@@ -59,6 +59,8 @@
     "smoke:phase-t": "npm run smoke:phase-t-alias && npm run smoke:local-detail-safety && npm run smoke:phase-s",
     "smoke:local-audit-safety": "npm run smoke:local-detail-safety && python scripts/45_smoke_local_audit_safety_index.py",
     "smoke:phase-u-index": "python scripts/45_smoke_local_audit_safety_index.py",
-    "smoke:phase-u": "npm run smoke:phase-u-index && npm run smoke:local-audit-safety && npm run smoke:phase-t"
+    "smoke:phase-u": "npm run smoke:phase-u-index && npm run smoke:local-audit-safety && npm run smoke:phase-t",
+    "smoke:phase-v-ui": "python scripts/46_smoke_ai_capabilities_panel.py",
+    "smoke:phase-v": "npm run smoke:phase-v-ui && npm run smoke:local-audit-safety"
   }
 }

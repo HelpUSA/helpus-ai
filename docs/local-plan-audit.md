@@ -296,3 +296,16 @@ The local AI workflow can assist with status review, diff review, file inspectio
 The app-level local workflow remains read-only, proposal-oriented, non-executing, and non-approving.
 
 Expanded capability and roadmap notes are in `docs/ai/CAPABILITIES_AND_NEXT_STEPS.md`.
+
+## AI capabilities panel after Phase V
+
+The admin local page now includes a read-only AI capabilities panel.
+
+It shows:
+
+- active read-only inspection capabilities;
+- active proposal and detail review capabilities;
+- blocked app-level execution and approval behavior;
+- validated smoke aliases including `smoke:phase-v` and `smoke:local-audit-safety`.
+
+Validation smoke: `python scripts/46_smoke_ai_capabilities_panel.py`.

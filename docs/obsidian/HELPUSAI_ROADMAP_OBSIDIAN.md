@@ -433,3 +433,16 @@ Recommended next phases:
 - Phase Z: patch proposal mode.
 
 All phases should preserve the current read-only, proposal-oriented, non-executing, and non-approving safety posture.
+
+## Phase V AI capabilities status panel
+
+Goal: expose the current HelpUSAI capabilities and blocked behaviors in the admin local UI.
+
+Deliverables:
+
+- Read-only UI panel in `/admin/local`.
+- Smoke `46_smoke_ai_capabilities_panel.py`.
+- Alias `smoke:phase-v`.
+- Documentation updates.
+
+Next recommended phase: Phase W structured proposal risk scoring.
