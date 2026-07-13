@@ -347,3 +347,14 @@ Validation:
 
 - `python scripts/49_smoke_multi_agent_handoff_docs.py`
 - `npm run smoke:phase-y`
+
+## Patch proposal mode after Phase Z
+
+The admin local page now includes a read-only patch proposal preview.
+
+It shows proposal-only mode, review status, objective, declared files, required smokes, rollback guidance, and an auditable JSON preview.
+
+Validation:
+
+- `python scripts/50_smoke_patch_proposal_mode.py`
+- `npm run smoke:phase-z`

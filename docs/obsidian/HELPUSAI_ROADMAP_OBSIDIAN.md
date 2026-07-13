@@ -482,3 +482,14 @@ Deliverables:
 - `smoke:phase-y`
 
 Next recommended phase: Phase Z patch proposal mode.
+
+## Phase Z patch proposal mode
+
+Deliverables:
+
+- read-only patch proposal panel;
+- `scripts/50_smoke_patch_proposal_mode.py`;
+- `smoke:phase-z`;
+- documentation updates.
+
+Next recommended phase: Phase AA update the CI workflow to validate the complete Phase Z chain.

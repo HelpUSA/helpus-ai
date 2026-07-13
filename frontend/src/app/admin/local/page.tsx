@@ -147,6 +147,74 @@ function summarizeStructuredProposalRisk(value: unknown): StructuredProposalRisk
   return fallback
 }
 
+
+interface PatchProposalPreview {
+  mode: string
+  status: string
+  objective: string
+  source: string
+  changedFiles: string[]
+  validations: string[]
+  rollback: string
+  readyForHumanReview: boolean
+}
+
+function buildPatchProposalPreview(value: unknown): PatchProposalPreview {
+  const fallback: PatchProposalPreview = {
+    mode: 'proposal_only',
+    status: 'aguardando_contexto',
+    objective: 'Carregue um plano, proposta ou detalhe auditavel para montar a proposta de patch.',
+    source: 'nenhuma fonte carregada',
+    changedFiles: [],
+    validations: ['smoke:phase-z', 'smoke:phase-y', 'smoke:local-audit-safety'],
+    rollback: 'Nenhum rollback necessario enquanto nenhum patch tiver sido aplicado.',
+    readyForHumanReview: false,
+  }
+
+  if (!value || typeof value !== 'object') return fallback
+
+  const record = value as Record<string, unknown>
+  const candidates = [
+    record.intent,
+    record.objective,
+    record.note,
+    record.reason,
+  ]
+
+  const objective =
+    candidates.find(
+      (candidate) => typeof candidate === 'string' && candidate.trim(),
+    ) || 'Revisar a proposta carregada antes de preparar qualquer alteracao.'
+
+  const rawFiles =
+    Array.isArray(record.changed_files)
+      ? record.changed_files
+      : Array.isArray(record.files)
+        ? record.files
+        : []
+
+  const changedFiles = rawFiles
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 20)
+
+  return {
+    mode: 'proposal_only',
+    status: 'pronto_para_revisao_humana',
+    objective: String(objective),
+    source:
+      typeof record.proposal_id === 'string'
+        ? `proposal_id:${record.proposal_id}`
+        : 'objeto carregado no painel local',
+    changedFiles,
+    validations: ['smoke:phase-z', 'smoke:phase-y', 'smoke:local-audit-safety'],
+    rollback:
+      'Se um patch futuro falhar, restaurar somente os arquivos declarados ou reverter o commit correspondente.',
+    readyForHumanReview: true,
+  }
+}
+
 function findProposalId(value: unknown): string {
   if (!value || typeof value !== 'object') return ''
   const record = value as Record<string, unknown>
@@ -215,6 +283,9 @@ export default function AdminLocalReadonlyPage() {
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
+  const patchProposalPreview = buildPatchProposalPreview(
+    proposalDetail || proposalResult || customPlan || proposals,
+  )
 
   useEffect(() => {
     const token = window.localStorage.getItem('helpus_google_token') || ''
@@ -862,7 +933,96 @@ export default function AdminLocalReadonlyPage() {
           </article>
         </section>
 
+
         <section className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl border border-violet-900/60 bg-slate-900/70 p-5 lg:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-violet-300">
+                  Phase Z
+                </p>
+                <h2 className="mt-2 text-xl font-semibold">Modo de proposta de patch</h2>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
+                  Gera uma proposta estruturada para revisao humana. Este painel nao aplica patch,
+                  nao cria commit, nao faz push e nao executa comandos.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-violet-800 bg-violet-950/30 px-4 py-3 text-xs text-violet-100">
+                <p className="font-semibold">Modo atual</p>
+                <p className="mt-1 font-mono">{patchProposalPreview.mode}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">Status da proposta</p>
+                <p className="mt-2 font-mono text-xs text-violet-200">
+                  {patchProposalPreview.status}
+                </p>
+                <p className="mt-2 text-xs text-slate-400">
+                  Revisao humana: {patchProposalPreview.readyForHumanReview ? 'pronta' : 'aguardando contexto'}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">Fonte</p>
+                <p className="mt-2 break-all font-mono text-xs text-cyan-200">
+                  {patchProposalPreview.source}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">Arquivos declarados</p>
+                <p className="mt-2 text-xs text-slate-400">
+                  {patchProposalPreview.changedFiles.length
+                    ? `${patchProposalPreview.changedFiles.length} arquivo(s)`
+                    : 'Nenhum arquivo declarado pela proposta carregada.'}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">Validacoes obrigatorias</p>
+                <ul className="mt-2 space-y-1">
+                  {patchProposalPreview.validations.map((validation) => (
+                    <li className="font-mono text-xs text-cyan-200" key={validation}>
+                      {validation}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs font-semibold text-slate-300">Objetivo proposto</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  {patchProposalPreview.objective}
+                </p>
+
+                <p className="mt-4 text-xs font-semibold text-slate-300">Rollback sugerido</p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {patchProposalPreview.rollback}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-300">Preview auditavel</p>
+                <pre className="mt-2 max-h-80 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-violet-100">
+                  {prettyJson(patchProposalPreview)}
+                </pre>
+              </div>
+            </div>
+
+            <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
+              Limite de seguranca: a proposta pode orientar um script futuro, mas a aplicacao
+              continua dependendo de comando explicito no shell ou gateway, seguida de smoke,
+              revisao de diff, commit e push.
+            </p>
+          </article>
+        </section>
+
+<section className="grid gap-6 lg:grid-cols-2">
           <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 lg:col-span-2">
             <h2 className="text-xl font-semibold">Busca em docs/</h2>
             <p className="mt-2 text-sm text-slate-400">Resultado de `/local/docs/search?q=HelpUS AI`.</p>

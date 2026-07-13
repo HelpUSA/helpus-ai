@@ -151,3 +151,24 @@ Validation:
 The protocol records the repository, branch, phase, base commit, final commit, changed files, validation results, safety posture, next action, and rollback guidance.
 
 The application remains read-only, proposal-oriented, non-executing, and non-approving.
+
+## Phase Z implementation contract
+
+Status: implemented.
+
+Phase Z adds a read-only patch proposal mode to `/admin/local`.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/50_smoke_patch_proposal_mode.py`
+
+Validation:
+
+- `python scripts/50_smoke_patch_proposal_mode.py`
+- `npm run smoke:phase-z`
+- `npm run smoke:phase-y`
+
+The panel derives an auditable proposal preview from the loaded plan or proposal.
+
+It does not apply patches, execute commands, create commits, perform pushes, or approve changes.

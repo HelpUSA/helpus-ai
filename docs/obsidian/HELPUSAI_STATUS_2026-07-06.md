@@ -486,3 +486,15 @@ Validation:
 - `python scripts/49_smoke_multi_agent_handoff_docs.py`
 - `npm run smoke:phase-y`
 - `npm run smoke:phase-x`
+
+## Checkpoint Phase Z patch proposal mode
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/50_smoke_patch_proposal_mode.py`
+- `npm run smoke:phase-z`
+- `npm run smoke:phase-y`
+
+No application-level patch execution or automatic approval was added.
