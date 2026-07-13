@@ -286,3 +286,22 @@ Validation:
 - `npm run smoke:phase-ae`
 
 The workflow retains read-only repository permissions and does not transmit handoffs, execute commands, approve changes, create commits, or push code.
+
+## Phase AG implementation contract
+
+Status: implemented.
+
+Phase AG adds a read-only handoff readiness checklist to `/admin/local`.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/57_smoke_handoff_readiness_checklist.py`
+
+Validation:
+
+- `python scripts/57_smoke_handoff_readiness_checklist.py`
+- `npm run smoke:phase-ag`
+- `npm run smoke:phase-af`
+
+The checklist verifies repository, branch, source, declared files, smoke chain, risk, safety posture, next action, and rollback. It does not approve, transmit, or execute the handoff.

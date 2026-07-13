@@ -572,3 +572,15 @@ Validation:
 - `npm run smoke:phase-ae`
 
 CI now covers the complete local handoff-download safety chain.
+
+## Checkpoint Phase AG handoff readiness
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/57_smoke_handoff_readiness_checklist.py`
+- `npm run smoke:phase-ag`
+- `npm run smoke:phase-af`
+
+The checklist remains read-only, informational, non-approving, non-transmitting, and non-executing.

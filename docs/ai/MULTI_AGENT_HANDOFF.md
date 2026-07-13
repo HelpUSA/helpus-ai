@@ -134,3 +134,14 @@ Validation:
 - `npm run smoke:phase-ae`
 
 The action creates a local text file only after a user click. It does not transmit or execute the handoff.
+
+## Readiness checklist after Phase AG
+
+The admin handoff preview now includes a read-only checklist for required handoff context.
+
+Validation:
+
+- `python scripts/57_smoke_handoff_readiness_checklist.py`
+- `npm run smoke:phase-ag`
+
+A complete checklist is informational only. It does not approve, transmit, or execute the handoff.

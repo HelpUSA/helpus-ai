@@ -562,3 +562,16 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AG add a read-only handoff readiness checklist.
+
+## Phase AG handoff readiness checklist
+
+Deliverables:
+
+- read-only handoff completeness checks;
+- visible passed and total counts;
+- attention markers for incomplete fields;
+- `scripts/57_smoke_handoff_readiness_checklist.py`;
+- `smoke:phase-ag`;
+- documentation updates.
+
+Next recommended phase: Phase AH update CI to validate the complete Phase AG chain.

@@ -421,3 +421,14 @@ Validation:
 - `python scripts/56_smoke_ci_phase_ae_chain.py`
 - `npm run smoke:phase-af`
 - `npm run smoke:phase-ae`
+
+## Handoff readiness after Phase AG
+
+The local admin page now evaluates handoff completeness through a read-only checklist.
+
+Validation:
+
+- `python scripts/57_smoke_handoff_readiness_checklist.py`
+- `npm run smoke:phase-ag`
+
+Missing fields are shown as requiring attention. No automatic approval is introduced.

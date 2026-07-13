@@ -291,6 +291,116 @@ function formatHandoffSummaryPreview(
   ].join('\n')
 }
 
+
+interface HandoffReadinessItem {
+  key: string
+  label: string
+  passed: boolean
+  detail: string
+}
+
+interface HandoffReadinessSummary {
+  passed: number
+  total: number
+  ready: boolean
+  label: string
+}
+
+function buildHandoffReadinessChecklist(
+  handoff: HandoffSummaryPreview,
+): HandoffReadinessItem[] {
+  const validation = new Set(
+    handoff.validation,
+  )
+
+  return [
+    {
+      key: 'repo',
+      label: 'Repositorio identificado',
+      passed: Boolean(handoff.repo.trim()),
+      detail: handoff.repo || 'Repositorio ausente.',
+    },
+    {
+      key: 'branch',
+      label: 'Branch identificada',
+      passed: Boolean(handoff.branch.trim()),
+      detail: handoff.branch || 'Branch ausente.',
+    },
+    {
+      key: 'source',
+      label: 'Fonte de contexto carregada',
+      passed:
+        Boolean(handoff.source.trim())
+        && handoff.source !== 'nenhuma fonte carregada',
+      detail: handoff.source,
+    },
+    {
+      key: 'files',
+      label: 'Arquivos declarados',
+      passed: handoff.changedFiles.length > 0,
+      detail: handoff.changedFiles.length
+        ? `${handoff.changedFiles.length} arquivo(s) declarado(s).`
+        : 'Nenhum arquivo declarado.',
+    },
+    {
+      key: 'validation',
+      label: 'Cadeia de validacao declarada',
+      passed:
+        validation.has('smoke:phase-ag')
+        && validation.has('smoke:phase-af')
+        && validation.has('smoke:local-audit-safety'),
+      detail: `${handoff.validation.length} validacao(oes) declarada(s).`,
+    },
+    {
+      key: 'risk',
+      label: 'Risco estruturado disponivel',
+      passed: Boolean(handoff.risk.trim()),
+      detail: handoff.risk || 'Risco ausente.',
+    },
+    {
+      key: 'safety',
+      label: 'Postura de seguranca preservada',
+      passed:
+        handoff.safetyPosture.includes('read-only')
+        && handoff.safetyPosture.includes('non-executing')
+        && handoff.safetyPosture.includes('non-approving'),
+      detail: handoff.safetyPosture,
+    },
+    {
+      key: 'next_action',
+      label: 'Proxima acao segura definida',
+      passed: Boolean(handoff.nextAction.trim()),
+      detail: handoff.nextAction,
+    },
+    {
+      key: 'rollback',
+      label: 'Rollback definido',
+      passed: Boolean(handoff.rollback.trim()),
+      detail: handoff.rollback,
+    },
+  ]
+}
+
+function summarizeHandoffReadiness(
+  items: HandoffReadinessItem[],
+): HandoffReadinessSummary {
+  const passed = items.filter(
+    (item) => item.passed,
+  ).length
+
+  const total = items.length
+  const ready = passed === total
+
+  return {
+    passed,
+    total,
+    ready,
+    label: ready
+      ? 'handoff_pronto_para_revisao'
+      : 'handoff_requer_atencao',
+  }
+}
+
 function findProposalId(value: unknown): string {
   if (!value || typeof value !== 'object') return ''
   const record = value as Record<string, unknown>
@@ -369,6 +479,16 @@ export default function AdminLocalReadonlyPage() {
     patchProposalPreview,
     structuredProposalRisk,
   )
+
+  const handoffReadinessChecklist =
+    buildHandoffReadinessChecklist(
+      handoffSummaryPreview,
+    )
+
+  const handoffReadinessSummary =
+    summarizeHandoffReadiness(
+      handoffReadinessChecklist,
+    )
 
   const copiarResumoHandoff = async () => {
     const handoffText = formatHandoffSummaryPreview(
@@ -1227,6 +1347,68 @@ export default function AdminLocalReadonlyPage() {
                     : 'aguardando_contexto'}
                 </p>
               </div>
+            </div>
+
+
+            <div className="mt-4 rounded-xl border border-emerald-900/70 bg-emerald-950/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">
+                    Phase AG
+                  </p>
+                  <h3 className="mt-2 text-base font-semibold">
+                    Checklist de prontidao do handoff
+                  </h3>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                    Verifica localmente se os campos essenciais foram declarados.
+                    A checklist nao aprova, envia ou executa o handoff.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-emerald-800 bg-slate-950/70 px-4 py-3 text-right">
+                  <p className="text-xs text-slate-400">
+                    Campos validos
+                  </p>
+                  <p className="mt-1 font-mono text-sm text-emerald-200">
+                    {handoffReadinessSummary.passed}/{handoffReadinessSummary.total}
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-slate-400">
+                    {handoffReadinessSummary.label}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {handoffReadinessChecklist.map((item) => (
+                  <div
+                    className="rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+                    key={item.key}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-slate-200">
+                        {item.label}
+                      </p>
+                      <span
+                        className={
+                          item.passed
+                            ? 'rounded-full border border-emerald-700 px-2 py-1 text-[10px] font-semibold text-emerald-200'
+                            : 'rounded-full border border-amber-700 px-2 py-1 text-[10px] font-semibold text-amber-200'
+                        }
+                      >
+                        {item.passed ? 'OK' : 'Requer atencao'}
+                      </span>
+                    </div>
+                    <p className="mt-2 break-words text-xs leading-5 text-slate-400">
+                      {item.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-4 text-xs leading-5 text-slate-400">
+                Resultado informativo: mesmo quando todos os campos estiverem
+                validos, a revisao e a execucao continuam sendo humanas e explicitas.
+              </p>
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
