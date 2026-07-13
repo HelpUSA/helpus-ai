@@ -404,3 +404,24 @@ Validation:
 - `npm run smoke:phase-ak`
 
 The workflow retains read-only repository permissions and does not calculate browser fingerprints, approve, transmit, or execute handoffs.
+
+## Phase AM implementation contract
+
+Status: implemented.
+
+Phase AM adds explicit local comparison between the currently generated handoff fingerprint and a SHA-256 value entered by the user.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/63_smoke_handoff_fingerprint_comparison.py`
+
+Validation:
+
+- `python scripts/63_smoke_handoff_fingerprint_comparison.py`
+- `npm run smoke:phase-am`
+- `npm run smoke:phase-al`
+
+The comparison requires a user click and reports only exact equality, divergence, missing current fingerprint, or invalid input.
+
+It does not establish trust, approve, authorize, transmit, execute, commit, or push anything.

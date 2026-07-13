@@ -644,3 +644,15 @@ Validation:
 - `npm run smoke:phase-ak`
 
 CI now covers the complete read-only handoff-fingerprint safety chain.
+
+## Checkpoint Phase AM fingerprint comparison
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/63_smoke_handoff_fingerprint_comparison.py`
+- `npm run smoke:phase-am`
+- `npm run smoke:phase-al`
+
+The comparison is explicit, local, informational, non-approving, non-authorizing, non-transmitting, and non-executing.

@@ -244,6 +244,8 @@ function buildHandoffSummaryPreview(
     changedFiles: patch.changedFiles,
     validation: Array.from(
       new Set([
+        'smoke:phase-am',
+        'smoke:phase-al',
         'smoke:phase-ak',
         'smoke:phase-aj',
         'smoke:phase-ai',
@@ -533,6 +535,8 @@ export default function AdminLocalReadonlyPage() {
   const [handoffJsonDownloadStatus, setHandoffJsonDownloadStatus] = useState('')
   const [handoffFingerprint, setHandoffFingerprint] = useState('')
   const [handoffFingerprintStatus, setHandoffFingerprintStatus] = useState('')
+  const [handoffFingerprintExpected, setHandoffFingerprintExpected] = useState('')
+  const [handoffFingerprintComparison, setHandoffFingerprintComparison] = useState('')
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
@@ -692,6 +696,38 @@ export default function AdminLocalReadonlyPage() {
         'Fingerprint indisponivel neste navegador.',
       )
     }
+  }
+
+  const compararFingerprintHandoff = () => {
+    const currentFingerprint =
+      handoffFingerprint.trim().toLowerCase()
+
+    const expectedFingerprint =
+      handoffFingerprintExpected.trim().toLowerCase()
+
+    if (!currentFingerprint) {
+      setHandoffFingerprintComparison(
+        'gere_o_fingerprint_atual_primeiro',
+      )
+      return
+    }
+
+    if (
+      !/^sha256:[0-9a-f]{64}$/.test(
+        expectedFingerprint,
+      )
+    ) {
+      setHandoffFingerprintComparison(
+        'fingerprint_informado_invalido',
+      )
+      return
+    }
+
+    setHandoffFingerprintComparison(
+      currentFingerprint === expectedFingerprint
+        ? 'comparacao_exata'
+        : 'comparacao_divergente',
+    )
   }
 
   useEffect(() => {
@@ -1707,7 +1743,58 @@ export default function AdminLocalReadonlyPage() {
                     </p>
                   )}
 
-                  <p className="mt-3 text-xs leading-5 text-slate-400">
+
+                  <div className="mt-4 rounded-lg border border-violet-900/70 bg-violet-950/10 p-3">
+                    <p className="text-xs font-semibold text-violet-200">
+                      Comparar fingerprint localmente
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">
+                      Cole outro SHA-256 para verificar somente correspondencia textual.
+                    </p>
+
+                    <div className="mt-3 flex flex-col gap-3 xl:flex-row">
+                      <input
+                        className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100"
+                        onChange={(event) => {
+                          setHandoffFingerprintExpected(
+                            event.target.value,
+                          )
+                          setHandoffFingerprintComparison('')
+                        }}
+                        placeholder="sha256:..."
+                        spellCheck={false}
+                        type="text"
+                        value={handoffFingerprintExpected}
+                      />
+
+                      <button
+                        className="rounded-lg border border-violet-700 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-950"
+                        onClick={compararFingerprintHandoff}
+                        type="button"
+                      >
+                        Comparar SHA-256
+                      </button>
+                    </div>
+
+                    {handoffFingerprintComparison ? (
+                      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                        <p className="font-mono text-xs text-violet-100">
+                          {handoffFingerprintComparison}
+                        </p>
+
+                        <p className="mt-2 text-xs leading-5 text-slate-400">
+                          O resultado informa apenas igualdade ou divergencia.
+                          Ele nao estabelece confianca, aprovacao ou autorizacao.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">
+                        Nenhuma comparacao foi executada nesta sessao.
+                      </p>
+                    )}
+                  </div>
+
+<p className="mt-3 text-xs leading-5 text-slate-400">
                     O fingerprint nao e assinatura digital e nao aprova,
                     transmite ou executa o handoff.
                   </p>
@@ -1720,7 +1807,7 @@ export default function AdminLocalReadonlyPage() {
 
             <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
               Limite de handoff: este painel apenas prepara texto para revisao humana.
-              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera um arquivo de texto local ou um arquivo JSON local apos um clique explicito. O JSON registra humanReviewRequired=true, approved=false e executed=false. O fingerprint SHA-256 serve apenas para comparacao local e nao funciona como assinatura ou aprovacao.
+              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera um arquivo de texto local ou um arquivo JSON local apos um clique explicito. O JSON registra humanReviewRequired=true, approved=false e executed=false. O fingerprint SHA-256 serve apenas para comparacao local e nao funciona como assinatura ou aprovacao, nem como autorizacao ou decisao automatica de confianca.
             </p>
           </article>
         </section>

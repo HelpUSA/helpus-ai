@@ -167,3 +167,14 @@ Validation:
 - `npm run smoke:phase-ak`
 
 The action requires an explicit click. The fingerprint is not a signature, approval, transmission, or execution.
+
+## Explicit fingerprint comparison after Phase AM
+
+The admin handoff panel can now compare the locally generated SHA-256 value with another fingerprint pasted by the user.
+
+Validation:
+
+- `python scripts/63_smoke_handoff_fingerprint_comparison.py`
+- `npm run smoke:phase-am`
+
+The result is informational only and does not establish trust, approval, authorization, transmission, or execution.

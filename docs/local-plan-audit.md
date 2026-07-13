@@ -484,3 +484,14 @@ Validation:
 - `python scripts/62_smoke_ci_phase_ak_chain.py`
 - `npm run smoke:phase-al`
 - `npm run smoke:phase-ak`
+
+## Fingerprint comparison after Phase AM
+
+The local admin page now supports explicit equality comparison between two SHA-256 handoff fingerprints.
+
+Validation:
+
+- `python scripts/63_smoke_handoff_fingerprint_comparison.py`
+- `npm run smoke:phase-am`
+
+The comparison remains local and does not make automatic trust decisions.

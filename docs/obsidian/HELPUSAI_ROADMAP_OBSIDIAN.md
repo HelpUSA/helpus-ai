@@ -635,3 +635,17 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AM add explicit local fingerprint comparison without automatic trust decisions.
+
+## Phase AM fingerprint comparison
+
+Deliverables:
+
+- explicit SHA-256 comparison input;
+- exact format validation;
+- equality and divergence indicators;
+- no automatic trust decision;
+- `scripts/63_smoke_handoff_fingerprint_comparison.py`;
+- `smoke:phase-am`;
+- documentation updates.
+
+Next recommended phase: Phase AN update CI to validate the complete Phase AM chain.
