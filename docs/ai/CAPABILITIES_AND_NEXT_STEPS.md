@@ -130,3 +130,24 @@ Local validation alias:
 - `npm run smoke:phase-x`
 
 The workflow does not add app-level execution, approval, or automatic patch behavior.
+
+## Phase Y implementation contract
+
+Status: implemented.
+
+Phase Y adds the standardized multi-agent handoff protocol.
+
+Files:
+
+- `docs/ai/MULTI_AGENT_HANDOFF.md`
+- `scripts/49_smoke_multi_agent_handoff_docs.py`
+
+Validation:
+
+- `python scripts/49_smoke_multi_agent_handoff_docs.py`
+- `npm run smoke:phase-y`
+- `npm run smoke:phase-x`
+
+The protocol records the repository, branch, phase, base commit, final commit, changed files, validation results, safety posture, next action, and rollback guidance.
+
+The application remains read-only, proposal-oriented, non-executing, and non-approving.

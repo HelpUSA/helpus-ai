@@ -338,3 +338,12 @@ Local smoke:
 - `npm run smoke:phase-x`
 
 The workflow validates the current read-only local audit safety chain through `npm run smoke:phase-w`.
+
+## Multi-agent handoff docs after Phase Y
+
+The project now includes `docs/ai/MULTI_AGENT_HANDOFF.md`.
+
+Validation:
+
+- `python scripts/49_smoke_multi_agent_handoff_docs.py`
+- `npm run smoke:phase-y`
