@@ -596,3 +596,15 @@ Validation:
 - `npm run smoke:phase-ag`
 
 CI now covers the complete read-only handoff-readiness chain.
+
+## Checkpoint Phase AI handoff JSON export
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/59_smoke_handoff_json_export.py`
+- `npm run smoke:phase-ai`
+- `npm run smoke:phase-ah`
+
+The export is read-only, local, non-transmitting, non-approving, and non-executing.

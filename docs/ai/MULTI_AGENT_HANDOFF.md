@@ -145,3 +145,14 @@ Validation:
 - `npm run smoke:phase-ag`
 
 A complete checklist is informational only. It does not approve, transmit, or execute the handoff.
+
+## Machine-readable JSON export after Phase AI
+
+The admin handoff panel now provides a read-only JSON preview and an explicit `Baixar .json` button.
+
+Validation:
+
+- `python scripts/59_smoke_handoff_json_export.py`
+- `npm run smoke:phase-ai`
+
+The export records human review as required and records approval and execution as false. It does not transmit or execute the handoff.

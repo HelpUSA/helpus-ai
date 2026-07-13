@@ -244,6 +244,8 @@ function buildHandoffSummaryPreview(
     changedFiles: patch.changedFiles,
     validation: Array.from(
       new Set([
+        'smoke:phase-ai',
+        'smoke:phase-ah',
         'smoke:phase-ae',
         'smoke:phase-ac',
         'smoke:phase-ab',
@@ -401,6 +403,64 @@ function summarizeHandoffReadiness(
   }
 }
 
+
+interface HandoffJsonExport {
+  schemaVersion: string
+  generatedFrom: string
+  repository: {
+    name: string
+    branch: string
+  }
+  phase: string
+  source: string
+  risk: string
+  changedFiles: string[]
+  validation: string[]
+  safetyPosture: string
+  nextAction: string
+  rollback: string
+  readiness: {
+    passed: number
+    total: number
+    ready: boolean
+    label: string
+  }
+  humanReviewRequired: boolean
+  approved: boolean
+  executed: boolean
+}
+
+function buildHandoffJsonExport(
+  handoff: HandoffSummaryPreview,
+  readiness: HandoffReadinessSummary,
+): HandoffJsonExport {
+  return {
+    schemaVersion: 'helpusai.handoff.v1',
+    generatedFrom: 'admin-local-read-only-preview',
+    repository: {
+      name: handoff.repo,
+      branch: handoff.branch,
+    },
+    phase: handoff.phase,
+    source: handoff.source,
+    risk: handoff.risk,
+    changedFiles: handoff.changedFiles,
+    validation: handoff.validation,
+    safetyPosture: handoff.safetyPosture,
+    nextAction: handoff.nextAction,
+    rollback: handoff.rollback,
+    readiness: {
+      passed: readiness.passed,
+      total: readiness.total,
+      ready: readiness.ready,
+      label: readiness.label,
+    },
+    humanReviewRequired: true,
+    approved: false,
+    executed: false,
+  }
+}
+
 function findProposalId(value: unknown): string {
   if (!value || typeof value !== 'object') return ''
   const record = value as Record<string, unknown>
@@ -468,6 +528,7 @@ export default function AdminLocalReadonlyPage() {
   const [erro, setErro] = useState('')
   const [handoffCopyStatus, setHandoffCopyStatus] = useState('')
   const [handoffDownloadStatus, setHandoffDownloadStatus] = useState('')
+  const [handoffJsonDownloadStatus, setHandoffJsonDownloadStatus] = useState('')
 
   const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
@@ -488,6 +549,12 @@ export default function AdminLocalReadonlyPage() {
   const handoffReadinessSummary =
     summarizeHandoffReadiness(
       handoffReadinessChecklist,
+    )
+
+  const handoffJsonExport =
+    buildHandoffJsonExport(
+      handoffSummaryPreview,
+      handoffReadinessSummary,
     )
 
   const copiarResumoHandoff = async () => {
@@ -541,6 +608,41 @@ export default function AdminLocalReadonlyPage() {
     } catch {
       setHandoffDownloadStatus(
         'Download indisponivel. Use o botao Copiar handoff.',
+      )
+    }
+  }
+
+  const baixarResumoHandoffJson = () => {
+    const jsonText = JSON.stringify(
+      handoffJsonExport,
+      null,
+      2,
+    )
+
+    try {
+      const blob = new Blob(
+        [jsonText],
+        { type: 'application/json;charset=utf-8' },
+      )
+
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+
+      link.href = url
+      link.download = 'helpusai-handoff.json'
+
+      document.body.appendChild(link)
+      link.dispatchEvent(new MouseEvent('click'))
+      link.remove()
+
+      URL.revokeObjectURL(url)
+
+      setHandoffJsonDownloadStatus(
+        'Arquivo JSON de handoff preparado localmente.',
+      )
+    } catch {
+      setHandoffJsonDownloadStatus(
+        'Download JSON indisponivel. Use o preview para revisao manual.',
       )
     }
   }
@@ -1490,6 +1592,13 @@ export default function AdminLocalReadonlyPage() {
                   >
                     Baixar .txt
                   </button>
+                  <button
+                    className="rounded-lg border border-sky-700 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-950"
+                    onClick={baixarResumoHandoffJson}
+                    type="button"
+                  >
+                    Baixar .json
+                  </button>
                 </div>
                 {handoffCopyStatus ? (
                   <p className="mt-2 text-xs text-slate-400">
@@ -1501,6 +1610,19 @@ export default function AdminLocalReadonlyPage() {
                     {handoffDownloadStatus}
                   </p>
                 ) : null}
+                {handoffJsonDownloadStatus ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    {handoffJsonDownloadStatus}
+                  </p>
+                ) : null}
+                <details className="mt-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-sky-200">
+                    Preview JSON auditavel
+                  </summary>
+                  <pre className="mt-3 max-h-80 overflow-auto text-xs leading-5 text-sky-100">
+                    {prettyJson(handoffJsonExport)}
+                  </pre>
+                </details>
                 <pre className="mt-2 max-h-96 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-fuchsia-100">
                   {formatHandoffSummaryPreview(handoffSummaryPreview)}
                 </pre>
@@ -1509,7 +1631,7 @@ export default function AdminLocalReadonlyPage() {
 
             <p className="mt-4 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100">
               Limite de handoff: este painel apenas prepara texto para revisao humana.
-              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera apenas um arquivo de texto local apos um clique explicito.
+              O envio para outro chat ou agente continua sendo uma acao explicita. Copiar nao transmite nem executa o handoff. Baixar gera um arquivo de texto local ou um arquivo JSON local apos um clique explicito. O JSON registra humanReviewRequired=true, approved=false e executed=false.
             </p>
           </article>
         </section>

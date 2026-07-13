@@ -586,3 +586,17 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AI add a machine-readable JSON handoff export.
+
+## Phase AI handoff JSON export
+
+Deliverables:
+
+- machine-readable handoff schema;
+- read-only JSON preview;
+- explicit `Baixar .json` button;
+- local `helpusai-handoff.json`;
+- `scripts/59_smoke_handoff_json_export.py`;
+- `smoke:phase-ai`;
+- documentation updates.
+
+Next recommended phase: Phase AJ update CI to validate the complete Phase AI chain.

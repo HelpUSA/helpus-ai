@@ -324,3 +324,24 @@ Validation:
 - `npm run smoke:phase-ag`
 
 The workflow retains read-only repository permissions and does not approve, transmit, or execute handoffs.
+
+## Phase AI implementation contract
+
+Status: implemented.
+
+Phase AI adds a machine-readable JSON preview and explicit local JSON download to `/admin/local`.
+
+Files:
+
+- `frontend/src/app/admin/local/page.tsx`
+- `scripts/59_smoke_handoff_json_export.py`
+
+Validation:
+
+- `python scripts/59_smoke_handoff_json_export.py`
+- `npm run smoke:phase-ai`
+- `npm run smoke:phase-ah`
+
+The export includes repository, branch, risk, changed files, validation, safety posture, next action, rollback, readiness, `humanReviewRequired: true`, `approved: false`, and `executed: false`.
+
+The JSON remains local and is generated only after explicit user interaction.

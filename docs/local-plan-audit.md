@@ -442,3 +442,14 @@ Validation:
 - `python scripts/58_smoke_ci_phase_ag_chain.py`
 - `npm run smoke:phase-ah`
 - `npm run smoke:phase-ag`
+
+## Handoff JSON export after Phase AI
+
+The local admin page can now represent the handoff as an auditable machine-readable JSON object.
+
+Validation:
+
+- `python scripts/59_smoke_handoff_json_export.py`
+- `npm run smoke:phase-ai`
+
+The JSON download remains local and requires an explicit click.
