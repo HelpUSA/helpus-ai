@@ -495,3 +495,13 @@ Validation:
 - `npm run smoke:phase-am`
 
 The comparison remains local and does not make automatic trust decisions.
+
+## Phase AM CI chain after Phase AN
+
+The GitHub Actions safety workflow now validates the complete Phase AM local fingerprint-comparison contract.
+
+Validation:
+
+- `python scripts/64_smoke_ci_phase_am_chain.py`
+- `npm run smoke:phase-an`
+- `npm run smoke:phase-am`

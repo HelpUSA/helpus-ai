@@ -95,6 +95,8 @@
     "smoke:phase-al-ci": "python scripts/62_smoke_ci_phase_ak_chain.py",
     "smoke:phase-al": "npm run smoke:phase-al-ci && npm run smoke:phase-ak",
     "smoke:phase-am-ui": "python scripts/63_smoke_handoff_fingerprint_comparison.py",
-    "smoke:phase-am": "npm run smoke:phase-am-ui && npm run smoke:phase-al"
+    "smoke:phase-am": "npm run smoke:phase-am-ui && npm run smoke:phase-al",
+    "smoke:phase-an-ci": "python scripts/64_smoke_ci_phase_am_chain.py",
+    "smoke:phase-an": "npm run smoke:phase-an-ci && npm run smoke:phase-am"
   }
 }

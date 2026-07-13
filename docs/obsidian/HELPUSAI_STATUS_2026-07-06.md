@@ -656,3 +656,15 @@ Validation:
 - `npm run smoke:phase-al`
 
 The comparison is explicit, local, informational, non-approving, non-authorizing, non-transmitting, and non-executing.
+
+## Checkpoint Phase AN CI Phase AM chain
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/64_smoke_ci_phase_am_chain.py`
+- `npm run smoke:phase-an`
+- `npm run smoke:phase-am`
+
+CI now covers the complete read-only fingerprint-comparison safety chain.

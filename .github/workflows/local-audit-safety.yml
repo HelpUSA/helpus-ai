@@ -79,3 +79,9 @@ jobs:
 
       - name: Run complete handoff fingerprint smoke chain
         run: npm run smoke:phase-ak
+
+      - name: Validate Phase AM CI contract
+        run: python scripts/64_smoke_ci_phase_am_chain.py
+
+      - name: Run complete fingerprint comparison smoke chain
+        run: npm run smoke:phase-am

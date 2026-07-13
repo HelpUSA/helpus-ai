@@ -649,3 +649,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AN update CI to validate the complete Phase AM chain.
+
+## Phase AN CI Phase AM chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-am`;
+- `scripts/64_smoke_ci_phase_am_chain.py`;
+- `smoke:phase-an`;
+- documentation updates.
+
+Next recommended phase: Phase AO add explicit local comparison-result reset and session-bound status guidance.

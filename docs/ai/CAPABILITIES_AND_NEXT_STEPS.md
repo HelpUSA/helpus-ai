@@ -425,3 +425,22 @@ Validation:
 The comparison requires a user click and reports only exact equality, divergence, missing current fingerprint, or invalid input.
 
 It does not establish trust, approve, authorize, transmit, execute, commit, or push anything.
+
+## Phase AN implementation contract
+
+Status: implemented.
+
+Phase AN updates GitHub Actions so CI validates the complete Phase AM explicit fingerprint-comparison chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/64_smoke_ci_phase_am_chain.py`
+
+Validation:
+
+- `python scripts/64_smoke_ci_phase_am_chain.py`
+- `npm run smoke:phase-an`
+- `npm run smoke:phase-am`
+
+The workflow retains read-only repository permissions and does not compare browser values, establish trust, approve, authorize, transmit, or execute handoffs.
