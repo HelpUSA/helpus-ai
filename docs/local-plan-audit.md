@@ -474,3 +474,13 @@ Validation:
 - `npm run smoke:phase-ak`
 
 The fingerprint remains local and informational.
+
+## Phase AK CI chain after Phase AL
+
+The GitHub Actions safety workflow now validates the complete Phase AK local-fingerprint contract.
+
+Validation:
+
+- `python scripts/62_smoke_ci_phase_ak_chain.py`
+- `npm run smoke:phase-al`
+- `npm run smoke:phase-ak`

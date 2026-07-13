@@ -624,3 +624,14 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AL update CI to validate the complete Phase AK chain.
+
+## Phase AL CI Phase AK chain
+
+Deliverables:
+
+- CI validation of `smoke:phase-ak`;
+- `scripts/62_smoke_ci_phase_ak_chain.py`;
+- `smoke:phase-al`;
+- documentation updates.
+
+Next recommended phase: Phase AM add explicit local fingerprint comparison without automatic trust decisions.

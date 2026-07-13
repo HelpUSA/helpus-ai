@@ -632,3 +632,15 @@ Validation:
 - `npm run smoke:phase-aj`
 
 The fingerprint is local, explicit, informational, non-approving, non-transmitting, and non-executing.
+
+## Checkpoint Phase AL CI Phase AK chain
+
+Status: implemented.
+
+Validation:
+
+- `python scripts/62_smoke_ci_phase_ak_chain.py`
+- `npm run smoke:phase-al`
+- `npm run smoke:phase-ak`
+
+CI now covers the complete read-only handoff-fingerprint safety chain.

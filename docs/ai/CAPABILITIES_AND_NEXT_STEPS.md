@@ -385,3 +385,22 @@ Validation:
 The browser calculates the fingerprint locally only after an explicit click.
 
 The fingerprint supports local integrity comparison. It is not a digital signature and does not approve, transmit, execute, commit, or push anything.
+
+## Phase AL implementation contract
+
+Status: implemented.
+
+Phase AL updates GitHub Actions so CI validates the complete Phase AK local handoff-fingerprint chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/62_smoke_ci_phase_ak_chain.py`
+
+Validation:
+
+- `python scripts/62_smoke_ci_phase_ak_chain.py`
+- `npm run smoke:phase-al`
+- `npm run smoke:phase-ak`
+
+The workflow retains read-only repository permissions and does not calculate browser fingerprints, approve, transmit, or execute handoffs.

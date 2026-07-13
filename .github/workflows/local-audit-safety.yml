@@ -73,3 +73,9 @@ jobs:
 
       - name: Run complete handoff JSON export smoke chain
         run: npm run smoke:phase-ai
+
+      - name: Validate Phase AK CI contract
+        run: python scripts/62_smoke_ci_phase_ak_chain.py
+
+      - name: Run complete handoff fingerprint smoke chain
+        run: npm run smoke:phase-ak
