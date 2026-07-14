@@ -516,3 +516,15 @@ Validation:
 
 - `python scripts/65_smoke_chat_sidebar_navigation.py`
 - `npm run smoke:phase-ao`
+
+## Phase AO CI chain after Phase AP
+
+GitHub Actions now validates the complete flat chat-navigation sidebar contract.
+
+Validation:
+
+- `python scripts/66_smoke_ci_phase_ao_chain.py`
+- `npm run smoke:phase-ap`
+- `npm run smoke:phase-ao`
+
+The CI contract verifies the sidebar source statically and does not perform authenticated conversation mutations.

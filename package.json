@@ -99,6 +99,8 @@
     "smoke:phase-an-ci": "python scripts/64_smoke_ci_phase_am_chain.py",
     "smoke:phase-an": "npm run smoke:phase-an-ci && npm run smoke:phase-am",
     "smoke:phase-ao-ui": "python scripts/65_smoke_chat_sidebar_navigation.py",
-    "smoke:phase-ao": "npm run smoke:phase-ao-ui && npm run smoke:phase-an"
+    "smoke:phase-ao": "npm run smoke:phase-ao-ui && npm run smoke:phase-an",
+    "smoke:phase-ap-ci": "python scripts/66_smoke_ci_phase_ao_chain.py",
+    "smoke:phase-ap": "npm run smoke:phase-ap-ci && npm run smoke:phase-ao"
   }
 }

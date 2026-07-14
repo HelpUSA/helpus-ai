@@ -472,3 +472,24 @@ Validation:
 - `npm run smoke:phase-an`
 
 The sidebar does not introduce command execution, approval, automatic transmission, commits, or pushes.
+
+## Phase AP implementation contract
+
+Status: implemented.
+
+Phase AP updates GitHub Actions so CI validates the complete Phase AO flat chat-navigation chain.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/66_smoke_ci_phase_ao_chain.py`
+
+Validation:
+
+- `python scripts/66_smoke_ci_phase_ao_chain.py`
+- `npm run smoke:phase-ap`
+- `npm run smoke:phase-ao`
+
+The workflow retains read-only repository permissions.
+
+It validates the conversation navigation contract without opening, creating, renaming, deleting, transmitting, approving, or executing conversations.

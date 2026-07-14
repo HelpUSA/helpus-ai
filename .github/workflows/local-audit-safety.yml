@@ -85,3 +85,9 @@ jobs:
 
       - name: Run complete fingerprint comparison smoke chain
         run: npm run smoke:phase-am
+
+      - name: Validate Phase AO chat navigation contract
+        run: python scripts/66_smoke_ci_phase_ao_chain.py
+
+      - name: Run complete chat navigation smoke chain
+        run: npm run smoke:phase-ao

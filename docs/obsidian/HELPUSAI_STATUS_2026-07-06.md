@@ -680,3 +680,26 @@ Validation:
 - `python scripts/65_smoke_chat_sidebar_navigation.py`
 - `npm run smoke:phase-ao`
 - `npm run smoke:phase-an`
+
+## Checkpoint Phase AP CI Phase AO chain
+
+Status: implemented.
+
+CI now covers:
+
+- the flat conversation list;
+- conversation search;
+- reopening existing chats;
+- list refresh;
+- local title aliases;
+- link copying;
+- deletion confirmation;
+- active-conversation highlighting;
+- responsive sidebar behavior;
+- account and operational-panel controls.
+
+Validation:
+
+- `python scripts/66_smoke_ci_phase_ao_chain.py`
+- `npm run smoke:phase-ap`
+- `npm run smoke:phase-ao`

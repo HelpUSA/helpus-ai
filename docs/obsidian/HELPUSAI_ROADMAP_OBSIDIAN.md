@@ -676,3 +676,14 @@ Deliverables:
 - `smoke:phase-ao`.
 
 Next recommended phase: Phase AP validate the complete Phase AO chain in CI.
+
+## Phase AP CI Phase AO chain
+
+Deliverables:
+
+- CI validation of the rebuilt flat chat sidebar;
+- `scripts/66_smoke_ci_phase_ao_chain.py`;
+- `smoke:phase-ap`;
+- documentation updates.
+
+Next recommended phase: improve the central chat area with automatic scrolling, clearer empty and error states, retry support, better composer behavior, and useful response actions.
