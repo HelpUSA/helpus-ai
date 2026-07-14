@@ -444,3 +444,31 @@ Validation:
 - `npm run smoke:phase-am`
 
 The workflow retains read-only repository permissions and does not compare browser values, establish trust, approve, authorize, transmit, or execute handoffs.
+
+## Phase AO implementation contract
+
+Status: implemented.
+
+Phase AO replaces the project-oriented main sidebar with a flat and functional conversation navigator.
+
+Capabilities:
+
+- single searchable conversation list;
+- reopening through the existing `/historico/{session_id}` contract;
+- active conversation highlighting;
+- refresh using `GET /conversas`;
+- permanent deletion using `DELETE /conversa/{session_id}`;
+- local browser aliases for conversation titles;
+- copy-link support for every conversation;
+- responsive mobile sidebar;
+- account and operational-panel access;
+- useful top actions menu;
+- no simulated project grouping.
+
+Validation:
+
+- `python scripts/65_smoke_chat_sidebar_navigation.py`
+- `npm run smoke:phase-ao`
+- `npm run smoke:phase-an`
+
+The sidebar does not introduce command execution, approval, automatic transmission, commits, or pushes.

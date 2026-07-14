@@ -660,3 +660,19 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: Phase AO add explicit local comparison-result reset and session-bound status guidance.
+
+## Phase AO chat navigation
+
+Deliverables:
+
+- removal of the simulated project grouping;
+- flat conversation history;
+- reliable reopening of existing chats;
+- useful contextual actions;
+- local title aliases;
+- authenticated refresh and deletion;
+- responsive sidebar corrections;
+- `scripts/65_smoke_chat_sidebar_navigation.py`;
+- `smoke:phase-ao`.
+
+Next recommended phase: Phase AP validate the complete Phase AO chain in CI.

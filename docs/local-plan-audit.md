@@ -505,3 +505,14 @@ Validation:
 - `python scripts/64_smoke_ci_phase_am_chain.py`
 - `npm run smoke:phase-an`
 - `npm run smoke:phase-am`
+
+## Chat navigation after Phase AO
+
+The primary HelpUS interface now presents one correct conversation list rather than a simulated project hierarchy.
+
+The user can search, reopen, refresh, copy, rename locally, and permanently delete conversations through existing authenticated contracts.
+
+Validation:
+
+- `python scripts/65_smoke_chat_sidebar_navigation.py`
+- `npm run smoke:phase-ao`

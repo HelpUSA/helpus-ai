@@ -668,3 +668,15 @@ Validation:
 - `npm run smoke:phase-am`
 
 CI now covers the complete read-only fingerprint-comparison safety chain.
+
+## Checkpoint Phase AO chat navigation
+
+Status: implemented.
+
+The main sidebar now uses the real authenticated conversation history and provides reopening, search, refresh, link copying, local aliases, deletion confirmation, active-chat highlighting, and responsive navigation.
+
+Validation:
+
+- `python scripts/65_smoke_chat_sidebar_navigation.py`
+- `npm run smoke:phase-ao`
+- `npm run smoke:phase-an`

@@ -191,6 +191,8 @@ export default function Home() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [sidebarNotice, setSidebarNotice] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState('')
+  const [chatMenuOpenId, setChatMenuOpenId] = useState('')
+  const [chatAliases, setChatAliases] = useState<Record<string, string>>({})
   const [sidebarPanel, setSidebarPanel] = useState<'projects' | 'library' | 'memories' | null>(null)
   const [activeProjectId, setActiveProjectId] = useState('general')
   const [projectMemories, setProjectMemories] = useState<ProjectMemory[]>([])
@@ -212,25 +214,94 @@ export default function Home() {
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
   const providerBadgeDebugEnabled = typeof window !== 'undefined' && window.localStorage.getItem('helpus_provider_debug') === '1'
 
-  const projectLabels: Record<string, string> = {
-    general: 'Projeto Geral',
-    helpusai: 'WS EUA HelpUSAI Status',
-    ai_bridge: 'WS EUA AI Bridge',
-    watcher: 'WS EUA Watcher Ativo',
-  }
-  const activeProjectLabel = projectLabels[activeProjectId] || 'Projeto Geral'
-  const projectFilteredConversas = activeProjectId === 'general'
-    ? conversas
-    : conversas.filter((conv) => (conv.project_id || 'general') === activeProjectId)
+  const tituloExibidoConversa = (
+    conv: ConversaResumo,
+  ) => (
+    chatAliases[conv.session_id]
+    || tituloConversa(conv)
+  )
 
-  const chatSearchTerm = chatSearch.trim().toLowerCase()
-  const conversasFiltradas = chatSearchTerm
-    ? projectFilteredConversas.filter((conv) => {
-        const titulo = tituloConversa(conv).toLowerCase()
-        const data = formatarDataConversa(conv).toLowerCase()
-        return titulo.includes(chatSearchTerm) || data.includes(chatSearchTerm)
-      })
-    : projectFilteredConversas
+  const chatSearchTerm =
+    chatSearch
+      .trim()
+      .toLowerCase()
+
+  const conversasFiltradas = [
+    ...conversas,
+  ]
+    .filter(
+      (conv) => {
+        if (!chatSearchTerm) {
+          return true
+        }
+
+        const titulo =
+          tituloExibidoConversa(
+            conv,
+          ).toLowerCase()
+
+        const data =
+          formatarDataConversa(
+            conv,
+          ).toLowerCase()
+
+        return (
+          titulo.includes(
+            chatSearchTerm,
+          )
+          || data.includes(
+            chatSearchTerm,
+          )
+          || conv.session_id
+            .toLowerCase()
+            .includes(
+              chatSearchTerm,
+            )
+        )
+      },
+    )
+    .sort(
+      (left, right) => {
+        const leftRaw =
+          left.updated_at
+          || left.updatedAt
+          || left.created_at
+          || left.createdAt
+          || left.data
+          || ''
+
+        const rightRaw =
+          right.updated_at
+          || right.updatedAt
+          || right.created_at
+          || right.createdAt
+          || right.data
+          || ''
+
+        const leftTime =
+          Date.parse(leftRaw)
+          || 0
+
+        const rightTime =
+          Date.parse(rightRaw)
+          || 0
+
+        return rightTime - leftTime
+      },
+    )
+
+  const activeConversation =
+    conversas.find(
+      (conv) =>
+        conv.session_id === sessionId,
+    )
+
+  const activeConversationTitle =
+    activeConversation
+      ? tituloExibidoConversa(
+          activeConversation,
+        )
+      : 'Nova conversa'
 
   const authHeaders = (token = googleToken) => ({
     Authorization: `Bearer ${token}`,
@@ -275,6 +346,36 @@ export default function Home() {
       setMemoryLoading(false)
     }
   }
+
+  useEffect(() => {
+    const stored =
+      window.localStorage.getItem(
+        'helpus_chat_aliases_v1',
+      )
+
+    if (!stored) {
+      return
+    }
+
+    try {
+      const parsed =
+        JSON.parse(stored)
+
+      if (
+        parsed
+        && typeof parsed === 'object'
+        && !Array.isArray(parsed)
+      ) {
+        setChatAliases(
+          parsed as Record<string, string>,
+        )
+      }
+    } catch {
+      window.localStorage.removeItem(
+        'helpus_chat_aliases_v1',
+      )
+    }
+  }, [])
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
@@ -424,7 +525,7 @@ export default function Home() {
           mensagem: texto,
           session_id: sessionId || undefined,
           pesquisar_web: pesquisarWeb,
-          project_id: activeProjectId,
+          project_id: 'general',
         }),
       })
 
@@ -509,9 +610,92 @@ export default function Home() {
     window.setTimeout(() => setCopiedChatLink(false), 1800)
   }
 
+  async function copiarLinkConversaPorId(
+    id: string,
+  ) {
+    const link =
+      `${window.location.origin}${chatUrl(id)}`
+
+    try {
+      await navigator.clipboard.writeText(
+        link,
+      )
+
+      setSidebarNotice(
+        'Link da conversa copiado.',
+      )
+    } catch {
+      setSidebarNotice(
+        `Copie manualmente: ${link}`,
+      )
+    }
+
+    window.setTimeout(
+      () =>
+        setSidebarNotice(''),
+      3000,
+    )
+  }
+
+  const renomearConversaLocal = (
+    conv: ConversaResumo,
+  ) => {
+    const currentTitle =
+      tituloExibidoConversa(
+        conv,
+      )
+
+    const requested =
+      window.prompt(
+        'Novo nome para esta conversa:',
+        currentTitle,
+      )
+
+    const nextTitle =
+      requested?.trim()
+
+    if (
+      !nextTitle
+      || nextTitle === currentTitle
+    ) {
+      return
+    }
+
+    setChatAliases(
+      (current) => {
+        const next = {
+          ...current,
+          [conv.session_id]: nextTitle,
+        }
+
+        window.localStorage.setItem(
+          'helpus_chat_aliases_v1',
+          JSON.stringify(next),
+        )
+
+        return next
+      },
+    )
+
+    setChatMenuOpenId('')
+
+    setSidebarNotice(
+      'Nome salvo nesta interface.',
+    )
+
+    window.setTimeout(
+      () =>
+        setSidebarNotice(''),
+      3000,
+    )
+  }
+
   const limparChat = () => {
     setMessages([])
     setSessionId('')
+    setChatMenuOpenId('')
+    setDeleteConfirmId('')
+    setSidebarNotice('')
     router.push('/')
     setInput('')
     setSidebarOpen(false)
@@ -540,7 +724,7 @@ export default function Home() {
                 Menu
               </button>
               <div>
-                <h1 className="text-base font-semibold tracking-tight text-zinc-100">Projeto Geral</h1>
+                <h1 className="max-w-[55vw] truncate text-base font-semibold tracking-tight text-zinc-100">{activeConversationTitle}</h1>
                 <div className="flex items-center gap-2">
                   <p className="text-xs text-zinc-400">HelpUS!AI</p>
                   <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-zinc-500" title="Versao visual temporaria da HelpUSAI">{HELPUSAI_VISUAL_VERSION}</span>
@@ -568,10 +752,30 @@ export default function Home() {
                     <span>Nova conversa</span>
                     <span className="text-zinc-500">+</span>
                   </button>
-                  <button onClick={() => { setActionsMenuOpen(false); setSidebarPanel('projects'); setSidebarOpen(true) }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
-                    <span>Projetos</span>
-                    <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-200">ativo</span>
+                  <button
+                    onClick={() => {
+                      setActionsMenuOpen(false)
+                      void carregarConversas()
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                    role="menuitem"
+                  >
+                    <span>Atualizar conversas</span>
+                    <span className="text-zinc-500">↻</span>
                   </button>
+                  {sessionId ? (
+                    <button
+                      onClick={() => {
+                        setActionsMenuOpen(false)
+                        void copiarLinkConversa()
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                      role="menuitem"
+                    >
+                      <span>Copiar link atual</span>
+                      <span className="text-zinc-500">↗</span>
+                    </button>
+                  ) : null}
                   <button onClick={() => { setActionsMenuOpen(false); router.push('/admin') }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
                     <span>Painel operacional</span>
                     <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-300">/admin</span>
@@ -600,241 +804,399 @@ export default function Home() {
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
-            className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w[85vw]' : 'hidden'} border-r border-white/10 bg[-#171717] p-2 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur lg:static lg:z-auto lg:block lg:w-72 lg:max-w-none lg:flex-none`}
+            className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w-[85vw]' : 'hidden'} border-r border-white/10 bg-[#171717] p-2 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur lg:static lg:z-auto lg:block lg:w-72 lg:max-w-none lg:flex-none`}
           >
-            <div className="flex h-full flex-col">
-              <div className="mb-2 flex items-center justify-between px-2 py-2">
-                <button
-                  onClick={limparChat}
-                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-zinc-100 transition hover:bg-white/10"
-                >
-                  <span className="text-base">+</span>
-                  Nova conversa
-                </button>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex items-center justify-between gap-3 px-2 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-100">
+                    Conversas
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                    {conversasFiltradas.length} de {conversas.length}
+                  </div>
+                </div>
+
                 <button
                   onClick={() => setSidebarOpen(false)}
                   className="rounded-xl px-3 py-2 text-sm text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 lg:hidden"
                   aria-label="Fechar menu"
+                  type="button"
                 >
-                  x
+                  ×
                 </button>
               </div>
 
-              <nav className="space-y-1 px-2 text-sm">
+              <div className="space-y-2 px-2 pb-3">
                 <button
                   onClick={limparChat}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-zinc-100 transition hover:bg-white/10"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-white/10"
+                  type="button"
                 >
-                  <span className="w-5 text-center">+</span>
+                  <span className="text-base">+</span>
                   <span>Nova conversa</span>
                 </button>
+
                 <label className="flex w-full items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 text-left text-zinc-300 ring-1 ring-white/10 transition focus-within:ring-white/20">
-                  <span className="w-5 text-center text-zinc-500">?</span>
+                  <span className="w-5 text-center text-zinc-500">
+                    ⌕
+                  </span>
+
                   <input
                     value={chatSearch}
                     onChange={(event) => setChatSearch(event.target.value)}
-                    placeholder="Buscar chats"
+                    placeholder="Buscar conversas"
                     className="min-w-0 flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+                    type="search"
                   />
-                </label>
-                <button
-                  onClick={() => setSidebarPanel(sidebarPanel === 'library' ? null : 'library')}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${sidebarPanel === 'library' ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
-                >
-                  <span className="w-5 text-center">[]</span>
-                  <span>Memórias</span>
-                </button>
-              </nav>
 
-              {sidebarPanel && (
-                <div className="mx-2 mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-zinc-300">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="font-medium text-zinc-100">
-                      {sidebarPanel === 'projects' ? 'Projetos' : 'Memórias'}
-                    </div>
-                    <button onClick={() => setSidebarPanel(null)} className="rounded-lg px-2 py-1 text-xs text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100">
-                      Fechar
+                  {chatSearch ? (
+                    <button
+                      onClick={() => setChatSearch('')}
+                      className="rounded-md px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-white/10 hover:text-zinc-100"
+                      aria-label="Limpar busca"
+                      type="button"
+                    >
+                      ×
                     </button>
-                  </div>
-                  {sidebarPanel === 'projects' ? (
-                    <div className="space-y-2 text-xs leading-5 text-zinc-400">
-                      <p>Use os atalhos abaixo para filtrar conversas por frente de trabalho.</p>
-                      <div className="flex flex-wrap gap-2">
-                        <button onClick={() => { setChatSearch(''); setActiveProjectId('helpusai') }} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">HelpUSAI</button>
-                        <button onClick={() => { setChatSearch(''); setActiveProjectId('ai_bridge') }} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">AI Bridge</button>
-                        <button onClick={() => { setChatSearch(''); setActiveProjectId('watcher') }} className="rounded-full bg-white/10 px-3 py-1 text-zinc-200">Watcher</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 text-xs leading-5 text-zinc-400">
-                      <p>Use esta area para guardar memorias ativas do projeto: regras, decisoes, comandos, IDs e aprendizados.</p>
-                      <p>As memorias entram como contexto adicional da HelpUS AI quando o projeto estiver ativo.</p>
-                    </div>
-                  )}
-                </div>
-              )}
+                  ) : null}
+                </label>
 
-              <div className="mt-4 px-2">
-                <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Projetos
-                </div>
-                <div className="space-y-1 text-sm">
-                  <button
-                    onClick={() => setSidebarPanel(sidebarPanel === 'projects' ? null : 'projects')}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-white/10 ${sidebarPanel === 'projects' ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
-                  >
-                    <span className="w-5 text-center">+</span>
-                    <span>Novo projeto</span>
-                    <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">painel</span>
-                  </button>
-                  <button onClick={() => setChatSearch('')} className="w-full rounded-xl bg-white/10 px-3 py-2 text-left text-zinc-100 transition hover:bg-white/15" title="Mostrar todos os chats">
-                    <div className="flex items-center gap-3">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                      <span className="truncate">Projeto Geral</span>
-                    </div>
-                  </button>
-                  <button onClick={() => { setChatSearch(''); setActiveProjectId('helpusai') }} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
-                    <div className="truncate">WS EUA HelpUSAI Status</div>
-                  </button>
-                  <button onClick={() => { setChatSearch(''); setActiveProjectId('ai_bridge') }} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
-                    <div className="truncate">WS EUA AI Bridge</div>
-                  </button>
-                  <button onClick={() => { setChatSearch(''); setActiveProjectId('watcher') }} className="w-full rounded-xl px-3 py-2 text-left text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100" title="Filtrar chats deste projeto">
-                    <div className="truncate">WS EUA Watcher Ativo</div>
-                  </button>
-                </div>
+                <button
+                  onClick={() => void carregarConversas()}
+                  disabled={historyLoading || !profile}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  type="button"
+                >
+                  <span>{historyLoading ? '...' : '↻'}</span>
+                  <span>
+                    {historyLoading
+                      ? 'Atualizando'
+                      : 'Atualizar lista'}
+                  </span>
+                </button>
               </div>
 
-              <div className="mt-4 flex-1 overflow-y-auto px-2 pr-1">
-                <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Chats recentes - {activeProjectLabel}
-                </div>
+              {sidebarNotice ? (
+                <p className="mx-2 mb-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-zinc-300">
+                  {sidebarNotice}
+                </p>
+              ) : null}
 
-                {sidebarNotice && (
-                  <p className="mb-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-zinc-300">
-                    {sidebarNotice}
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pr-1">
+                {!profile ? (
+                  <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm leading-6 text-zinc-500">
+                    Entre com Google para carregar suas conversas.
                   </p>
-                )}
+                ) : null}
 
-                {!profile && (
-                  <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
-                    Entre com Google para ver seu historico.
-                  </p>
-                )}
+                {profile && historyLoading && conversas.length === 0 ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3, 4].map((item) => (
+                      <div
+                        key={item}
+                        className="h-16 animate-pulse rounded-xl bg-white/5"
+                      />
+                    ))}
+                  </div>
+                ) : null}
 
-                {profile && conversas.length === 0 && (
-                  <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
+                {profile && !historyLoading && conversas.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm leading-6 text-zinc-500">
                     Nenhuma conversa salva ainda.
                   </p>
-                )}
+                ) : null}
 
-                {profile && conversas.length > 0 && conversasFiltradas.length === 0 && (
-                  <p className="rounded-xl bg-white/5 px-3 py-3 text-sm text-zinc-400">
-                    Nenhum chat encontrado.
+                {profile
+                && conversas.length > 0
+                && conversasFiltradas.length === 0
+                ? (
+                  <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm leading-6 text-zinc-500">
+                    Nenhuma conversa corresponde à busca.
                   </p>
-                )}
+                ) : null}
 
                 <div className="space-y-1">
-                  {conversasFiltradas.map((conv) => (
-                    <div
-                      key={conv.session_id}
-                      className={`rounded-xl transition hover:bg-white/10 ${sessionId === conv.session_id ? 'bg-white/10 text-zinc-100' : 'text-zinc-300'}`}
-                    >
-                      <div className="flex items-start gap-2 px-3 py-2.5">
-                        <button
-                          onClick={() => carregarHistorico(conv.session_id)}
-                          className="min-w-0 flex-1 text-left text-sm"
-                        >
-                          <div className="truncate font-medium">{tituloConversa(conv)}</div>
-                          <div className="mt-0.5 truncate text-xs text-zinc-500">
-                            {formatarDataConversa(conv)} - {conv.total_mensagens} mensagens
-                          </div>
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(deleteConfirmId === conv.session_id ? '' : conv.session_id)}
-                          className="rounded-lg px-2 py-1 text-xs text-zinc-500 transition hover:bg-white/10 hover:text-rose-200"
-                          title="Apagar conversa"
-                        >
-                          x
-                        </button>
-                      </div>
-                      {deleteConfirmId === conv.session_id && (
-                        <div className="mx-3 mb-2 rounded-xl border border-rose-500/20 bg-rose-500/10 p-2 text-xs text-rose-100">
-                          <div className="mb-2">Apagar esta conversa?</div>
-                          <div className="flex gap-2">
-                            <button onClick={() => apagarConversa(conv.session_id)} className="rounded-lg bg-rose-500/20 px-2 py-1 text-rose-100 transition hover:bg-rose-500/30">Apagar</button>
-                            <button onClick={() => setDeleteConfirmId('')} className="rounded-lg px-2 py-1 text-zinc-300 transition hover:bg-white/10">Cancelar</button>
-                          </div>
+                  {conversasFiltradas.map((conv) => {
+                    const active =
+                      sessionId === conv.session_id
+
+                    const displayTitle =
+                      tituloExibidoConversa(conv)
+
+                    return (
+                      <div
+                        key={conv.session_id}
+                        className={`overflow-hidden rounded-xl border transition ${
+                          active
+                            ? 'border-emerald-400/20 bg-emerald-400/[0.08]'
+                            : 'border-transparent hover:border-white/10 hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        <div className="flex items-start gap-1 p-1.5">
+                          <button
+                            onClick={() => {
+                              setChatMenuOpenId('')
+                              void carregarHistorico(conv.session_id)
+                            }}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-2 text-left"
+                            type="button"
+                          >
+                            <span className="flex items-start gap-2">
+                              <span
+                                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                                  active
+                                    ? 'bg-emerald-400'
+                                    : 'bg-zinc-700'
+                                }`}
+                              />
+
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium text-zinc-200">
+                                  {displayTitle}
+                                </span>
+
+                                <span className="mt-1 block truncate text-[11px] text-zinc-500">
+                                  {formatarDataConversa(conv)}
+                                  {' · '}
+                                  {conv.total_mensagens} mensagens
+                                </span>
+                              </span>
+                            </span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setDeleteConfirmId('')
+                              setChatMenuOpenId(
+                                chatMenuOpenId === conv.session_id
+                                  ? ''
+                                  : conv.session_id,
+                              )
+                            }}
+                            className="rounded-lg px-2 py-2 text-sm text-zinc-500 transition hover:bg-white/10 hover:text-zinc-100"
+                            aria-label={`Opções de ${displayTitle}`}
+                            title="Opções"
+                            type="button"
+                          >
+                            ⋯
+                          </button>
                         </div>
-                      )}
-                    </div>
-                  ))}
+
+                        {chatMenuOpenId === conv.session_id ? (
+                          <div className="mx-2 mb-2 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-zinc-950/70 p-1.5">
+                            <button
+                              onClick={() => {
+                                setChatMenuOpenId('')
+                                void carregarHistorico(conv.session_id)
+                              }}
+                              className="rounded-lg px-2 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                              type="button"
+                            >
+                              Abrir conversa
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setChatMenuOpenId('')
+                                void copiarLinkConversaPorId(conv.session_id)
+                              }}
+                              className="rounded-lg px-2 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                              type="button"
+                            >
+                              Copiar link
+                            </button>
+
+                            <button
+                              onClick={() => renomearConversaLocal(conv)}
+                              className="rounded-lg px-2 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                              type="button"
+                            >
+                              Renomear
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setChatMenuOpenId('')
+                                setDeleteConfirmId(conv.session_id)
+                              }}
+                              className="rounded-lg px-2 py-2 text-left text-xs text-rose-300 transition hover:bg-rose-500/10"
+                              type="button"
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {deleteConfirmId === conv.session_id ? (
+                          <div className="mx-2 mb-2 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-100">
+                            <div className="mb-2 font-medium">
+                              Excluir esta conversa permanentemente?
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => void apagarConversa(conv.session_id)}
+                                className="rounded-lg bg-rose-500/20 px-3 py-1.5 text-rose-100 transition hover:bg-rose-500/30"
+                                type="button"
+                              >
+                                Excluir
+                              </button>
+
+                              <button
+                                onClick={() => setDeleteConfirmId('')}
+                                className="rounded-lg px-3 py-1.5 text-zinc-300 transition hover:bg-white/10"
+                                type="button"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
-              <div className="relative mt-3 border-t border-white/10 px-2 pt-3">
+              <div className="relative mt-2 border-t border-white/10 px-2 pt-3">
                 <button
                   onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                  type="button"
                 >
                   {profile?.picture ? (
-                    <img src={profile.picture} alt="" className="h-8 w-8 rounded-full" />
+                    <img
+                      src={profile.picture}
+                      alt=""
+                      className="h-8 w-8 rounded-full"
+                    />
                   ) : (
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
                       H
                     </span>
                   )}
+
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-zinc-100">{profile?.name || 'HelpUS'}</span>
-                    <span className="block truncate text-xs text-zinc-500">{profile?.email || 'Entrar com Google'}</span>
+                    <span className="block truncate text-sm font-medium text-zinc-100">
+                      {profile?.name || 'HelpUS'}
+                    </span>
+
+                    <span className="block truncate text-xs text-zinc-500">
+                      {profile?.email || 'Entrar com Google'}
+                    </span>
                   </span>
-                  <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[11px] font-medium text-violet-200">Plus</span>
+
+                  <span className="text-xs text-zinc-500">
+                    ⋯
+                  </span>
                 </button>
 
-                <div className={accountMenuOpen ? "absolute bottom-16 left-2 right-2 z-50 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-2 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur" : "hidden"}>
-                  <div className="flex items-center gap-3 px-3 py-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
-                      H
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{profile?.name || 'HelpUS'}</div>
-                      <div className="truncate text-xs text-zinc-500">{profile?.email || 'Conta Google'}</div>
-                    </div>
-                  </div>
-                  <div className="my-1 h-px bg-white/10" />
-                  <button onClick={() => setAccountPanel('personalizacao')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'personalizacao' ? 'bg-white/10 text-white' : ''}`}>Personalizacao</button>
-                  <button onClick={() => setAccountPanel('configuracoes')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'configuracoes' ? 'bg-white/10 text-white' : ''}`}>Configuracoes</button>
-                  <button onClick={() => setAccountPanel('ajuda')} className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${accountPanel === 'ajuda' ? 'bg-white/10 text-white' : ''}`}>Ajuda</button>
-                  {accountPanel && (
+                <div
+                  className={accountMenuOpen
+                    ? 'absolute bottom-16 left-2 right-2 z-50 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-2 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur'
+                    : 'hidden'}
+                >
+                  <button
+                    onClick={() => setAccountPanel('personalizacao')}
+                    className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${
+                      accountPanel === 'personalizacao'
+                        ? 'bg-white/10 text-white'
+                        : ''
+                    }`}
+                    type="button"
+                  >
+                    Personalização
+                  </button>
+
+                  <button
+                    onClick={() => setAccountPanel('configuracoes')}
+                    className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${
+                      accountPanel === 'configuracoes'
+                        ? 'bg-white/10 text-white'
+                        : ''
+                    }`}
+                    type="button"
+                  >
+                    Configurações
+                  </button>
+
+                  <button
+                    onClick={() => setAccountPanel('ajuda')}
+                    className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${
+                      accountPanel === 'ajuda'
+                        ? 'bg-white/10 text-white'
+                        : ''
+                    }`}
+                    type="button"
+                  >
+                    Ajuda
+                  </button>
+
+                  {accountPanel ? (
                     <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs leading-5 text-zinc-400">
-                      {accountPanel === 'personalizacao' && (
+                      {accountPanel === 'personalizacao' ? (
                         <div className="space-y-1">
-                          <div className="font-medium text-zinc-200">Personalizacao</div>
-                          <p>Tema escuro ativo, atalhos de projetos no menu lateral e busca de chats integrada.</p>
-                          <p>Modelo e preferencias avancadas serao conectados ao perfil quando a API de configuracoes estiver disponivel.</p>
+                          <div className="font-medium text-zinc-200">
+                            Personalização
+                          </div>
+                          <p>
+                            Os nomes alterados na lista são salvos somente neste navegador.
+                          </p>
                         </div>
-                      )}
-                      {accountPanel === 'configuracoes' && (
+                      ) : null}
+
+                      {accountPanel === 'configuracoes' ? (
                         <div className="space-y-1">
-                          <div className="font-medium text-zinc-200">Configuracoes</div>
-                          <p>Conta Google conectada: {profile?.email || 'nao conectado'}.</p>
-                          <p>Historico, projetos e biblioteca usam a mesma sessao autenticada.</p>
-                          <p>Privacidade: conversas ficam associadas ao email autenticado.</p>
+                          <div className="font-medium text-zinc-200">
+                            Configurações
+                          </div>
+                          <p>
+                            Conta conectada: {profile?.email || 'não conectado'}.
+                          </p>
+                          <p>
+                            O histórico é carregado da conta Google autenticada.
+                          </p>
                         </div>
-                      )}
-                      {accountPanel === 'ajuda' && (
+                      ) : null}
+
+                      {accountPanel === 'ajuda' ? (
                         <div className="space-y-1">
-                          <div className="font-medium text-zinc-200">Ajuda</div>
-                          <p>Use Nova conversa para iniciar um atendimento limpo.</p>
-                          <p>Use Projetos para filtrar frentes de trabalho e Memórias para guardar regras, decisoes e aprendizados.</p>
-                          <p>Se a sessao expirar, entre novamente com Google e reenvie a pergunta preservada na caixa.</p>
+                          <div className="font-medium text-zinc-200">
+                            Ajuda
+                          </div>
+                          <p>
+                            Clique em uma conversa para reabri-la.
+                          </p>
+                          <p>
+                            Use o menu de três pontos para copiar, renomear ou excluir.
+                          </p>
                         </div>
-                      )}
+                      ) : null}
                     </div>
-                  )}
+                  ) : null}
+
                   <div className="my-1 h-px bg-white/10" />
+
+                  <button
+                    onClick={() => {
+                      setAccountMenuOpen(false)
+                      router.push('/admin')
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                    type="button"
+                  >
+                    Painel operacional
+                  </button>
+
                   {profile ? (
-                    <button onClick={sair} className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10">Sair</button>
+                    <button
+                      onClick={sair}
+                      className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10"
+                      type="button"
+                    >
+                      Sair
+                    </button>
                   ) : (
                     <button
                       onClick={() => {
@@ -843,6 +1205,7 @@ export default function Home() {
                         window.google?.accounts?.id?.prompt()
                       }}
                       className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
+                      type="button"
                     >
                       Entrar com Google
                     </button>
