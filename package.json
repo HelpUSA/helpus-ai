@@ -101,6 +101,8 @@
     "smoke:phase-ao-ui": "python scripts/65_smoke_chat_sidebar_navigation.py",
     "smoke:phase-ao": "npm run smoke:phase-ao-ui && npm run smoke:phase-an",
     "smoke:phase-ap-ci": "python scripts/66_smoke_ci_phase_ao_chain.py",
-    "smoke:phase-ap": "npm run smoke:phase-ap-ci && npm run smoke:phase-ao"
+    "smoke:phase-ap": "npm run smoke:phase-ap-ci && npm run smoke:phase-ao",
+    "smoke:phase-aq-ui": "python scripts/67_smoke_chat_central_experience.py",
+    "smoke:phase-aq": "npm run smoke:phase-aq-ui && npm run smoke:phase-ap"
   }
 }

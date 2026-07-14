@@ -49,7 +49,14 @@ function renderInlineMarkdown(text: string) {
   )
 }
 
-const HELPUSAI_VISUAL_VERSION = 'v0.32.0-dev'
+const HELPUSAI_VISUAL_VERSION = 'v0.33.0-dev'
+
+const STARTER_PROMPTS = [
+  'Resuma o que já foi decidido nesta conversa.',
+  'Organize os próximos passos em ordem de prioridade.',
+  'Revise este texto e proponha uma versão mais clara.',
+  'Explique este assunto de forma simples e prática.',
+] as const
 
 function renderMessageContent(content: string) {
   const lines = content.split('\n')
@@ -178,6 +185,12 @@ export default function Home() {
 
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
   const [copiedChatLink, setCopiedChatLink] = useState(false)
+  const [lastSubmittedText, setLastSubmittedText] = useState('')
+  const [chatError, setChatError] = useState('')
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const [sessionId, setSessionId] = useState('')
   const [pesquisarWeb, setPesquisarWeb] = useState(false)
   const [googleToken, setGoogleToken] = useState('')
@@ -307,6 +320,17 @@ export default function Home() {
     Authorization: `Bearer ${token}`,
   })
 
+  const scrollToBottom = (
+    behavior: ScrollBehavior = 'smooth',
+  ) => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior,
+      block: 'end',
+    })
+
+    setShowScrollToBottom(false)
+  }
+
   const carregarConversas = async (token = googleToken) => {
     if (!token) return
 
@@ -378,6 +402,63 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
+    const textarea =
+      inputRef.current
+
+    if (!textarea) {
+      return
+    }
+
+    textarea.style.height = '0px'
+
+    textarea.style.height =
+      `${Math.min(
+        Math.max(
+          textarea.scrollHeight,
+          52,
+        ),
+        180,
+      )}px`
+  }, [input])
+
+  useEffect(() => {
+    if (
+      messages.length === 0
+      && !loading
+      && activeAgentTrace.length === 0
+    ) {
+      return
+    }
+
+    const frame =
+      window.requestAnimationFrame(
+        () => {
+          scrollToBottom(
+            messages.length > 1
+              ? 'smooth'
+              : 'auto',
+          )
+        },
+      )
+
+    return () => {
+      window.cancelAnimationFrame(
+        frame,
+      )
+    }
+  }, [
+    messages,
+    loading,
+    activeAgentTrace,
+  ])
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort()
+    }
+  }, [])
+
+  useEffect(() => {
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
     const initialChatId = chatIdFromUrl()
     if (savedToken) {
@@ -445,6 +526,7 @@ export default function Home() {
     if (!token) return
 
     try {
+      setChatError('')
       setLoading(true)
       const response = await fetch(`${apiUrl}/historico/${id}`, {
         headers: authHeaders(token),
@@ -495,94 +577,258 @@ export default function Home() {
     }
   }
 
-  const enviarMensagem = async () => {
-    const texto = input.trim()
-    if (!texto || loading) return
+  const submitMessage = async (
+    textoOriginal: string,
+    appendUserMessage = true,
+  ) => {
+    const texto =
+      textoOriginal.trim()
 
-    if (!googleToken) {
-      setTimeout(() => inputRef.current?.focus(), 0)
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: 'Entre com sua conta Google para usar o HelpUS.' },
-      ])
+    if (
+      !texto
+      || loading
+    ) {
       return
     }
 
-    setMessages(prev => [...prev, { role: 'user', content: texto }])
+    if (!googleToken) {
+      setTimeout(
+        () =>
+          inputRef.current?.focus(),
+        0,
+      )
+
+      setChatError(
+        'Entre com sua conta Google para enviar mensagens.',
+      )
+
+      return
+    }
+
+    setChatError('')
+    setLastSubmittedText(texto)
+
+    if (appendUserMessage) {
+      setMessages(
+        (current) => [
+          ...current,
+          {
+            role: 'user',
+            content: texto,
+          },
+        ],
+      )
+    }
+
     setInput('')
-    setTimeout(() => inputRef.current?.focus(), 0)
+
+    setTimeout(
+      () =>
+        inputRef.current?.focus(),
+      0,
+    )
+
     setLoading(true)
-    setActiveAgentTrace(defaultAgentTrace)
+    setActiveAgentTrace(
+      defaultAgentTrace,
+    )
+
+    const controller =
+      new AbortController()
+
+    abortControllerRef.current =
+      controller
 
     try {
-      const response = await fetch(`${apiUrl}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${googleToken}`,
+      const response = await fetch(
+        `${apiUrl}/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+            Authorization:
+              `Bearer ${googleToken}`,
+          },
+          body: JSON.stringify({
+            mensagem: texto,
+            session_id:
+              sessionId
+              || undefined,
+            pesquisar_web:
+              pesquisarWeb,
+            project_id: 'general',
+          }),
+          signal: controller.signal,
         },
-        body: JSON.stringify({
-          mensagem: texto,
-          session_id: sessionId || undefined,
-          pesquisar_web: pesquisarWeb,
-          project_id: 'general',
-        }),
-      })
+      )
 
-      const data = await response.json().catch(() => ({}))
-      const responseAgentTrace: AgentTraceItem[] = Array.isArray(data.agent_trace) ? data.agent_trace : []
-      if (responseAgentTrace.length > 0) {
-        setActiveAgentTrace(responseAgentTrace)
+      const data =
+        await response
+          .json()
+          .catch(
+            () => ({}),
+          )
+
+      const responseAgentTrace:
+        AgentTraceItem[] =
+          Array.isArray(
+            data.agent_trace,
+          )
+            ? data.agent_trace
+            : []
+
+      if (
+        responseAgentTrace.length
+        > 0
+      ) {
+        setActiveAgentTrace(
+          responseAgentTrace,
+        )
       }
 
       if (!response.ok) {
-        const detail = data?.detail || `Erro HTTP ${response.status}`
-        throw new Error(String(detail))
+        const detail =
+          data?.detail
+          || `Erro HTTP ${response.status}`
+
+        throw new Error(
+          String(detail),
+        )
       }
 
-      if (data.session_id && !sessionId) {
-        setSessionId(data.session_id)
+      if (
+        data.session_id
+        && !sessionId
+      ) {
+        setSessionId(
+          data.session_id,
+        )
       }
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.resposta || 'A API respondeu sem conteudo.',
-          fontes: data.fontes || [],
-          provider_used: data.provider_used || '',
-          agent_trace: responseAgentTrace,
-          fallback_reason: data.fallback_reason || null,
-        },
-      ])
+      setMessages(
+        (current) => [
+          ...current,
+          {
+            role: 'assistant',
+            content:
+              data.resposta
+              || 'A API respondeu sem conteúdo.',
+            fontes:
+              data.fontes
+              || [],
+            provider_used:
+              data.provider_used
+              || '',
+            agent_trace:
+              responseAgentTrace,
+            fallback_reason:
+              data.fallback_reason
+              || null,
+          },
+        ],
+      )
+
+      setChatError('')
 
       await carregarConversas()
- } catch (error) {
- const message = error instanceof Error ? error.message : "Erro desconhecido"
- const normalized = message.toLowerCase()
- const authExpired = normalized.includes("token google") || normalized.includes("login google") || normalized.includes("token ausente") || normalized.includes("401")
- if (authExpired) {
- setGoogleToken("")
- setProfile(null)
- setConversas([])
- if (typeof window !== "undefined") {
- window.localStorage.removeItem("helpus_google_token")
- }
- setInput(texto)
- setMessages(prev => [
- ...prev,
-  { role: 'assistant', content: ['Sua sessao expirou ou perdeu validade.', '', 'Entre novamente com o Google para continuar. Mantive sua pergunta na caixa de texto para voce reenviar depois do login.'].join(String.fromCharCode(10)) },
- ])
- return
- }
- setMessages(prev => [
- ...prev,
-  { role: 'assistant', content: ['Erro ao conectar com o servidor.', '', 'Tente novamente em alguns instantes. Se o problema continuar, verifique a conexao ou o status do servico.', '', 'Detalhe tecnico: ' + message].join(String.fromCharCode(10)) },
- ])
+    } catch (error) {
+      if (
+        error instanceof DOMException
+        && error.name === 'AbortError'
+      ) {
+        setChatError(
+          'A resposta foi interrompida. Você pode tentar novamente.',
+        )
+
+        return
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Erro desconhecido'
+
+      const normalized =
+        message.toLowerCase()
+
+      const authExpired =
+        normalized.includes(
+          'token google',
+        )
+        || normalized.includes(
+          'login google',
+        )
+        || normalized.includes(
+          'token ausente',
+        )
+        || normalized.includes(
+          '401',
+        )
+
+      if (authExpired) {
+        setGoogleToken('')
+        setProfile(null)
+        setConversas([])
+
+        window.localStorage.removeItem(
+          'helpus_google_token',
+        )
+
+        setInput(texto)
+
+        setChatError(
+          'Sua sessão expirou. Entre novamente com o Google. A mensagem foi mantida na caixa de texto.',
+        )
+
+        return
+      }
+
+      setChatError(
+        `Não foi possível obter uma resposta. ${message}`,
+      )
     } finally {
+      if (
+        abortControllerRef.current
+        === controller
+      ) {
+        abortControllerRef.current =
+          null
+      }
+
       setLoading(false)
-      window.setTimeout(() => setActiveAgentTrace([]), 2600)
+
+      window.setTimeout(
+        () =>
+          setActiveAgentTrace([]),
+        2600,
+      )
     }
+  }
+
+  const enviarMensagem = async () => {
+    await submitMessage(
+      input,
+      true,
+    )
+  }
+
+  const reenviarUltimaMensagem = () => {
+    if (
+      !lastSubmittedText
+      || loading
+    ) {
+      return
+    }
+
+    void submitMessage(
+      lastSubmittedText,
+      false,
+    )
+  }
+
+  const cancelarResposta = () => {
+    abortControllerRef.current?.abort()
   }
 
   async function copiarMensagem(content: string, index: number) {
@@ -691,12 +937,19 @@ export default function Home() {
   }
 
   const limparChat = () => {
+    abortControllerRef.current?.abort()
+
     setMessages([])
     setSessionId('')
     setChatMenuOpenId('')
     setDeleteConfirmId('')
     setSidebarNotice('')
+    setChatError('')
+    setLastSubmittedText('')
+    setShowScrollToBottom(false)
+
     router.push('/')
+
     setInput('')
     setSidebarOpen(false)
   }
@@ -1216,10 +1469,59 @@ export default function Home() {
           </aside>
 
           <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
-              {messages.length === 0 && (
-                <div className="min-h-[28vh]" aria-hidden="true" />
-              )}
+            <div
+              ref={messagesViewportRef}
+              onScroll={(event) => {
+                const element =
+                  event.currentTarget
+
+                const distanceFromBottom =
+                  element.scrollHeight
+                  - element.scrollTop
+                  - element.clientHeight
+
+                setShowScrollToBottom(
+                  distanceFromBottom > 180,
+                )
+              }}
+              className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6"
+            >
+              {messages.length === 0 ? (
+                <div className="mx-auto flex min-h-[52vh] max-w-3xl flex-col items-center justify-center px-2 py-8 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-lg font-semibold text-zinc-100 shadow-lg shadow-black/20">
+                    H
+                  </div>
+
+                  <h2 className="mt-5 text-2xl font-semibold tracking-tight text-zinc-100">
+                    Como posso ajudar?
+                  </h2>
+
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
+                    Inicie uma nova conversa ou escolha uma das sugestões abaixo.
+                  </p>
+
+                  <div className="mt-6 grid w-full gap-2 sm:grid-cols-2">
+                    {STARTER_PROMPTS.map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => {
+                          setInput(prompt)
+
+                          window.setTimeout(
+                            () =>
+                              inputRef.current?.focus(),
+                            0,
+                          )
+                        }}
+                        className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm leading-5 text-zinc-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                        type="button"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="space-y-5">
                 {messages.map((msg, index) => (
@@ -1244,15 +1546,35 @@ export default function Home() {
                         </div>
                       )}
 
-                      {msg.role === 'assistant' && (
-                        <button
-                          type="button"
-                          onClick={() => copiarMensagem(msg.content, index)}
-                          className="mt-3 rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
-                        >
-                          {copiedMessageIndex === index ? 'Copiado' : 'Copiar'}
-                        </button>
-                      )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {msg.role === 'assistant' ? (
+                          <button
+                            type="button"
+                            onClick={() => copiarMensagem(msg.content, index)}
+                            className="rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+                          >
+                            {copiedMessageIndex === index
+                              ? 'Copiado'
+                              : 'Copiar'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInput(msg.content)
+
+                              window.setTimeout(
+                                () =>
+                                  inputRef.current?.focus(),
+                                0,
+                              )
+                            }}
+                            className="rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-blue-100/80 transition hover:bg-white/10 hover:text-white"
+                          >
+                            Usar novamente
+                          </button>
+                        )}
+                      </div>
 
                       {msg.fontes && msg.fontes.length > 0 && (
                         <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1292,21 +1614,78 @@ export default function Home() {
                   </div>
                 )}
 
-                {loading && (
+                {loading ? (
                   <div className="flex justify-start">
                     <div className="rounded-2xl border border-white/10 bg-[#2f2f2f] px-4 py-3 shadow-sm shadow-black/20">
-                      <div className="flex items-center gap-3 text-xs text-zinc-400">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
                         <div className="flex gap-1">
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400"></span>
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
                         </div>
-                        HelpUS esta pensando...
+
+                        <span>
+                          HelpUS está pensando...
+                        </span>
+
+                        <button
+                          onClick={cancelarResposta}
+                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/10 hover:text-white"
+                          type="button"
+                        >
+                          Interromper
+                        </button>
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
+
+                {chatError ? (
+                  <div className="mx-auto max-w-3xl rounded-2xl border border-amber-400/20 bg-amber-400/[0.08] p-4 text-sm text-amber-50">
+                    <p className="leading-6">
+                      {chatError}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {lastSubmittedText ? (
+                        <button
+                          onClick={reenviarUltimaMensagem}
+                          disabled={loading}
+                          className="rounded-lg bg-amber-300/15 px-3 py-1.5 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          type="button"
+                        >
+                          Tentar novamente
+                        </button>
+                      ) : null}
+
+                      <button
+                        onClick={() => setChatError('')}
+                        className="rounded-lg px-3 py-1.5 text-xs text-amber-100/70 transition hover:bg-white/10 hover:text-amber-50"
+                        type="button"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div
+                  ref={messagesEndRef}
+                  className="h-px"
+                  aria-hidden="true"
+                />
               </div>
+
+              {showScrollToBottom ? (
+                <button
+                  onClick={() => scrollToBottom()}
+                  className="sticky bottom-3 mx-auto mt-3 flex items-center gap-2 rounded-full border border-white/10 bg-zinc-900/95 px-4 py-2 text-xs font-medium text-zinc-200 shadow-xl shadow-black/30 backdrop-blur transition hover:bg-zinc-800"
+                  type="button"
+                >
+                  <span>↓</span>
+                  <span>Ir para o fim</span>
+                </button>
+              ) : null}
             </div>
 
             <footer className="border-t border-white/10 bg-[#212121]/95 px-3 pb-4 pt-3 backdrop-blur">
@@ -1315,25 +1694,77 @@ export default function Home() {
                   <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(event) => setInput(event.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={profile ? 'Envie uma mensagem ao HelpUS' : 'Entre com Google para usar o HelpUS'}
-                    className="max-h-32 min-h-[52px] flex-1 resize-none rounded-2xl border-0 bg-transparent px-3 py-3.5 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
+                    placeholder={profile
+                      ? 'Envie uma mensagem ao HelpUS'
+                      : 'Entre com Google para usar o HelpUS'}
+                    className="max-h-[180px] min-h-[52px] flex-1 resize-none overflow-y-auto rounded-2xl border-0 bg-transparent px-3 py-3.5 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                     rows={1}
                     disabled={loading || !profile}
                   />
-                  <button
-                    onClick={enviarMensagem}
-                    disabled={loading || !input.trim() || !profile}
-                    className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
-                    aria-label="Enviar mensagem"
-                  >
-                    {loading ? '...' : '->'}
-                  </button>
+
+                  <div className="flex shrink-0 items-center gap-1 pb-1">
+                    <button
+                      onClick={() => setPesquisarWeb((current) => !current)}
+                      disabled={loading || !profile}
+                      aria-pressed={pesquisarWeb}
+                      className={`flex h-9 items-center justify-center rounded-full border px-3 text-[11px] font-semibold transition ${
+                        pesquisarWeb
+                          ? 'border-sky-400/30 bg-sky-400/15 text-sky-100'
+                          : 'border-white/10 text-zinc-400 hover:bg-white/10 hover:text-zinc-100'
+                      } disabled:cursor-not-allowed disabled:opacity-30`}
+                      title="Pesquisar na web"
+                      type="button"
+                    >
+                      Web
+                    </button>
+
+                    {input ? (
+                      <button
+                        onClick={() => {
+                          setInput('')
+                          inputRef.current?.focus()
+                        }}
+                        disabled={loading}
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-sm text-zinc-500 transition hover:bg-white/10 hover:text-zinc-100 disabled:opacity-30"
+                        aria-label="Limpar mensagem"
+                        title="Limpar mensagem"
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    ) : null}
+
+                    {loading ? (
+                      <button
+                        onClick={cancelarResposta}
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-sm font-bold text-rose-950 transition hover:scale-105 hover:bg-white"
+                        aria-label="Interromper resposta"
+                        title="Interromper resposta"
+                        type="button"
+                      >
+                        ■
+                      </button>
+                    ) : (
+                      <button
+                        onClick={enviarMensagem}
+                        disabled={!input.trim() || !profile}
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                        aria-label="Enviar mensagem"
+                        type="button"
+                      >
+                        ↑
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <p className="mt-2 text-center text-xs text-zinc-500">
-                  O HelpUS pode consultar fontes e a web automaticamente quando necessario.
+                  Enter envia · Shift+Enter cria uma nova linha
+                  {pesquisarWeb
+                    ? ' · Pesquisa web ativada'
+                    : ''}
                 </p>
 
                 {sessionId && (

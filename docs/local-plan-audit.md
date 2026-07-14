@@ -528,3 +528,15 @@ Validation:
 - `npm run smoke:phase-ao`
 
 The CI contract verifies the sidebar source statically and does not perform authenticated conversation mutations.
+
+## Central chat experience after Phase AQ
+
+The primary chat page now has explicit message-state handling, automatic scrolling, response cancellation, retry support, starter prompts, composer resizing, a web-search toggle, and reusable user prompts.
+
+Validation:
+
+- `python scripts/67_smoke_chat_central_experience.py`
+- `npm run smoke:phase-aq`
+- frontend production build.
+
+Cancellation affects only the active browser request. Retry remains an explicit user action.

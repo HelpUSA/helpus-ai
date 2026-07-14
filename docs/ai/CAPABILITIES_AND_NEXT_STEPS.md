@@ -493,3 +493,32 @@ Validation:
 The workflow retains read-only repository permissions.
 
 It validates the conversation navigation contract without opening, creating, renaming, deleting, transmitting, approving, or executing conversations.
+
+## Phase AQ implementation contract
+
+Status: implemented.
+
+Phase AQ improves the primary central chat experience.
+
+Capabilities:
+
+- automatic scrolling after messages and loading-state changes;
+- explicit scroll-to-bottom control when the user moves away from the latest message;
+- useful empty state with starter prompts;
+- automatic composer height adjustment;
+- explicit web-search toggle;
+- response cancellation through AbortController;
+- retry of the last submitted request without duplicating the user message;
+- separate and dismissible error state;
+- message reuse for user prompts;
+- preserved assistant copy action;
+- clearer loading and composer guidance.
+
+Validation:
+
+- `python scripts/67_smoke_chat_central_experience.py`
+- `npm run smoke:phase-aq`
+- `npm run smoke:phase-ap`
+- frontend production build.
+
+The feature does not introduce command execution, approval, automatic transmission, commits, or pushes from the browser.

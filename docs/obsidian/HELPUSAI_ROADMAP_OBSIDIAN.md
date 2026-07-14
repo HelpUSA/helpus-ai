@@ -687,3 +687,21 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: improve the central chat area with automatic scrolling, clearer empty and error states, retry support, better composer behavior, and useful response actions.
+
+## Phase AQ central chat experience
+
+Deliverables:
+
+- useful initial chat state;
+- starter prompt actions;
+- automatic and manual scroll handling;
+- response cancellation;
+- explicit retry;
+- isolated error panel;
+- composer auto-resize;
+- web-search toggle;
+- message copy and reuse actions;
+- `scripts/67_smoke_chat_central_experience.py`;
+- `smoke:phase-aq`.
+
+Next recommended phase: Phase AR validate the complete Phase AQ chain in CI.

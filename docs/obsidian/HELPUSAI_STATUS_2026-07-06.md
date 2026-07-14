@@ -703,3 +703,26 @@ Validation:
 - `python scripts/66_smoke_ci_phase_ao_chain.py`
 - `npm run smoke:phase-ap`
 - `npm run smoke:phase-ao`
+
+## Checkpoint Phase AQ central chat experience
+
+Status: implemented.
+
+The central conversation area now provides:
+
+- a useful first-use state;
+- starter prompts;
+- automatic scrolling;
+- manual return-to-bottom control;
+- response cancellation;
+- retry support;
+- clearer error presentation;
+- composer auto-resizing;
+- explicit web-search control;
+- copy and reuse actions.
+
+Validation:
+
+- `python scripts/67_smoke_chat_central_experience.py`
+- `npm run smoke:phase-aq`
+- frontend production build.
