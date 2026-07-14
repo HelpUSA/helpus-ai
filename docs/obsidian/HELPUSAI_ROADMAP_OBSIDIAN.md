@@ -1,4 +1,4 @@
----
+﻿---
 type: roadmap
 project: HelpUSAI
 area: ai-helpus
@@ -143,11 +143,11 @@ Proxima direcao: permitir entrada controlada de intent/comando na UI para planej
 
 ## Checkpoint: Fase B Custom Planner Contract
 
-Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execuÃƒÂ§ÃƒÂ£o segue desabilitada.
+Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execuÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o segue desabilitada.
 
 ## Checkpoint: Fase C Audit Proposal Queue
 
-Criada camada de auditoria proposal-only antes de qualquer execuÃƒÂ§ÃƒÂ£o real.
+Criada camada de auditoria proposal-only antes de qualquer execuÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o real.
 
 Escopo entregue:
 

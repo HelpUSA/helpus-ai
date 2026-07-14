@@ -1,4 +1,4 @@
-# HelpUSAI Status - 2026-07-06
+﻿# HelpUSAI Status - 2026-07-06
 
 ## Checkpoint: Fase A Local Readonly API
 
@@ -169,11 +169,11 @@ Adicionar campos controlados para o usuario solicitar planos customizados, ainda
 
 ## Checkpoint: Fase B Custom Planner Contract
 
-Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execuÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o segue desabilitada.
+Contrato `local-plan-v1` adicionado com `GET /local/plan/intents`, limites de comando, bloqueio de chaining, intent `phase_b_validation`, intent `local_recent_commits` e documento `docs/local-plan-contract.md`. A execuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o segue desabilitada.
 
 ## Checkpoint: Fase C Audit Proposal Queue
 
-Criada camada de auditoria proposal-only antes de qualquer execuÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o real.
+Criada camada de auditoria proposal-only antes de qualquer execuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o real.
 
 Escopo entregue:
 
