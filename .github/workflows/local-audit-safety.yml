@@ -91,3 +91,9 @@ jobs:
 
       - name: Run complete chat navigation smoke chain
         run: npm run smoke:phase-ao
+
+      - name: Validate Phase AQ central chat contract
+        run: python scripts/68_smoke_ci_phase_aq_chain.py
+
+      - name: Run complete central chat smoke chain
+        run: npm run smoke:phase-aq

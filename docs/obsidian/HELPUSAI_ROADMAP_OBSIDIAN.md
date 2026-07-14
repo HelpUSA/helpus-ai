@@ -705,3 +705,14 @@ Deliverables:
 - `smoke:phase-aq`.
 
 Next recommended phase: Phase AR validate the complete Phase AQ chain in CI.
+
+## Phase AR CI Phase AQ chain
+
+Deliverables:
+
+- CI validation of the central chat experience;
+- `scripts/68_smoke_ci_phase_aq_chain.py`;
+- `smoke:phase-ar`;
+- documentation updates.
+
+Next recommended phase: improve message rendering with richer Markdown, safer external links, code-block copy actions, and improved source presentation.

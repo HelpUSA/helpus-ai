@@ -540,3 +540,15 @@ Validation:
 - frontend production build.
 
 Cancellation affects only the active browser request. Retry remains an explicit user action.
+
+## Phase AQ CI chain after Phase AR
+
+GitHub Actions now validates the complete central-chat user-experience contract.
+
+Validation:
+
+- `python scripts/68_smoke_ci_phase_aq_chain.py`
+- `npm run smoke:phase-ar`
+- `npm run smoke:phase-aq`
+
+CI does not send chat requests, cancel browser requests, authenticate users, or mutate conversations.

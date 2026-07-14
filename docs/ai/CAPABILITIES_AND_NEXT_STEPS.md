@@ -522,3 +522,22 @@ Validation:
 - frontend production build.
 
 The feature does not introduce command execution, approval, automatic transmission, commits, or pushes from the browser.
+
+## Phase AR implementation contract
+
+Status: implemented.
+
+Phase AR updates GitHub Actions so CI validates the complete Phase AQ central-chat experience.
+
+Files:
+
+- `.github/workflows/local-audit-safety.yml`
+- `scripts/68_smoke_ci_phase_aq_chain.py`
+
+Validation:
+
+- `python scripts/68_smoke_ci_phase_aq_chain.py`
+- `npm run smoke:phase-ar`
+- `npm run smoke:phase-aq`
+
+The workflow retains read-only repository permissions and performs only static and smoke validation.

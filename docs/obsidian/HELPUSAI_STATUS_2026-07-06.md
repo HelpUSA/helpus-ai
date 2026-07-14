@@ -726,3 +726,15 @@ Validation:
 - `python scripts/67_smoke_chat_central_experience.py`
 - `npm run smoke:phase-aq`
 - frontend production build.
+
+## Checkpoint Phase AR CI Phase AQ chain
+
+Status: implemented.
+
+CI now validates the complete central-chat experience, including starter prompts, scroll behavior, request cancellation, retry, error states, composer sizing, web-search controls, and response actions.
+
+Validation:
+
+- `python scripts/68_smoke_ci_phase_aq_chain.py`
+- `npm run smoke:phase-ar`
+- `npm run smoke:phase-aq`
