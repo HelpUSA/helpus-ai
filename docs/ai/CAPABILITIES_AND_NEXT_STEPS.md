@@ -568,3 +568,31 @@ Validation:
 Current validated product baseline after this checkpoint: Phase AS.
 
 The next recommended phase is Phase AT, adding the complete Phase AS validation chain to GitHub Actions.
+
+## Phase AT CI validation contract
+
+Phase AT adds the complete Phase AS safe Markdown validation chain to the read-only GitHub Actions workflow.
+
+The implemented contract includes:
+
+- `scripts/70_smoke_ci_phase_as_chain.py`;
+- exact `smoke:phase-at-ci` and `smoke:phase-at` aliases;
+- cumulative validation through `AT -> AS -> AR -> AQ`;
+- workflow validation for `contents: read`, Node.js 22, Python 3.12, the 15-minute timeout, and the existing conditional dependency installation;
+- preservation of the current local read-only and proposal-only safety boundary;
+- no local execution endpoint, automatic approval path, executor, or true `approved` or `executed` state.
+
+Validation:
+
+- `python scripts/70_smoke_ci_phase_as_chain.py`
+- `npm run smoke:phase-at`
+- `npm run smoke:phase-as`
+- `npm run smoke:phase-ar`
+- `python scripts/38_smoke_local_executor_absent.py`
+- `python scripts/43_smoke_local_detail_ui_safety_contract.py`
+- `npm run smoke:local-audit-safety`
+- `npm --prefix frontend run build`
+
+Current validated product baseline after this checkpoint: Phase AT.
+
+The next product phase should be selected after the Phase AT workflow result is confirmed on `origin/main`.

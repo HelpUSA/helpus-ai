@@ -764,3 +764,29 @@ Validation commands:
 - `npm --prefix frontend run build`
 
 Next checkpoint: Phase AT CI Phase AS chain.
+
+## Checkpoint Phase AT CI Phase AS chain
+
+Status: implemented and validated.
+
+Delivered:
+
+- `scripts/70_smoke_ci_phase_as_chain.py`;
+- exact `smoke:phase-at-ci` and `smoke:phase-at` aliases;
+- final GitHub Actions steps for the Phase AS contract and complete cumulative smoke chain;
+- cumulative validation order `AT -> AS -> AR -> AQ`;
+- preserved Node.js 22, Python 3.12, 15-minute timeout, conditional dependency installation, and `contents: read`;
+- unchanged local read-only and proposal-only execution boundary.
+
+Validation commands:
+
+- `python scripts/70_smoke_ci_phase_as_chain.py`
+- `npm run smoke:phase-at`
+- `npm run smoke:phase-as`
+- `npm run smoke:phase-ar`
+- `python scripts/38_smoke_local_executor_absent.py`
+- `python scripts/43_smoke_local_detail_ui_safety_contract.py`
+- `npm run smoke:local-audit-safety`
+- `npm --prefix frontend run build`
+
+Next checkpoint: select the post-Phase-AT product phase after CI confirmation on `origin/main`.

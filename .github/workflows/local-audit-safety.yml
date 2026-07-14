@@ -97,3 +97,9 @@ jobs:
 
       - name: Run complete central chat smoke chain
         run: npm run smoke:phase-aq
+
+      - name: Validate Phase AS safe markdown contract
+        run: python scripts/70_smoke_ci_phase_as_chain.py
+
+      - name: Run complete safe markdown chat smoke chain
+        run: npm run smoke:phase-at

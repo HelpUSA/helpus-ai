@@ -107,6 +107,8 @@
     "smoke:phase-ar-ci": "python scripts/68_smoke_ci_phase_aq_chain.py",
     "smoke:phase-ar": "npm run smoke:phase-ar-ci && npm run smoke:phase-aq",
     "smoke:phase-as-ui": "python scripts/69_smoke_chat_markdown_rendering.py",
-    "smoke:phase-as": "npm run smoke:phase-as-ui && npm run smoke:phase-ar"
+    "smoke:phase-as": "npm run smoke:phase-as-ui && npm run smoke:phase-ar",
+    "smoke:phase-at-ci": "python scripts/70_smoke_ci_phase_as_chain.py",
+    "smoke:phase-at": "npm run smoke:phase-at-ci && npm run smoke:phase-as"
   }
 }

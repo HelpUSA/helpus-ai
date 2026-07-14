@@ -733,3 +733,26 @@ Implemented:
 - preservation of the non-executing local-operator boundary.
 
 Next recommended phase: Phase AT validates the complete Phase AS chain in CI.
+
+## Phase AT CI Phase AS chain
+
+Implemented:
+
+- CI validation of the complete Phase AS safe Markdown rendering chain;
+- `scripts/70_smoke_ci_phase_as_chain.py`;
+- exact `smoke:phase-at-ci` and `smoke:phase-at` aliases;
+- cumulative validation order `AT -> AS -> AR -> AQ`;
+- final GitHub Actions steps for the Phase AS contract and cumulative smoke chain;
+- preservation of read-only permissions and the existing conditional installation strategy;
+- preservation of the local read-only and proposal-only boundary, without executor or automatic approval behavior.
+
+Validation:
+
+- `python scripts/70_smoke_ci_phase_as_chain.py`
+- `npm run smoke:phase-at`
+- `npm run smoke:phase-as`
+- `npm run smoke:phase-ar`
+- `npm run smoke:local-audit-safety`
+- `npm --prefix frontend run build`
+
+Next recommended phase: define the post-Phase-AT product checkpoint after CI confirmation on `origin/main`.
