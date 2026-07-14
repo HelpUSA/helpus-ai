@@ -1,4 +1,4 @@
-﻿---
+---
 type: roadmap
 project: HelpUSAI
 area: ai-helpus
@@ -716,3 +716,20 @@ Deliverables:
 - documentation updates.
 
 Next recommended phase: improve message rendering with richer Markdown, safer external links, code-block copy actions, and improved source presentation.
+
+## Phase AS safe Markdown message rendering
+
+Implemented:
+
+- safe Markdown rendering for assistant messages;
+- GitHub Flavored Markdown through `remark-gfm`;
+- headings, lists, blockquotes, tables, inline code, fenced code, task lists, separators, and strikethrough;
+- explicit fenced-code copy actions;
+- strict HTTP and HTTPS URL validation;
+- protected external links and external-image links;
+- improved source cards with provider and hostname context;
+- controlled plain-text rendering for user messages;
+- Phase AS smoke and package aliases;
+- preservation of the non-executing local-operator boundary.
+
+Next recommended phase: Phase AT validates the complete Phase AS chain in CI.

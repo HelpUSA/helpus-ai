@@ -2,6 +2,11 @@
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect, useRef, useState } from 'react'
+import {
+  MarkdownMessage,
+  SafeSourceLink,
+  type MessageSource,
+} from './markdown-message'
 
 type AgentTraceItem = {
   label: string
@@ -11,7 +16,7 @@ type AgentTraceItem = {
 interface Message {
   role: 'user' | 'assistant'
   content: string
-  fontes?: { titulo: string; url: string; fonte: string }[]
+  fontes?: MessageSource[]
   provider_used?: string
   agent_trace?: AgentTraceItem[]
   fallback_reason?: string | null
@@ -41,15 +46,7 @@ declare global {
   }
 }
 
-function renderInlineMarkdown(text: string) {
-  return text.split(/(`[^`]+`)/g).map((part, index) =>
-    part.startsWith('`') && part.endsWith('`')
-      ? <code key={index} className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[13px] text-zinc-100">{part.slice(1, -1)}</code>
-      : <span key={index}>{part}</span>
-  )
-}
-
-const HELPUSAI_VISUAL_VERSION = 'v0.33.0-dev'
+const HELPUSAI_VISUAL_VERSION = 'v0.34.0-dev'
 
 const STARTER_PROMPTS = [
   'Resuma o que já foi decidido nesta conversa.',
@@ -57,72 +54,6 @@ const STARTER_PROMPTS = [
   'Revise este texto e proponha uma versão mais clara.',
   'Explique este assunto de forma simples e prática.',
 ] as const
-
-function renderMessageContent(content: string) {
-  const lines = content.split('\n')
-  const blocks: JSX.Element[] = []
-  let index = 0
-
-  while (index < lines.length) {
-    const line = lines[index]
-
-    if (line.trim().startsWith('```')) {
-      index += 1
-      const code: string[] = []
-      while (index < lines.length && !lines[index].trim().startsWith('```')) {
-        code.push(lines[index])
-        index += 1
-      }
-      if (index < lines.length) index += 1
-      blocks.push(
-        <pre key={blocks.length} className="overflow-x-auto rounded-2xl border border-white/10 bg-zinc-950 p-4 font-mono text-sm text-zinc-100 shadow-inner shadow-black/30">
-          <code>{code.join('\n')}</code>
-        </pre>
-      )
-      continue
-    }
-
-    if (line.trim().startsWith('- ')) {
-      const items: string[] = []
-      while (index < lines.length && lines[index].trim().startsWith('- ')) {
-        items.push(lines[index].trim().slice(2))
-        index += 1
-      }
-      blocks.push(
-        <ul key={blocks.length} className="list-disc space-y-1.5 pl-6 marker:text-zinc-500">
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
-          ))}
-        </ul>
-      )
-      continue
-    }
-
-    if (line.trim() === '') {
-      index += 1
-      continue
-    }
-
-    const paragraph: string[] = [line]
-    index += 1
-    while (
-      index < lines.length &&
-      lines[index].trim() !== '' &&
-      !lines[index].trim().startsWith('- ') &&
-      !lines[index].trim().startsWith('```')
-    ) {
-      paragraph.push(lines[index])
-      index += 1
-    }
-
-    blocks.push(
-      <p key={blocks.length}>{renderInlineMarkdown(paragraph.join(' '))}</p>
-    )
-  }
-
-  return <div className="space-y-4 text-[15px] leading-7 text-inherit sm:text-base">{blocks}</div>
-}
-
 
 function tituloConversa(conv: ConversaResumo) {
   const titulo = (conv.titulo || '').trim()
@@ -1539,7 +1470,15 @@ export default function Home() {
                         {msg.role === 'user' ? 'Voce' : 'HelpUS'}
                       </div>
 
-                      <section>{renderMessageContent(msg.content)}</section>
+                      <section>
+                        {msg.role === 'assistant' ? (
+                          <MarkdownMessage content={msg.content} />
+                        ) : (
+                          <p className="whitespace-pre-wrap text-[15px] leading-7 sm:text-base">
+                            {msg.content}
+                          </p>
+                        )}
+                      </section>
                       {providerBadgeDebugEnabled && msg.provider_used && (
                         <div className="mt-3 rounded-lg border border-white/5 bg-white/[0.02] px-2 py-1 text-[11px] text-zinc-500">
                           Provider: {msg.provider_used}{msg.fallback_reason ? ` (${msg.fallback_reason})` : ''}
@@ -1583,15 +1522,11 @@ export default function Home() {
                           </p>
                           <div className="space-y-1">
                             {msg.fontes.map((fonte, i) => (
-                              <a
-                                key={i}
-                                href={fonte.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block truncate text-sm text-zinc-300 hover:text-white hover:underline"
-                              >
-                                {i + 1}. {fonte.titulo} ({fonte.fonte})
-                              </a>
+                              <SafeSourceLink
+                                key={`${fonte.url}-${i}`}
+                                fonte={fonte}
+                                index={i}
+                              />
                             ))}
                           </div>
                         </div>

@@ -1,4 +1,4 @@
-﻿# Local Plan Audit v1
+# Local Plan Audit v1
 
 Status: implemented for HelpUSAI Phase C preparation.
 
@@ -552,3 +552,25 @@ Validation:
 - `npm run smoke:phase-aq`
 
 CI does not send chat requests, cancel browser requests, authenticate users, or mutate conversations.
+
+## Safe Markdown chat rendering after Phase AS
+
+Phase AS changes the central-chat presentation layer and its static validation contract.
+
+Safety properties preserved:
+
+- no raw HTML rendering;
+- no `dangerouslySetInnerHTML`;
+- only absolute HTTP and HTTPS links are accepted;
+- unsafe or malformed links are displayed as blocked;
+- external images are not loaded automatically;
+- code copying requires explicit user action;
+- user messages remain controlled plain text;
+- no execution or approval endpoint is created;
+- the local operator remains read-only and proposal-only.
+
+Validation:
+
+- `python scripts/69_smoke_chat_markdown_rendering.py`
+- `npm run smoke:phase-as-ui`
+- `npm run smoke:phase-as`

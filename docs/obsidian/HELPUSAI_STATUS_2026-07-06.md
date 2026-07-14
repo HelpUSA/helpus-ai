@@ -1,4 +1,4 @@
-﻿# HelpUSAI Status - 2026-07-06
+# HelpUSAI Status - 2026-07-06
 
 ## Checkpoint: Fase A Local Readonly API
 
@@ -738,3 +738,29 @@ Validation:
 - `python scripts/68_smoke_ci_phase_aq_chain.py`
 - `npm run smoke:phase-ar`
 - `npm run smoke:phase-aq`
+
+## Checkpoint Phase AS safe Markdown message rendering
+
+Status: implemented and locally validated.
+
+Delivered:
+
+- `react-markdown` for assistant responses;
+- pinned `remark-gfm`;
+- raw HTML disabled;
+- unsafe Markdown and source URLs blocked;
+- protected external links;
+- external Markdown images converted into protected links;
+- explicit fenced-code copy action;
+- controlled plain-text user messages;
+- clearer source origin presentation;
+- unchanged execution and approval boundaries.
+
+Validation commands:
+
+- `python scripts/69_smoke_chat_markdown_rendering.py`
+- `npm run smoke:phase-as-ui`
+- `npm run smoke:phase-as`
+- `npm --prefix frontend run build`
+
+Next checkpoint: Phase AT CI Phase AS chain.

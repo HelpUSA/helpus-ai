@@ -541,3 +541,30 @@ Validation:
 - `npm run smoke:phase-aq`
 
 The workflow retains read-only repository permissions and performs only static and smoke validation.
+
+## Phase AS implementation contract
+
+Phase AS replaces the limited manual central-chat parser with safe Markdown rendering based on `react-markdown` and `remark-gfm`.
+
+The implemented contract includes:
+
+- assistant responses render headings, lists, blockquotes, inline code, fenced code, tables, links, task lists, separators, and strikethrough;
+- user messages remain controlled plain text;
+- raw HTML remains disabled through `skipHtml`;
+- Markdown and source links accept only absolute HTTP or HTTPS URLs;
+- external links use `noopener`, `noreferrer`, and `nofollow`;
+- external Markdown images become protected links instead of loading automatically;
+- fenced code blocks provide an explicit copy action;
+- source cards display title, provider, hostname, numbering, and blocked-link guidance;
+- no local execution or automatic approval endpoint is introduced.
+
+Validation:
+
+- `python scripts/69_smoke_chat_markdown_rendering.py`
+- `npm run smoke:phase-as-ui`
+- `npm run smoke:phase-as`
+- `npm --prefix frontend run build`
+
+Current validated product baseline after this checkpoint: Phase AS.
+
+The next recommended phase is Phase AT, adding the complete Phase AS validation chain to GitHub Actions.
