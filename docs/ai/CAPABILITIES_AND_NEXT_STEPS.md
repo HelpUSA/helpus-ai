@@ -596,3 +596,30 @@ Validation:
 Current validated product baseline after this checkpoint: Phase AT.
 
 The next product phase should be selected after the Phase AT workflow result is confirmed on `origin/main`.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_CAPABILITY_20260717:START -->
+
+## Capacidade planejada: conhecimento e memória persistente
+
+Status: planejada, ainda não implementada de ponta a ponta.
+
+Plano:
+
+`docs/ai/HELPUS_KNOWLEDGE_MEMORY_ARCHITECTURE_PLAN.md`
+
+Capacidades previstas:
+
+- bootstrap operacional permanente;
+- memória estruturada por usuário, projeto e organização;
+- ingestão e versionamento de fontes;
+- recuperação textual e vetorial;
+- continuidade das conversas;
+- montagem determinística de contexto;
+- administração e auditoria;
+- testes de privacidade, envenenamento e regressão.
+
+A primeira prioridade é KM-1.
+
+`ai-bridge-local` permanece externo e inalterado.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_CAPABILITY_20260717:END -->

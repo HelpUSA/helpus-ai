@@ -1,4 +1,4 @@
-﻿# HelpUSAI Memory Persistence
+# HelpUSAI Memory Persistence
 
 Updated: 2026-06-15
 
@@ -51,3 +51,29 @@ Runtime wiring must happen in a later guarded micro after review.
 3. Add guarded API wiring.
 4. Add auth/admin protections before exposing memory endpoints.
 5. Add real conversation event capture after the storage layer is validated.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_EVOLUTION_20260717:START -->
+
+## Evolução planejada em 2026-07-17
+
+O trabalho existente de eventos, feedback, lições e regras aprovadas permanece
+válido.
+
+A evolução completa está em:
+
+`docs/ai/HELPUS_KNOWLEDGE_MEMORY_ARCHITECTURE_PLAN.md`
+
+O AI HelpUS separará:
+
+- regras permanentes obrigatórias;
+- memórias estruturadas;
+- conhecimento documental com RAG;
+- resumos de conversa;
+- fatos atuais obtidos por ferramentas e recibos.
+
+Memórias terão escopo, origem, confiança, ciclo de vida e auditoria.
+
+Toda a implementação pertence a `HelpUSA/helpus-ai`. A aplicação externa
+`ai-bridge-local` não será modificada por este programa.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_EVOLUTION_20260717:END -->

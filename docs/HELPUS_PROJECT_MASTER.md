@@ -1538,3 +1538,24 @@ Garantias:
 - apenas analisa codigo local e gera relatorio versionado.
 
 Resultado esperado: usar o relatorio para implementar o bloco 15B com exportador readonly e opt-in de lessons reais para Obsidian, mantendo fallback para lessons embutidas.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_PROGRAM_20260717:START -->
+
+## Programa de conhecimento e memória persistente
+
+Plano canônico:
+
+`docs/ai/HELPUS_KNOWLEDGE_MEMORY_ARCHITECTURE_PLAN.md`
+
+O programa corrige o problema observado em um teste real: o agente acreditou
+incorretamente que não poderia utilizar o Watcher a partir de uma interface de
+chat.
+
+A solução será implementada em oito incrementos, KM-1 a KM-8, cobrindo prompts
+permanentes, memória estruturada, continuidade, RAG, context builder,
+administração e avaliação.
+
+Todo o trabalho pertence ao AI HelpUS. Nenhuma alteração em `ai-bridge-local`
+faz parte do programa.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_PROGRAM_20260717:END -->

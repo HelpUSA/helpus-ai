@@ -1,4 +1,4 @@
-﻿# HelpUSAI Operational Context Card
+# HelpUSAI Operational Context Card
 
 Updated: 2026-06-15
 
@@ -54,3 +54,24 @@ If context is unknown, HelpUSAI must ask for this Operational Context Card inste
 ## Stop condition
 
 If any command fails, stop immediately and report step name, stdout summary, stderr summary, files touched, and next safe action.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_SCOPE_BOUNDARY_20260717:START -->
+
+## Limite do produto para conhecimento e memória
+
+O AI HelpUS é responsável por seus prompts, instruções operacionais, memória,
+conhecimento, recuperação, resumos, montagem de contexto, administração e
+auditoria.
+
+`ai-bridge-local` é uma aplicação externa utilizada por meio do contrato de
+envelopes já existente. Nenhuma alteração específica do AI HelpUS será exigida
+nesse repositório.
+
+Identificadores da conversa, PID, fila e estado de serviços são informações
+dinâmicas, não memórias permanentes.
+
+Plano canônico:
+
+`docs/ai/HELPUS_KNOWLEDGE_MEMORY_ARCHITECTURE_PLAN.md`
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_SCOPE_BOUNDARY_20260717:END -->

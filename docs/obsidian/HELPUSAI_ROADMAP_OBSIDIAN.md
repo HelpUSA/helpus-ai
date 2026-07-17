@@ -756,3 +756,25 @@ Validation:
 - `npm --prefix frontend run build`
 
 Next recommended phase: define the post-Phase-AT product checkpoint after CI confirmation on `origin/main`.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_ROADMAP_20260717:START -->
+
+## Programa de conhecimento e memória — 2026-07-17
+
+Plano canônico:
+
+`../ai/HELPUS_KNOWLEDGE_MEMORY_ARCHITECTURE_PLAN.md`
+
+- [ ] KM-1 — bootstrap operacional permanente;
+- [ ] KM-2 — domínio e API de memória;
+- [ ] KM-3 — continuidade das conversas;
+- [ ] KM-4 — ingestão de conhecimento;
+- [ ] KM-5 — recuperação híbrida;
+- [ ] KM-6 — context builder;
+- [ ] KM-7 — interface administrativa;
+- [ ] KM-8 — avaliação e produção.
+
+Todo o programa será implementado no AI HelpUS. A aplicação externa
+`ai-bridge-local` não será alterada por este roadmap.
+
+<!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_ROADMAP_20260717:END -->
