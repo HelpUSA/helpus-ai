@@ -793,3 +793,15 @@ Todo o programa será implementado no AI HelpUS. A aplicação externa
 Architecture: `../ai/HELPUS_MULTI_AI_CLOUD_ARCHITECTURE.md`.
 
 <!-- AI_HELPUS_MANAGED:MULTI_AI_CLOUD_ROADMAP_20260718:END -->
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_ROADMAP_2026_07_18:START -->
+
+## Próximo marco — integração runtime multi-IA
+
+Concluído: fundação LiteLLM, aliases, roteador, modos, Compose, testes, CI e commit `bb654664597aba79d7c33bc87afe54c3e25243b1`.
+
+Próxima fase: cliente multi-IA, feature flag, integração no cérebro, fallback legado, mocks, smoke, scripts, documentação, commit e push.
+
+Condições: comportamento preservado quando desligado; nenhuma chave versionada; Watcher e memória preservados; `ai-bridge-local` intocado.
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_ROADMAP_2026_07_18:END -->

@@ -466,3 +466,15 @@ execution receipt or dynamic runtime identifier.
 Architecture: `docs/ai/HELPUS_MULTI_AI_CLOUD_ARCHITECTURE.md`.
 
 <!-- AI_HELPUS_MANAGED:MULTI_AI_RELATIONSHIP_20260718:END -->
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_MEMORY_CONTINUATION_2026_07_18:START -->
+
+## Continuidade da memória na integração multi-IA
+
+`/chat` já monta histórico, memória de projeto, memória interna, busca, lições e pergunta antes de chamar `CerebroIA.pensar`.
+
+O futuro `backend/multi_ai_provider.py` não deve consultar o banco. Deve receber o prompt consolidado, evitando duplicidade, divergência de filtros e acoplamento do gateway.
+
+A gravação permanece em `safe_record_chat_memory_event`, com o provedor usado. Não promover automaticamente eventos para feedback, lição ou regra.
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_MEMORY_CONTINUATION_2026_07_18:END -->

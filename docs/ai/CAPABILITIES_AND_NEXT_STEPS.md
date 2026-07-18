@@ -649,3 +649,17 @@ Next: MAI-2, connecting two real cloud model endpoints. `ai-bridge-local`
 remains external and unchanged.
 
 <!-- AI_HELPUS_MANAGED:MULTI_AI_CLOUD_FOUNDATION_20260718:END -->
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_CONTINUATION_2026_07_18:START -->
+
+## Checkpoint runtime multi-IA — 18 de julho de 2026
+
+Fundação concluída em `bb654664597aba79d7c33bc87afe54c3e25243b1`: LiteLLM, PostgreSQL, Redis, sete aliases, roteador FastAPI, modos `single`, `review` e `council`, testes e CI.
+
+Pendente: conectar `CerebroIA` ao roteador.
+
+Ponto de entrada: `docs/ai/HELPUS_RUNTIME_MULTI_AI_HANDOFF_2026-07-18.md`.
+
+A integração deve ser opt-in, preservar `gemini,openrouter,deepseek`, reutilizar o contexto de `/chat`, não incluir segredos e não modificar o AI Bridge Local.
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_CONTINUATION_2026_07_18:END -->
