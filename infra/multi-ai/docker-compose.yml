@@ -1,0 +1,57 @@
+name: ${COMPOSE_PROJECT_NAME:-helpus-multi-ai}
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [litellm-postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes"]
+    volumes: [litellm-redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  litellm:
+    image: ${LITELLM_IMAGE}
+    restart: unless-stopped
+    command: [--config, /app/config.yaml, --port, "4000"]
+    env_file: [.env]
+    volumes: [./litellm-config.yaml:/app/config.yaml:ro]
+    ports: ["${LITELLM_BIND_ADDRESS:-127.0.0.1}:${LITELLM_PORT:-4000}:4000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request;urllib.request.urlopen('http://127.0.0.1:4000/health/readiness',timeout=10)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+  router:
+    build:
+      context: ../..
+      dockerfile: services/multi_ai_router/Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    ports: ["${HELPUS_ROUTER_BIND_ADDRESS:-127.0.0.1}:${HELPUS_ROUTER_PORT:-8080}:8080"]
+    depends_on:
+      litellm: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=10)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+volumes:
+  litellm-postgres-data:
+  litellm-redis-data:

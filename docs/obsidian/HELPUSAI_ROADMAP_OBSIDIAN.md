@@ -778,3 +778,18 @@ Todo o programa será implementado no AI HelpUS. A aplicação externa
 `ai-bridge-local` não será alterada por este roadmap.
 
 <!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_ROADMAP_20260717:END -->
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_CLOUD_ROADMAP_20260718:START -->
+
+
+## Multi-AI cloud program — 2026-07-18
+
+- [x] MAI-1 — gateway and orchestration foundation;
+- [ ] MAI-2 — two live cloud endpoints;
+- [ ] MAI-3 — production chat integration;
+- [ ] MAI-4 — shadow traffic and comparative evaluation;
+- [ ] MAI-5 — memory, RAG, tenant policy and spend governance.
+
+Architecture: `../ai/HELPUS_MULTI_AI_CLOUD_ARCHITECTURE.md`.
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_CLOUD_ROADMAP_20260718:END -->

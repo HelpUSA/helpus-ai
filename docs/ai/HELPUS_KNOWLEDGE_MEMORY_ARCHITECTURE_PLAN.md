@@ -449,3 +449,20 @@ Documentações oficiais consideradas:
 - governança: administração e auditoria.
 
 Toda a implementação permanecerá dentro do AI HelpUS.
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_RELATIONSHIP_20260718:START -->
+
+
+## Multi-model execution relationship — 2026-07-18
+
+Multi-model routing is downstream from trusted context assembly. Permanent
+rules, Watcher semantics, dynamic runtime identifiers, memory, knowledge,
+conversation summaries and recent messages are assembled before route
+selection.
+
+All specialists receive the same critical rules. No model may invent an
+execution receipt or dynamic runtime identifier.
+
+Architecture: `docs/ai/HELPUS_MULTI_AI_CLOUD_ARCHITECTURE.md`.
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_RELATIONSHIP_20260718:END -->

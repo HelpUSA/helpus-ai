@@ -623,3 +623,29 @@ A primeira prioridade é KM-1.
 `ai-bridge-local` permanece externo e inalterado.
 
 <!-- AI_HELPUS_MANAGED:KNOWLEDGE_MEMORY_CAPABILITY_20260717:END -->
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_CLOUD_FOUNDATION_20260718:START -->
+
+
+## Multi-AI cloud foundation — 2026-07-18
+
+Status: foundation implemented; live providers are not yet configured.
+
+Implemented:
+
+- LiteLLM gateway;
+- seven stable model aliases;
+- FastAPI orchestrator;
+- single, review and council modes;
+- independent verification and answer repair;
+- retries, cooldown and fallbacks;
+- PostgreSQL and Redis;
+- Docker Compose;
+- unit tests and CI.
+
+Architecture: `docs/ai/HELPUS_MULTI_AI_CLOUD_ARCHITECTURE.md`.
+
+Next: MAI-2, connecting two real cloud model endpoints. `ai-bridge-local`
+remains external and unchanged.
+
+<!-- AI_HELPUS_MANAGED:MULTI_AI_CLOUD_FOUNDATION_20260718:END -->
