@@ -1,0 +1,22 @@
+# Checklist de Produção Multi-IA
+
+- [ ] Vercel auditada
+- [ ] Railway auditado
+- [ ] backend identificado
+- [ ] staging criado
+- [ ] LiteLLM implantado
+- [ ] Multi-AI Router implantado
+- [ ] rede privada validada
+- [ ] secrets configurados
+- [ ] healthchecks configurados
+- [ ] aliases testados
+- [ ] modos testados
+- [ ] fallback testado
+- [ ] logs sanitizados
+- [ ] rate limits definidos
+- [ ] limites financeiros definidos
+- [ ] deploy com flag desligada
+- [ ] smoke test
+- [ ] ativação gradual
+- [ ] rollback testado
+- [ ] operação independente do computador local

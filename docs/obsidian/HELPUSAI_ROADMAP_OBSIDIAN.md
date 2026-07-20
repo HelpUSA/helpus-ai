@@ -806,6 +806,38 @@ Condições confirmadas: comportamento preservado quando desligado; nenhuma chav
 
 Documento técnico: `../ai/HELPUS_RUNTIME_MULTI_AI_INTEGRATION.md`.
 
-Etapa seguinte: commit e push controlados da integração.
+Etapa seguinte: implantação no Railway, testes cloud e ativação gradual.
 
 <!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_ROADMAP_2026_07_18:END -->
+
+<!-- HELPUS_ROADMAP_CLOUD_STATUS_START -->
+
+## Marco atual — produção cloud
+
+Concluído:
+
+- fundação;
+- roteador;
+- aliases;
+- modos;
+- integração;
+- fallback;
+- testes;
+- documentação;
+- commit;
+- push.
+
+Próximo ciclo:
+
+- auditoria de infraestrutura;
+- staging;
+- LiteLLM;
+- Multi-AI Router;
+- secrets;
+- observabilidade;
+- testes reais;
+- ativação gradual.
+
+A produção não dependerá do computador local.
+
+<!-- HELPUS_ROADMAP_CLOUD_STATUS_END -->

@@ -214,3 +214,24 @@ Marcadores finais:
 - `CLOUD_GPU_PROVISIONED=False`;
 - `PROVIDER_CREDENTIALS_ADDED=False`;
 - `AI_BRIDGE_LOCAL_MODIFIED=False`.
+
+<!-- HELPUS_RUNTIME_CLOUD_STATUS_START -->
+
+## Estado cloud
+
+A integração foi publicada no commit `cb917bec48a73d44dfceb2c038738cd429a32134`.
+
+`http://127.0.0.1:8080` é somente o padrão de desenvolvimento local.
+
+Em produção, o backend deverá usar o DNS privado do Railway:
+
+`http://multi-ai-router.railway.internal:8080`
+
+Durante a implantação:
+
+- `HELPUS_MULTI_AI_ENABLED=false`;
+- `HELPUS_MULTI_AI_FALLBACK_TO_LEGACY=true`.
+
+Após os testes cloud, ativar `HELPUS_MULTI_AI_ENABLED=true`.
+
+<!-- HELPUS_RUNTIME_CLOUD_STATUS_END -->

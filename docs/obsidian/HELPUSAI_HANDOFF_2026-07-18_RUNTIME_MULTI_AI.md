@@ -37,7 +37,7 @@ Fallback: `gemini,openrouter,deepseek`.
 
 A integração backend opcional foi implementada, desligada por padrão, com cliente multi-IA, variáveis `HELPUS_MULTI_AI_*`, integração em `CerebroIA`, fallback legado, mocks, regressão e documentação.
 
-O commit e o push permanecem como etapa final controlada.
+O commit e o push foram concluídos. A etapa atual é a implantação cloud.
 
 ## Não repetir
 
@@ -65,3 +65,17 @@ Flag desligada preserva legado; flag ligada usa roteador; falha retorna ao legad
 - GPU: não provisionada;
 - credenciais: não adicionadas;
 - AI Bridge Local: não alterado.
+
+<!-- HELPUS_OBSIDIAN_CLOUD_STATUS_START -->
+
+## Atualização cloud
+
+O runtime multi-IA foi concluído e publicado.
+
+Commit:
+
+`cb917bec48a73d44dfceb2c038738cd429a32134`
+
+A frente atual é a implantação no Railway.
+
+<!-- HELPUS_OBSIDIAN_CLOUD_STATUS_END -->

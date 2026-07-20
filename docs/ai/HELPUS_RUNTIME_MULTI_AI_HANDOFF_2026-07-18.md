@@ -414,7 +414,7 @@ Não executar:
 
 ## 21. Atualização — integração runtime multi-IA
 
-Implementação concluída em 2026-07-20, ainda sem commit ou push no momento desta atualização.
+Implementação concluída em 2026-07-20, publicada no commit `cb917bec48a73d44dfceb2c038738cd429a32134`.
 
 Arquivos centrais:
 
@@ -466,3 +466,28 @@ Marcadores:
 - `AI_BRIDGE_LOCAL_MODIFIED=False`.
 
 <!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_INTEGRATION_20260720:END -->
+
+<!-- HELPUS_HANDOFF_CLOUD_STATUS_START -->
+
+## Próxima fase: produção cloud
+
+Concluído:
+
+- integração;
+- testes;
+- documentação;
+- commit;
+- push.
+
+Em andamento:
+
+- auditoria de Vercel e Railway;
+- staging;
+- LiteLLM;
+- Multi-AI Router;
+- rede privada;
+- secrets;
+- testes reais;
+- ativação gradual.
+
+<!-- HELPUS_HANDOFF_CLOUD_STATUS_END -->
