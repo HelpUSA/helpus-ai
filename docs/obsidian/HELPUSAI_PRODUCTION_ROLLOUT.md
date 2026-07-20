@@ -15,3 +15,21 @@ Próximas atividades:
 9. ativação gradual.
 
 O computador local não fará parte da operação obrigatória de produção.
+
+<!-- HELPUS_CLOUD_AUDIT_RESULT_START -->
+
+## Auditoria cloud de 2026-07-20
+
+Situação: `completa`.
+
+- GitHub: `True`;
+- Vercel: `True`;
+- Railway: `True`;
+- domínio: `True`;
+- status HTTP: `200`;
+- serviços alterados: `False`;
+- secrets expostos: `False`.
+
+Próximo marco: preparação do staging e dos serviços Railway.
+
+<!-- HELPUS_CLOUD_AUDIT_RESULT_END -->
