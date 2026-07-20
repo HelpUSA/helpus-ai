@@ -796,12 +796,16 @@ Architecture: `../ai/HELPUS_MULTI_AI_CLOUD_ARCHITECTURE.md`.
 
 <!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_ROADMAP_2026_07_18:START -->
 
-## Próximo marco — integração runtime multi-IA
+## Marco concluído — integração runtime multi-IA
 
-Concluído: fundação LiteLLM, aliases, roteador, modos, Compose, testes, CI e commit `bb654664597aba79d7c33bc87afe54c3e25243b1`.
+Fundação concluída anteriormente: LiteLLM, aliases, roteador, modos, Compose, testes, CI e commit `bb654664597aba79d7c33bc87afe54c3e25243b1`.
 
-Próxima fase: cliente multi-IA, feature flag, integração no cérebro, fallback legado, mocks, smoke, scripts, documentação, commit e push.
+Integração runtime concluída em 2026-07-20: cliente multi-IA, feature flag, integração no `CerebroIA`, fallback legado, mocks, smoke, scripts e documentação.
 
-Condições: comportamento preservado quando desligado; nenhuma chave versionada; Watcher e memória preservados; `ai-bridge-local` intocado.
+Condições confirmadas: comportamento preservado quando desligado; nenhuma chave versionada; Watcher e memória preservados; `ai-bridge-local` intocado.
+
+Documento técnico: `../ai/HELPUS_RUNTIME_MULTI_AI_INTEGRATION.md`.
+
+Etapa seguinte: commit e push controlados da integração.
 
 <!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_ROADMAP_2026_07_18:END -->

@@ -109,6 +109,9 @@
     "smoke:phase-as-ui": "python scripts/69_smoke_chat_markdown_rendering.py",
     "smoke:phase-as": "npm run smoke:phase-as-ui && npm run smoke:phase-ar",
     "smoke:phase-at-ci": "python scripts/70_smoke_ci_phase_as_chain.py",
-    "smoke:phase-at": "npm run smoke:phase-at-ci && npm run smoke:phase-as"
+    "smoke:phase-at": "npm run smoke:phase-at-ci && npm run smoke:phase-as",
+    "test:multi-ai-runtime": "python -B -m unittest discover -s tests -p \"test_multi_ai_runtime_integration.py\" -v",
+    "smoke:multi-ai-runtime": "python -B scripts/83_validate_multi_ai_runtime.py",
+    "test:multi-ai-integration": "npm run test:multi-ai-runtime && npm run smoke:multi-ai-runtime && npm run test:fallback"
   }
 }

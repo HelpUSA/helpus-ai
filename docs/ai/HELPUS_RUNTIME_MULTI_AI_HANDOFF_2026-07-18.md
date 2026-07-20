@@ -401,7 +401,7 @@ Não executar:
 ## 20. Estado final
 
 - fundação multi-IA: concluída;
-- integração do runtime: pendente;
+- integração do runtime: concluída em 2026-07-20;
 - memória: integrada ao `/chat`;
 - Watcher: regras existentes;
 - fallback legado: testado;
@@ -409,3 +409,60 @@ Não executar:
 - GPU: não provisionada;
 - credenciais: não adicionadas;
 - AI Bridge Local: não alterado.
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_INTEGRATION_20260720:START -->
+
+## 21. Atualização — integração runtime multi-IA
+
+Implementação concluída em 2026-07-20, ainda sem commit ou push no momento desta atualização.
+
+Arquivos centrais:
+
+- `backend/multi_ai_provider.py`;
+- `backend/config.py`;
+- `backend/cerebro.py`;
+- `tests/test_multi_ai_runtime_integration.py`;
+- `scripts/83_validate_multi_ai_runtime.py`;
+- `docs/ai/HELPUS_RUNTIME_MULTI_AI_INTEGRATION.md`.
+
+Comandos adicionados:
+
+- `npm run test:multi-ai-runtime`;
+- `npm run smoke:multi-ai-runtime`;
+- `npm run test:multi-ai-integration`.
+
+Contrato preservado:
+
+- `CerebroIA.pensar` mantém assinatura e retorno;
+- flag desligada preserva integralmente o caminho legado;
+- falha no roteador usa fallback sanitizado;
+- ordem legada permanece `gemini,openrouter,deepseek`;
+- `backend/main.py` não foi alterado;
+- AI Bridge Local não foi alterado.
+
+Aliases reconhecidos:
+
+- `helpus-fast`;
+- `helpus-general`;
+- `helpus-reasoner`;
+- `helpus-code`;
+- `helpus-vision`;
+- `helpus-verifier`;
+- `helpus-embedding`.
+
+Validações executadas sem chamadas externas reais:
+
+- teste permanente da integração;
+- validador consolidado;
+- regressão de fallback;
+- validação da fundação multi-IA;
+- núcleo do roteador;
+- smoke de providers.
+
+Marcadores:
+
+- `CLOUD_GPU_PROVISIONED=False`;
+- `PROVIDER_CREDENTIALS_ADDED=False`;
+- `AI_BRIDGE_LOCAL_MODIFIED=False`.
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_INTEGRATION_20260720:END -->

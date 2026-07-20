@@ -52,3 +52,51 @@ AI_PROVIDER_ORDER = [p.strip().lower() for p in os.getenv('AI_PROVIDER_ORDER', '
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 DEEPSEEK_API_URL = os.getenv('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions')
+
+# Optional HelpUS multi-AI runtime router.
+# Disabled by default; legacy operation requires no new variable.
+HELPUS_MULTI_AI_ENABLED = os.getenv(
+    'HELPUS_MULTI_AI_ENABLED',
+    'false',
+).lower().strip() in ('1', 'true', 'yes', 'on')
+
+HELPUS_MULTI_AI_BASE_URL = os.getenv(
+    'HELPUS_MULTI_AI_BASE_URL',
+    'http://127.0.0.1:8080',
+).rstrip('/')
+
+HELPUS_MULTI_AI_API_KEY = os.getenv(
+    'HELPUS_MULTI_AI_API_KEY',
+    '',
+).strip()
+
+try:
+    HELPUS_MULTI_AI_TIMEOUT_SECONDS = float(
+        os.getenv(
+            'HELPUS_MULTI_AI_TIMEOUT_SECONDS',
+            '180',
+        )
+    )
+except (TypeError, ValueError):
+    HELPUS_MULTI_AI_TIMEOUT_SECONDS = 180.0
+
+if (
+    HELPUS_MULTI_AI_TIMEOUT_SECONDS <= 0
+    or HELPUS_MULTI_AI_TIMEOUT_SECONDS > 900
+):
+    HELPUS_MULTI_AI_TIMEOUT_SECONDS = 180.0
+
+HELPUS_MULTI_AI_MODE = os.getenv(
+    'HELPUS_MULTI_AI_MODE',
+    'auto',
+).lower().strip()
+
+HELPUS_MULTI_AI_FALLBACK_TO_LEGACY = os.getenv(
+    'HELPUS_MULTI_AI_FALLBACK_TO_LEGACY',
+    'true',
+).lower().strip() in ('1', 'true', 'yes', 'on')
+
+HELPUS_MULTI_AI_DEFAULT_ALIAS = os.getenv(
+    'HELPUS_MULTI_AI_DEFAULT_ALIAS',
+    'helpus-general',
+).lower().strip()

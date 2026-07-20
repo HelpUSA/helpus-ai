@@ -33,9 +33,11 @@
 
 Fallback: `gemini,openrouter,deepseek`.
 
-## Próxima atividade
+## Atividade concluída em 2026-07-20
 
-Criar integração backend opcional, desligada por padrão, com cliente multi-IA, variáveis `HELPUS_MULTI_AI_*`, integração em `CerebroIA`, fallback legado, mocks, regressão, documentação, commit e push.
+A integração backend opcional foi implementada, desligada por padrão, com cliente multi-IA, variáveis `HELPUS_MULTI_AI_*`, integração em `CerebroIA`, fallback legado, mocks, regressão e documentação.
+
+O commit e o push permanecem como etapa final controlada.
 
 ## Não repetir
 
@@ -50,3 +52,16 @@ Criar integração backend opcional, desligada por padrão, com cliente multi-IA
 ## Encerramento esperado
 
 Flag desligada preserva legado; flag ligada usa roteador; falha retorna ao legado; prompt e memória preservados; testes aprovados; push concluído; repositório limpo e sincronizado.
+
+<!-- AI_HELPUS_MANAGED:RUNTIME_MULTI_AI_HANDOFF_UPDATE_20260720 -->
+
+## Evidências da integração
+
+- documento técnico: `../ai/HELPUS_RUNTIME_MULTI_AI_INTEGRATION.md`;
+- teste: `tests/test_multi_ai_runtime_integration.py`;
+- validador: `scripts/83_validate_multi_ai_runtime.py`;
+- comandos npm: `test:multi-ai-runtime`, `smoke:multi-ai-runtime` e `test:multi-ai-integration`;
+- aliases: `helpus-fast`, `helpus-general`, `helpus-reasoner`, `helpus-code`, `helpus-vision`, `helpus-verifier` e `helpus-embedding`;
+- GPU: não provisionada;
+- credenciais: não adicionadas;
+- AI Bridge Local: não alterado.
