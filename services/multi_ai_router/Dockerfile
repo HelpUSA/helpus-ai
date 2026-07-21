@@ -7,4 +7,4 @@ COPY services/multi_ai_router /app/multi_ai_router
 RUN useradd --create-home --uid 10001 helpus && chown -R helpus:helpus /app
 USER helpus
 EXPOSE 8080
-CMD ["uvicorn","multi_ai_router.app:app","--host","0.0.0.0","--port","8080","--proxy-headers"]
+CMD ["sh","-c","exec uvicorn multi_ai_router.app:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers"]

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "infra/multi-ai/Dockerfile.litellm",
+    "watchPatterns": [
+      "infra/multi-ai/Dockerfile.litellm",
+      "infra/multi-ai/litellm-config.yaml",
+      "infra/multi-ai/railway-litellm.json"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health/liveliness",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

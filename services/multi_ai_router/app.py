@@ -1,3 +1,7 @@
+
+import os as _helpus_os
+import urllib.request as _helpus_url_request
+from starlette.responses import JSONResponse as _HelpUSJSONResponse
 import asyncio,json,os,time,uuid
 from typing import Any,Dict,Optional
 import httpx
@@ -54,8 +58,88 @@ def council_messages(messages,items):
 @app.get("/healthz")
 async def healthz(): return {"status":"healthy","service":"AI HelpUS Multi-AI Router"}
 
+def _helpus_gateway_liveness_url() -> str:
+    base_url = _helpus_os.getenv(
+        "HELPUS_GATEWAY_BASE_URL",
+        "",
+    ).strip().rstrip("/")
+
+    if not base_url:
+        return ""
+
+    if base_url.endswith("/v1"):
+        base_url = base_url[:-3]
+
+    return base_url.rstrip("/") + "/health/liveliness"
+
+
+def _helpus_gateway_health_timeout() -> float:
+    raw_value = _helpus_os.getenv(
+        "HELPUS_GATEWAY_HEALTH_TIMEOUT_SECONDS",
+        "5",
+    ).strip()
+
+    try:
+        timeout = float(raw_value)
+    except (TypeError, ValueError):
+        timeout = 5.0
+
+    return min(max(timeout, 0.2), 30.0)
+
+
 @app.get("/readyz")
-async def readyz(): return {"status":"ready","gateway_configured":bool(BASE)}
+def readyz():
+    gateway_url = _helpus_gateway_liveness_url()
+
+    if not gateway_url:
+        return _HelpUSJSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "gateway": "not_configured",
+            },
+        )
+
+    headers = {
+        "Accept": "application/json",
+    }
+
+    gateway_key = _helpus_os.getenv(
+        "HELPUS_GATEWAY_API_KEY",
+        "",
+    ).strip()
+
+    if gateway_key:
+        headers["Authorization"] = "Bearer " + gateway_key
+
+    request = _helpus_url_request.Request(
+        gateway_url,
+        headers=headers,
+        method="GET",
+    )
+
+    try:
+        with _helpus_url_request.urlopen(
+            request,
+            timeout=_helpus_gateway_health_timeout(),
+        ) as response:
+            status_code = int(response.getcode())
+
+        if 200 <= status_code < 300:
+            return {
+                "status": "ready",
+                "gateway": "reachable",
+            }
+    except Exception:
+        pass
+
+    return _HelpUSJSONResponse(
+        status_code=503,
+        content={
+            "status": "not_ready",
+            "gateway": "unreachable",
+        },
+    )
 
 @app.get("/v1/models")
 async def models(authorization:Optional[str]=Header(default=None)):

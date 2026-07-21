@@ -1,0 +1,17 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "services/multi_ai_router/Dockerfile",
+    "watchPatterns": [
+      "services/multi_ai_router/**",
+      "infra/multi-ai/railway-router.json"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/readyz",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

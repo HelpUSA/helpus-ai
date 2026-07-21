@@ -112,6 +112,7 @@
     "smoke:phase-at": "npm run smoke:phase-at-ci && npm run smoke:phase-as",
     "test:multi-ai-runtime": "python -B -m unittest discover -s tests -p \"test_multi_ai_runtime_integration.py\" -v",
     "smoke:multi-ai-runtime": "python -B scripts/83_validate_multi_ai_runtime.py",
-    "test:multi-ai-integration": "npm run test:multi-ai-runtime && npm run smoke:multi-ai-runtime && npm run test:fallback"
+    "test:multi-ai-integration": "npm run test:multi-ai-runtime && npm run smoke:multi-ai-runtime && npm run test:fallback && npm run test:multi-ai-cloud",
+    "test:multi-ai-cloud": "python -B -m unittest discover -s tests -p \"test_multi_ai_cloud_deployment.py\" -v"
   }
 }
