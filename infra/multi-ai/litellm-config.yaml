@@ -1,34 +1,82 @@
 model_list:
   - model_name: helpus-fast
     litellm_params:
+      model: deepseek/deepseek-v4-flash
+      api_key: os.environ/DEEPSEEK_API_KEY
+      order: 1
+      thinking:
+        type: disabled
+  - model_name: helpus-fast
+    litellm_params:
       model: os.environ/HELPUS_FAST_MODEL
       api_base: os.environ/HELPUS_FAST_API_BASE
       api_key: os.environ/HELPUS_FAST_API_KEY
+      order: 2
+
+  - model_name: helpus-general
+    litellm_params:
+      model: deepseek/deepseek-v4-flash
+      api_key: os.environ/DEEPSEEK_API_KEY
+      order: 1
+      thinking:
+        type: disabled
   - model_name: helpus-general
     litellm_params:
       model: os.environ/HELPUS_GENERAL_MODEL
       api_base: os.environ/HELPUS_GENERAL_API_BASE
       api_key: os.environ/HELPUS_GENERAL_API_KEY
+      order: 2
+
+  - model_name: helpus-reasoner
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_key: os.environ/DEEPSEEK_API_KEY
+      order: 1
+      thinking:
+        type: enabled
+      reasoning_effort: high
   - model_name: helpus-reasoner
     litellm_params:
       model: os.environ/HELPUS_REASONER_MODEL
       api_base: os.environ/HELPUS_REASONER_API_BASE
       api_key: os.environ/HELPUS_REASONER_API_KEY
+      order: 2
+
+  - model_name: helpus-code
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_key: os.environ/DEEPSEEK_API_KEY
+      order: 1
+      thinking:
+        type: disabled
   - model_name: helpus-code
     litellm_params:
       model: os.environ/HELPUS_CODE_MODEL
       api_base: os.environ/HELPUS_CODE_API_BASE
       api_key: os.environ/HELPUS_CODE_API_KEY
+      order: 2
+
   - model_name: helpus-vision
     litellm_params:
       model: os.environ/HELPUS_VISION_MODEL
       api_base: os.environ/HELPUS_VISION_API_BASE
       api_key: os.environ/HELPUS_VISION_API_KEY
+
+  - model_name: helpus-verifier
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_key: os.environ/DEEPSEEK_API_KEY
+      order: 1
+      thinking:
+        type: enabled
+      reasoning_effort: high
   - model_name: helpus-verifier
     litellm_params:
       model: os.environ/HELPUS_VERIFIER_MODEL
       api_base: os.environ/HELPUS_VERIFIER_API_BASE
       api_key: os.environ/HELPUS_VERIFIER_API_KEY
+      order: 2
+
   - model_name: helpus-embedding
     litellm_params:
       model: os.environ/HELPUS_EMBEDDING_MODEL
@@ -36,6 +84,7 @@ model_list:
       api_key: os.environ/HELPUS_EMBEDDING_API_KEY
     model_info:
       mode: embedding
+
 router_settings:
   routing_strategy: simple-shuffle
   num_retries: 2
@@ -48,9 +97,11 @@ router_settings:
     - helpus-code: [helpus-reasoner]
     - helpus-vision: [helpus-general]
     - helpus-verifier: [helpus-reasoner]
+
 litellm_settings:
   drop_params: true
   request_timeout: 180
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
