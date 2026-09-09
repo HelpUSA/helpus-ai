@@ -37,6 +37,10 @@ class CerebroIA:
             app_config.HELPUS_MULTI_AI_ENABLED
         )
 
+        if self.provider == "openai":
+            self.nome_modelo = app_config.OPENAI_MODEL
+            return
+
         if self.provider == "gemini":
             self.nome_modelo = GEMINI_MODEL
             if GEMINI_API_KEY:
@@ -123,12 +127,34 @@ class CerebroIA:
         prompt = self._construir_prompt(pergunta, contexto_busca, historico)
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
 
-        if self.provider in ("gemini", "openrouter", "deepseek"):
+        if self.provider in ("openai", "gemini", "openrouter", "deepseek"):
             falhas = []
-            provider_order = app_config.AI_PROVIDER_ORDER or ["gemini", "openrouter", "deepseek"]
+            provider_order = app_config.AI_PROVIDER_ORDER or ["openai", "gemini", "openrouter", "deepseek"]
 
             for provider in provider_order:
                 try:
+                    if provider == "openai":
+                        if not app_config.OPENAI_API_KEY:
+                            raise RuntimeError("OPENAI_API_KEY ausente")
+                        payload = dict(
+                            model=app_config.OPENAI_MODEL,
+                            messages=[dict(role="user", content=prompt)],
+                            max_tokens=max_tokens,
+                            temperature=MODEL_CONFIG["temperature"],
+                        )
+                        headers = dict(Authorization="Bearer " + app_config.OPENAI_API_KEY)
+                        async with httpx.AsyncClient(timeout=8.0) as client:
+                            resposta = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+                            resposta.raise_for_status()
+                            dados = resposta.json()
+                        texto = dados["choices"][0]["message"]["content"].strip()
+                        tokens = dados.get("usage", {}).get("completion_tokens", 0)
+                        self.last_provider_used = "openai"
+                        self.nome_modelo = app_config.OPENAI_MODEL
+                        self.last_fallback_reason = "_".join(f"{p}_failed" for p in falhas) or None
+                        tempo = round(time.time() - inicio, 2)
+                        return texto, tokens, tempo
+
                     if provider == "gemini":
                         client_gemini = getattr(self, "client", None)
                         if not GEMINI_API_KEY or not GEMINI_API_KEY.startswith("AIza"):
