@@ -131,9 +131,9 @@ class CerebroIA:
                 try:
                     if provider == "gemini":
                         client_gemini = getattr(self, "client", None)
+                        if not GEMINI_API_KEY or not GEMINI_API_KEY.startswith("AIza"):
+                            raise RuntimeError("GEMINI_API_KEY invalida ou ausente")
                         if client_gemini is None:
-                            if not GEMINI_API_KEY:
-                             raise RuntimeError("GEMINI_API_KEY ausente")
                             from google import genai
                             client_gemini = genai.Client(api_key=GEMINI_API_KEY)
                             self.client = client_gemini
@@ -143,7 +143,8 @@ class CerebroIA:
                                 model=GEMINI_MODEL,
                                 contents=prompt,
                             ),
-                            timeout=7.0,
+                            timeout=2.0,
+
                         )
 
                         texto = (getattr(resposta, "text", "") or "").strip()
