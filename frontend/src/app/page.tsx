@@ -154,7 +154,7 @@ export default function Home() {
     return new URLSearchParams(window.location.search).get('chat') || ''
   }
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? '' : 'http://localhost:8000')
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
   const providerBadgeDebugEnabled = typeof window !== 'undefined' && window.localStorage.getItem('helpus_provider_debug') === '1'
 
