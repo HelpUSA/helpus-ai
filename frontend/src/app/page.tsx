@@ -571,6 +571,77 @@ export default function Home() {
       controller
 
     try {
+      try {
+        const streamRes = await fetch(`${apiUrl}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${googleToken}`,
+          },
+          body: JSON.stringify({
+            mensagem: texto,
+            session_id: sessionId || undefined,
+            pesquisar_web: pesquisarWeb,
+            project_id: 'general',
+          }),
+          signal: controller.signal,
+        })
+
+        if (streamRes.ok && streamRes.body) {
+          const reader = streamRes.body.getReader()
+          const decoder = new TextDecoder('utf-8')
+          let accumulated = ''
+          let addedAssistantMsg = false
+          let streamBuffer = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            streamBuffer += decoder.decode(value, { stream: true })
+            const parts = streamBuffer.split('\n\n')
+            streamBuffer = parts.pop() || ''
+
+            for (const part of parts) {
+              if (part.startsWith('data: ')) {
+                const dataStr = part.slice(6).trim()
+                if (dataStr === '[DONE]') break
+                try {
+                  const parsed = JSON.parse(dataStr)
+                  if (parsed.content) {
+                    accumulated += parsed.content
+                    if (!addedAssistantMsg) {
+                      addedAssistantMsg = true
+                      setMessages((current) => [
+                        ...current,
+                        { role: 'assistant', content: accumulated, provider_used: 'openai' },
+                      ])
+                    } else {
+                      setMessages((current) => {
+                        const updated = [...current]
+                        if (updated.length > 0) {
+                          updated[updated.length - 1] = {
+                            ...updated[updated.length - 1],
+                            content: accumulated,
+                          }
+                        }
+                        return updated
+                      })
+                    }
+                  }
+                } catch {}
+              }
+            }
+          }
+
+          if (accumulated.trim()) {
+            setLoading(false)
+            return
+          }
+        }
+      } catch (streamErr) {
+        // Stream fallback to standard POST /chat
+      }
+
       const response = await fetch(
         `${apiUrl}/chat`,
         {
