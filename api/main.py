@@ -137,6 +137,8 @@ class MensagemRequest(BaseModel):
     session_id: Optional[str] = None
     pesquisar_web: bool = True
     project_id: Optional[str] = 'general'
+    image_base64: Optional[str] = None
+    image_url: Optional[str] = None
 
 class MensagemResponse(BaseModel):
     resposta: str
@@ -495,7 +497,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         resposta, tokens, tempo_ia = await c.pensar(
             pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
-            historico=historico
+            historico=historico,
+            image_base64=request.image_base64,
+            image_url=request.image_url,
         )
         internal_agents_result = await run_internal_agents(
             pergunta=request.mensagem,
@@ -600,7 +604,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     import json
 
     async def event_generator():
-        async for chunk in c.pensar_stream(pergunta=request.mensagem):
+        async for chunk in c.pensar_stream(
+            pergunta=request.mensagem,
+            image_base64=request.image_base64,
+            image_url=request.image_url,
+        ):
             yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 

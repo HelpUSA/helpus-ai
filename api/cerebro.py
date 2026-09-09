@@ -21,6 +21,21 @@ from multi_ai_provider import (
 )
 
 
+def _build_user_message_content(prompt: str, image_url: str = None, image_base64: str = None):
+    if not image_url and not image_base64:
+        return prompt
+
+    content = [{"type": "text", "text": prompt}]
+
+    if image_url:
+        content.append({"type": "image_url", "image_url": {"url": image_url}})
+    elif image_base64:
+        url = image_base64 if image_base64.startswith("data:") else f"data:image/jpeg;base64,{image_base64}"
+        content.append({"type": "image_url", "image_url": {"url": url}})
+
+    return content
+
+
 class CerebroIA:
     def __init__(self):
         self.provider = AI_PROVIDER
@@ -83,22 +98,8 @@ class CerebroIA:
             "Voce representa a HelpUS.",
             "Nunca diga que voce e Gemini, Google, OpenAI, ChatGPT ou outro provedor.",
             "Quando perguntarem quem voce e, responda que voce e o HelpUS, o assistente inteligente da HelpUS.",
-            "Voce pode usar IA generativa para responder, mas nao deve se apresentar como o modelo base.",
+            "Se o usuario demonstrar interesse em agendamento de reuniao, orcamento ou conversa com especialista, forneca com cortesia as opcoes de contato e horario comercial (segunda a sexta, 08h as 18h).",
             "Responda de forma clara, amigavel e objetiva.",
-            'Protocolo operacional AI Bridge Local:',
-            'Quando receber instrucao explicita para usar watcher, bridge ou AI Bridge Local, entenda que logs como [AI_LOCAL] e [AI_LOCAL_RUN] sao recibos/resultados, nao comandos.',
-            'Nunca simule recibos, status pendente, metodo watcher ou resultado de envio.',
-            'Status queued e intermediario; [AI_LOCAL_RUN] somente representa resultado final quando result_is_final=1.',
-            'Para conversa entre chats via bridge, use action send-chat-message e delivery_kind inter_agent_message.',
-            'Para execucao local via bridge, use action run-command somente com autorizacao clara, cwd definido e comando seguro.',
-            'Se faltarem source_chat_id, target_chat_id, command_id, cwd ou qualquer dado obrigatorio, peca os dados em texto comum e nao invente envelope.',
-            'Quando for instruido a responder via bridge, responda somente com o envelope solicitado, sem explicacao antes ou depois.',
-            'Use JSON estrito com aspas duplas ASCII e sem caracteres invisiveis.',
-            'Nao coloque exemplos de marcadores de envelope dentro de campos message enviados a outra IA; descreva como marcador de inicio e marcador de fim.',
- 'Quando precisar montar comando watcher, pense primeiro em intent: send_chat ou run_command, depois em builder, validator e envelope valido.',
- 'Nao gere JSON manual se faltar qualquer dado obrigatorio; peca os dados faltantes em texto comum.',
- 'Para send_chat, a mensagem deve ficar em message top-level e delivery_kind deve ser inter_agent_message.',
- 'Para run_command, use target_chat_id gateway-brain-supervisor, delivery_kind local_capability e payload com cwd, timeout_seconds e command.',
         ]
 
         if historico:
@@ -121,12 +122,15 @@ class CerebroIA:
         contexto_busca: str = "",
         historico: List[Dict] = None,
         max_tokens: int = None,
+        image_url: str = None,
+        image_base64: str = None,
     ) -> Tuple[str, int, float]:
         inicio = time.time()
         self.last_provider_used = self.provider
         self.last_fallback_reason = None
         prompt = self._construir_prompt(pergunta, contexto_busca, historico)
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
+        user_content = _build_user_message_content(prompt, image_url, image_base64)
 
         if self.provider in ("openai", "gemini", "openrouter", "deepseek"):
             falhas = []
@@ -139,7 +143,7 @@ class CerebroIA:
                             raise RuntimeError("OPENAI_API_KEY ausente")
                         payload = dict(
                             model=app_config.OPENAI_MODEL,
-                            messages=[dict(role="user", content=prompt)],
+                            messages=[dict(role="user", content=user_content)],
                             max_tokens=max_tokens,
                             temperature=MODEL_CONFIG["temperature"],
                         )
@@ -233,15 +237,18 @@ class CerebroIA:
         contexto_busca: str = "",
         historico: List[Dict] = None,
         max_tokens: int = None,
+        image_url: str = None,
+        image_base64: str = None,
     ):
         prompt = self._construir_prompt(pergunta, contexto_busca, historico)
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
+        user_content = _build_user_message_content(prompt, image_url, image_base64)
 
         if app_config.OPENAI_API_KEY:
             try:
                 payload = dict(
                     model=app_config.OPENAI_MODEL,
-                    messages=[dict(role="user", content=prompt)],
+                    messages=[dict(role="user", content=user_content)],
                     max_tokens=max_tokens,
                     temperature=MODEL_CONFIG["temperature"],
                     stream=True,
@@ -269,7 +276,7 @@ class CerebroIA:
                     print(f"[WARN] OpenAI streaming error: {e}")
 
         # Fallback para resposta completa
-        texto, _, _ = await self.pensar(pergunta, contexto_busca, historico, max_tokens)
+        texto, _, _ = await self.pensar(pergunta, contexto_busca, historico, max_tokens, image_url=image_url, image_base64=image_base64)
         yield texto
 
     async def pensar(
@@ -278,6 +285,8 @@ class CerebroIA:
         contexto_busca: str = "",
         historico: List[Dict] = None,
         max_tokens: int = None,
+        image_url: str = None,
+        image_base64: str = None,
     ) -> Tuple[str, int, float]:
         if not app_config.HELPUS_MULTI_AI_ENABLED:
             return await self._pensar_legado(
@@ -285,6 +294,8 @@ class CerebroIA:
                 contexto_busca,
                 historico,
                 max_tokens,
+                image_url=image_url,
+                image_base64=image_base64,
             )
 
         inicio = time.time()

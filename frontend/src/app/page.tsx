@@ -16,6 +16,7 @@ type AgentTraceItem = {
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  image_url?: string
   fontes?: MessageSource[]
   provider_used?: string
   agent_trace?: AgentTraceItem[]
@@ -144,6 +145,123 @@ export default function Home() {
   const [memoryNotice, setMemoryNotice] = useState('')
   const [memoryFormOpen, setMemoryFormOpen] = useState(false)
   const [memoryForm, setMemoryForm] = useState({ title: '', content: '', tags: '' })
+
+  // Vision Image Attachment State
+  const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null)
+  const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Real-Time Web Voice Call State
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false)
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'speaking'>('idle')
+  const [voiceTranscript, setVoiceTranscript] = useState('')
+  const recognitionRef = useRef<any>(null)
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result as string
+      if (dataUrl) {
+        setSelectedImagePreview(dataUrl)
+        const base64Content = dataUrl.split(',')[1] || ''
+        setSelectedImageBase64(base64Content)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const removeSelectedImage = () => {
+    setSelectedImagePreview(null)
+    setSelectedImageBase64(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const speakText = (text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const cleanToSpeak = text.replace(/[*_#`~]/g, '').replace(/HelpUS/gi, 'Rélp Ás')
+    const utterance = new SpeechSynthesisUtterance(cleanToSpeak)
+    utterance.lang = 'pt-BR'
+    utterance.onstart = () => setVoiceStatus('speaking')
+    utterance.onend = () => {
+      if (isVoiceModalOpen) {
+        setVoiceStatus('listening')
+        startVoiceRecognition()
+      } else {
+        setVoiceStatus('idle')
+      }
+    }
+    window.speechSynthesis.speak(utterance)
+  }
+
+  const startVoiceRecognition = () => {
+    if (typeof window === 'undefined') return
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Seu navegador não possui suporte ao reconhecimento de voz nativo.')
+      return
+    }
+
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort()
+      }
+
+      const recognition = new SpeechRecognition()
+      recognition.lang = 'pt-BR'
+      recognition.continuous = false
+      recognition.interimResults = true
+
+      recognition.onstart = () => {
+        setVoiceStatus('listening')
+        setVoiceTranscript('')
+      }
+
+      recognition.onresult = (event: any) => {
+        let current = ''
+        for (let i = 0; i < event.results.length; i++) {
+          current += event.results[i][0].transcript
+        }
+        setVoiceTranscript(current)
+      }
+
+      recognition.onend = () => {
+        setVoiceStatus('idle')
+        const finalTranscript = recognitionRef.current?.lastTranscript || ''
+        if (finalTranscript.trim()) {
+          void submitMessage(finalTranscript, true)
+        }
+      }
+
+      recognition.onerror = () => {
+        setVoiceStatus('idle')
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+    } catch (err) {
+      setVoiceStatus('idle')
+    }
+  }
+
+  const startVoiceCall = () => {
+    setIsVoiceModalOpen(true)
+    startVoiceRecognition()
+  }
+
+  const endVoiceCall = () => {
+    setIsVoiceModalOpen(false)
+    setVoiceStatus('idle')
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.abort()
+      recognitionRef.current = null
+    }
+  }
 
   const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
 
@@ -539,6 +657,10 @@ export default function Home() {
     setChatError('')
     setLastSubmittedText(texto)
 
+    const imgBase64 = selectedImageBase64
+    const imgPreview = selectedImagePreview
+    removeSelectedImage()
+
     if (appendUserMessage) {
       setMessages(
         (current) => [
@@ -546,6 +668,7 @@ export default function Home() {
           {
             role: 'user',
             content: texto,
+            image_url: imgPreview || undefined,
           },
         ],
       )
@@ -580,6 +703,7 @@ export default function Home() {
           },
           body: JSON.stringify({
             mensagem: texto,
+            image_base64: imgBase64 || undefined,
             session_id: sessionId || undefined,
             pesquisar_web: pesquisarWeb,
             project_id: 'general',
@@ -635,6 +759,7 @@ export default function Home() {
 
           if (accumulated.trim()) {
             setLoading(false)
+            if (isVoiceModalOpen) speakText(accumulated)
             return
           }
         }
@@ -654,6 +779,7 @@ export default function Home() {
           },
           body: JSON.stringify({
             mensagem: texto,
+            image_base64: imgBase64 || undefined,
             session_id:
               sessionId
               || undefined,
@@ -708,14 +834,14 @@ export default function Home() {
         )
       }
 
+      const assistantReply = data.resposta || 'A API respondeu sem conteúdo.'
+
       setMessages(
         (current) => [
           ...current,
           {
             role: 'assistant',
-            content:
-              data.resposta
-              || 'A API respondeu sem conteúdo.',
+            content: assistantReply,
             fontes:
               data.fontes
               || [],
@@ -732,6 +858,7 @@ export default function Home() {
       )
 
       setChatError('')
+      if (isVoiceModalOpen) speakText(assistantReply)
 
       await carregarConversas()
     } catch (error) {
@@ -988,6 +1115,15 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={startVoiceCall}
+                className="flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-200 transition hover:bg-sky-500/25 hover:text-white"
+                title="Iniciar Chamada de Voz em Tempo Real com a Hel"
+                type="button"
+              >
+                <span className="h-2 w-2 animate-ping rounded-full bg-sky-400" />
+                <span>🎙️ Ligar para Hel</span>
+              </button>
               <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 sm:flex">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
                 Sistema operacional
@@ -1542,6 +1678,11 @@ export default function Home() {
                       </div>
 
                       <section>
+                        {msg.image_url && (
+                          <div className="mb-2 overflow-hidden rounded-xl border border-white/20">
+                            <img src={msg.image_url} alt="Imagem anexa" className="max-h-60 max-w-full object-contain" />
+                          </div>
+                        )}
                         {msg.role === 'assistant' ? (
                           <MarkdownMessage content={msg.content} />
                         ) : (
@@ -1696,6 +1837,32 @@ export default function Home() {
 
             <footer className="border-t border-white/10 bg-[#212121]/95 px-3 pb-4 pt-3 backdrop-blur">
               <div className="mx-auto max-w-4xl">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+
+                {selectedImagePreview && (
+                  <div className="relative mb-2 inline-block">
+                    <img
+                      src={selectedImagePreview}
+                      alt="Pré-visualização"
+                      className="h-20 max-w-xs rounded-xl border border-white/20 object-cover shadow-md"
+                    />
+                    <button
+                      type="button"
+                      onClick={removeSelectedImage}
+                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white shadow hover:bg-rose-500"
+                      title="Remover imagem"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-end gap-2 rounded-[2rem] border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl shadow-black/30 focus-within:border-white/20">
                   <textarea
                     ref={inputRef}
@@ -1703,7 +1870,7 @@ export default function Home() {
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={profile
-                      ? 'Envie uma mensagem ao HelpUS'
+                      ? 'Envie uma mensagem ou anexe uma imagem ao HelpUS'
                       : 'Entre com Google para usar o HelpUS'}
                     className="max-h-[180px] min-h-[52px] flex-1 resize-none overflow-y-auto rounded-2xl border-0 bg-transparent px-3 py-3.5 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                     rows={1}
@@ -1711,6 +1878,16 @@ export default function Home() {
                   />
 
                   <div className="flex shrink-0 items-center gap-1 pb-1">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={loading || !profile}
+                      className="flex h-9 items-center justify-center rounded-full border border-white/10 px-3 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                      title="Anexar imagem para visão de IA"
+                      type="button"
+                    >
+                      📷 Foto
+                    </button>
+
                     <button
                       onClick={() => setPesquisarWeb((current) => !current)}
                       disabled={loading || !profile}
@@ -1726,10 +1903,11 @@ export default function Home() {
                       Web
                     </button>
 
-                    {input ? (
+                    {input || selectedImagePreview ? (
                       <button
                         onClick={() => {
                           setInput('')
+                          removeSelectedImage()
                           inputRef.current?.focus()
                         }}
                         disabled={loading}
@@ -1755,7 +1933,7 @@ export default function Home() {
                     ) : (
                       <button
                         onClick={enviarMensagem}
-                        disabled={!input.trim() || !profile}
+                        disabled={(!input.trim() && !selectedImageBase64) || !profile}
                         className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                         aria-label="Enviar mensagem"
                         type="button"
@@ -1790,6 +1968,59 @@ export default function Home() {
           </section>
         </div>
       </div>
+
+      {/* Modal Chamada de Voz em Tempo Real */}
+      {isVoiceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <div className="flex w-full max-w-md flex-col items-center rounded-3xl border border-white/20 bg-zinc-900 p-6 text-center text-white shadow-2xl">
+            <div className="relative mb-6 flex h-28 w-28 items-center justify-center">
+              <span
+                className={`absolute inset-0 rounded-full ${
+                  voiceStatus === 'listening'
+                    ? 'animate-ping bg-sky-500/30'
+                    : voiceStatus === 'speaking'
+                      ? 'animate-pulse bg-emerald-500/40'
+                      : 'bg-zinc-700/20'
+                }`}
+              />
+              <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-emerald-500 text-3xl shadow-lg shadow-sky-500/20">
+                🎙️
+              </div>
+            </div>
+
+            <h3 className="text-xl font-bold">Chamada de Voz - Hel</h3>
+            <p className="mt-1 text-xs text-zinc-400">
+              {voiceStatus === 'listening'
+                ? 'Escutando você... Fale agora'
+                : voiceStatus === 'speaking'
+                  ? 'Hel está falando...'
+                  : 'Aguardando voz...'}
+            </p>
+
+            <div className="my-6 min-h-[60px] w-full rounded-2xl border border-white/10 bg-zinc-950/60 p-3 text-sm text-zinc-300">
+              {voiceTranscript || 'Fale no microfone para conversar em tempo real com a inteligência artificial...'}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={startVoiceRecognition}
+                disabled={voiceStatus === 'listening'}
+                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold hover:bg-white/20 disabled:opacity-40"
+              >
+                Falar Novamente
+              </button>
+              <button
+                type="button"
+                onClick={endVoiceCall}
+                className="rounded-full bg-rose-600 px-6 py-2 text-xs font-bold text-white shadow-lg transition hover:bg-rose-500"
+              >
+                Desligar Chamada
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
