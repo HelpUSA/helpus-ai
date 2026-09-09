@@ -99,6 +99,8 @@ def get_database_url() -> tuple[str, str]:
     for key in ("DATABASE_URL", "POSTGRES_URL", "DATABASE_PUBLIC_URL"):
         value = os.getenv(key)
         if value:
+            if ("localhost" in value or "127.0.0.1" in value) and os.getenv("VERCEL"):
+                continue
             return key, value
 
     return "", ""
