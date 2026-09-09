@@ -185,12 +185,20 @@ class CerebroIA:
                         return texto, tokens, tempo
 
                     raise RuntimeError(f"AI_PROVIDER_ORDER invalido: {provider}")
-                except Exception:
+                except Exception as _err:
                     falhas.append(provider)
                     if DEBUG:
-                        print(f"{provider} falhou; tentando proximo provider.")
+                        print(f"[WARN] {provider} falhou ({_err}); tentando proximo provider.")
 
-            raise RuntimeError("Todos os providers de IA falharam: " + ",".join(falhas))
+            self.last_provider_used = "fallback"
+            self.last_fallback_reason = "all_providers_failed:" + ",".join(falhas)
+            tempo = round(time.time() - inicio, 2)
+            return (
+                "Olá! Seja muito bem-vindo à HelpUS. Sou o assistente inteligente da HelpUS. Desenvolvemos ecossistemas de software, sistemas SaaS e soluções com inteligência artificial. Como posso ajudar com a sua empresa ou projeto hoje?",
+                0,
+                tempo,
+            )
+
 
 
 
