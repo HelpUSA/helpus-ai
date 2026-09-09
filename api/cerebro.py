@@ -272,27 +272,6 @@ class CerebroIA:
         texto, _, _ = await self.pensar(pergunta, contexto_busca, historico, max_tokens)
         yield texto
 
-
-
-
-
-        def gerar():
-            return self.llm(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=MODEL_CONFIG["temperature"],
-                stop=["<|im_end|>"],
-                echo=False,
-            )
-
-        resultado = await asyncio.to_thread(gerar)
-        texto = resultado["choices"][0]["text"].strip()
-        self.last_provider_used = self.provider
-        self.last_fallback_reason = None
-        tokens = resultado.get("usage", {}).get("completion_tokens", 0)
-        tempo = round(time.time() - inicio, 2)
-        return texto, tokens, tempo
-
     async def pensar(
         self,
         pergunta: str,
