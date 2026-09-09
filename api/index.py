@@ -1,12 +1,14 @@
 import sys
+import os
 from pathlib import Path
 
-# Add backend directory to Python sys.path
 backend_dir = Path(__file__).resolve().parent.parent / "backend"
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from main import app
+try:
+    os.chdir(str(backend_dir))
+except Exception:
+    pass
 
-# Vercel Serverless Function entrypoint
-app = app
+from main import app as app
