@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -105,14 +105,17 @@ def get_database_url() -> tuple[str, str]:
 
 
 def _connect(database_url: str):
+    if ("localhost" in database_url or "127.0.0.1" in database_url) and os.getenv("VERCEL"):
+        raise ConnectionError("Localhost database not accessible on Vercel")
     try:
         import psycopg
 
-        return "psycopg", psycopg.connect(database_url, connect_timeout=10)
+        return "psycopg", psycopg.connect(database_url, connect_timeout=1)
     except Exception:
         import psycopg2
 
-        return "psycopg2", psycopg2.connect(database_url, connect_timeout=10)
+        return "psycopg2", psycopg2.connect(database_url, connect_timeout=1)
+
 
 
 def record_chat_memory_event(

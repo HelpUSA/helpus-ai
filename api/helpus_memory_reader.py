@@ -38,14 +38,17 @@ def memory_context_enabled() -> bool:
 
 
 def _connect(database_url: str):
+    if ("localhost" in database_url or "127.0.0.1" in database_url) and os.getenv("VERCEL"):
+        raise ConnectionError("Localhost database not accessible on Vercel")
     try:
         import psycopg
 
-        return "psycopg", psycopg.connect(database_url, connect_timeout=10)
+        return "psycopg", psycopg.connect(database_url, connect_timeout=1)
     except Exception:
         import psycopg2
 
-        return "psycopg2", psycopg2.connect(database_url, connect_timeout=10)
+        return "psycopg2", psycopg2.connect(database_url, connect_timeout=1)
+
 
 
 def compact_summary(value: Any, limit: int = MAX_EVENT_SUMMARY_LENGTH) -> str:
