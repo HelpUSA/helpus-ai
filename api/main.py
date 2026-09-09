@@ -36,8 +36,42 @@ from helpus_internal_agents import (
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
-cerebro: CerebroIA = None
-buscador: MotorBusca = None
+cerebro: Optional[CerebroIA] = None
+buscador: Optional[MotorBusca] = None
+
+try:
+    cerebro = CerebroIA()
+    print(f"[OK] CerebroIA carregado no startup: {cerebro.nome_modelo}")
+except Exception as _e:
+    print(f"[WARN] Erro ao carregar CerebroIA no startup: {_e}")
+    cerebro = None
+
+try:
+    buscador = MotorBusca(banco)
+    print("[OK] Buscador pronto")
+except Exception as _e:
+    print(f"[WARN] Erro ao inicializar buscador no startup: {_e}")
+    buscador = None
+
+def get_cerebro() -> Optional[CerebroIA]:
+    global cerebro
+    if cerebro is None:
+        try:
+            cerebro = CerebroIA()
+        except Exception as e:
+            if DEBUG:
+                print(f"[WARN] Erro ao instanciar CerebroIA on-demand: {e}")
+            cerebro = None
+    return cerebro
+
+def get_buscador() -> Optional[MotorBusca]:
+    global buscador
+    if buscador is None:
+        try:
+            buscador = MotorBusca(banco)
+        except Exception as e:
+            buscador = None
+    return buscador
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,40 +79,40 @@ async def lifespan(app: FastAPI):
     global cerebro, buscador
 
     print("=" * 60)
-    print("ðŸš€ INICIANDO HelpUS")
+    print("[INFO] INICIANDO HelpUS")
     print("=" * 60)
 
     # 1. Conectar ao banco
-    print("ðŸ“¦ Conectando ao PostgreSQL...")
+    print("[INFO] Conectando ao PostgreSQL...")
     try:
         await banco.conectar()
         await banco.criar_tabelas()
-        print("âœ… Banco de dados pronto")
+        print("[OK] Banco de dados pronto")
     except Exception as e:
-        print(f"âš ï¸ Banco de dados nao disponivel: {e}")
+        print(f"[WARN] Banco de dados nao disponivel: {e}")
         print("   Rodando sem banco de dados...")
 
-    # 2. Carregar modelo IA
-    print("ðŸ§  Carregando modelo de IA...")
-    try:
-        cerebro = CerebroIA()
-        print(f"âœ… Modelo carregado: {cerebro.nome_modelo}")
-    except Exception as e:
-        print(f"âŒ Erro ao carregar modelo: {e}")
-        print("   A API funcionara, mas sem IA.")
+    # 2. Carregar modelo IA se ainda nao carregado
+    if cerebro is None:
+        try:
+            cerebro = CerebroIA()
+            print(f"[OK] Modelo carregado: {cerebro.nome_modelo}")
+        except Exception as e:
+            print(f"[ERROR] Erro ao carregar modelo: {e}")
 
-    # 3. Inicializar buscador
-    print("ðŸ” Inicializando motor de busca...")
-    buscador = MotorBusca(banco)
-    print("âœ… Buscador pronto")
+    # 3. Inicializar buscador se ainda nao inicializado
+    if buscador is None:
+        buscador = MotorBusca(banco)
 
     print("=" * 60)
-    print("ðŸŽ¯ HelpUS PRONTO PARA USO")
+    print("[OK] HelpUS PRONTO PARA USO")
     print("=" * 60)
 
     yield
 
-    print("ðŸ‘‹ Encerrando servidor...")
+    print("[INFO] Encerrando servidor...")
+
+
 
 # ===== CRIACAO DO APP =====
 app = FastAPI(
@@ -200,11 +234,12 @@ def construir_contexto_memorias(memorias: List[Dict], limite_total: int = 2500) 
 
 
 def _provider_metrics(latency_ms: Optional[float] = None) -> Dict[str, object]:
+    c = get_cerebro()
     return {
         "provider_configured": getattr(app_config, "AI_PROVIDER", ""),
-        "provider_used": getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")) if cerebro else "",
-        "fallback_reason": getattr(cerebro, "last_fallback_reason", None) if cerebro else None,
-        "model": getattr(cerebro, "nome_modelo", "") if cerebro else "",
+        "provider_used": getattr(c, "last_provider_used", getattr(c, "provider", "")) if c else "",
+        "fallback_reason": getattr(c, "last_fallback_reason", None) if c else None,
+        "model": getattr(c, "nome_modelo", "") if c else "",
         "latency_ms": latency_ms,
     }
 
@@ -225,11 +260,13 @@ async def raiz():
 @app.get("/status", response_model=StatusResponse)
 async def status():
     """Verifica o status de todos os servicos"""
+    c = get_cerebro()
+    b = get_buscador()
     return StatusResponse(
         status="online",
-        modelo=cerebro.nome_modelo if cerebro else "nao carregado",
-        modelo_carregado=cerebro is not None,
-        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0,
+        modelo=c.nome_modelo if c else "nao carregado",
+        modelo_carregado=c is not None,
+        paginas_indexadas=getattr(b, 'paginas_indexadas', 0) if b else 0,
         app_version=app_config.APP_VERSION,
         build_commit=app_config.BUILD_COMMIT,
         auth_required=app_config.AUTH_REQUIRED,
@@ -241,17 +278,20 @@ async def status():
 @app.get("/admin/status", response_model=StatusResponse)
 async def admin_status(usuario = Depends(obter_admin_google)):
     """Verifica o status de todos os servicos"""
+    c = get_cerebro()
+    b = get_buscador()
     return StatusResponse(
         status="online",
-        modelo=cerebro.nome_modelo if cerebro else "nao carregado",
-        modelo_carregado=cerebro is not None,
-        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0,
+        modelo=c.nome_modelo if c else "nao carregado",
+        modelo_carregado=c is not None,
+        paginas_indexadas=getattr(b, 'paginas_indexadas', 0) if b else 0,
         app_version=app_config.APP_VERSION,
         build_commit=app_config.BUILD_COMMIT,
         auth_required=app_config.AUTH_REQUIRED,
         provider_order=app_config.AI_PROVIDER_ORDER,
         **_provider_metrics()
     )
+
 
 
 @app.get("/admin/operational-lessons")
@@ -320,11 +360,12 @@ async def internal_smoke_chat(
     if not expected_token or x_internal_smoke_token != expected_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if not cerebro:
+    c = get_cerebro()
+    if not c:
         raise HTTPException(status_code=503, detail="Modelo de IA nao carregado.")
 
     inicio = time.time()
-    resposta, tokens, tempo_ia = await cerebro.pensar(
+    resposta, tokens, tempo_ia = await c.pensar(
         pergunta=request.mensagem,
         contexto_busca="",
         historico=[],
@@ -341,11 +382,13 @@ async def internal_smoke_chat(
 @app.post("/chat", response_model=MensagemResponse)
 async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
     """Endpoint principal de conversa"""
-    if not cerebro:
+    c = get_cerebro()
+    if not c:
         raise HTTPException(
             status_code=503,
             detail="Modelo de IA nao carregado."
         )
+
 
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
@@ -447,7 +490,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         # Gera resposta
         agent_trace.append({"label": "Chamando modelo de IA", "status": "running"})
-        resposta, tokens, tempo_ia = await cerebro.pensar(
+        resposta, tokens, tempo_ia = await c.pensar(
             pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico
@@ -456,7 +499,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico,
-            thinker=cerebro.pensar,
+            thinker=c.pensar,
             base_response=resposta,
             base_tokens=tokens,
             base_latency_seconds=tempo_ia if isinstance(tempo_ia, (int, float)) else 0.0,
@@ -493,7 +536,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             assistant_reply=resposta,
             conversation_id=session_id,
             actor="assistant",
-            provider=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
+            provider=getattr(c, "last_provider_used", getattr(c, "provider", "")),
             route="chat",
             project_id=project_id,
             extra={
@@ -515,13 +558,14 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             fontes=fontes,
             tempo_total=tempo_total,
             tokens_gerados=tokens,
-            provider_used=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
-            fallback_reason=getattr(cerebro, "last_fallback_reason", None),
+            provider_used=getattr(c, "last_provider_used", getattr(c, "provider", "")),
+            fallback_reason=getattr(c, "last_fallback_reason", None),
             provider_configured=getattr(app_config, "AI_PROVIDER", ""),
-            model=getattr(cerebro, "nome_modelo", ""),
+            model=getattr(c, "nome_modelo", ""),
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
+
 
     except Exception as e:
         if DEBUG:

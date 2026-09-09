@@ -1,14 +1,22 @@
 # -*- coding: utf-8 -*-
 from typing import List, Dict, Optional
-from psycopg_pool import AsyncConnectionPool
+try:
+    from psycopg_pool import AsyncConnectionPool
+except ImportError:
+    AsyncConnectionPool = None
+
 from config import DATABASE_URL
 
 
 class BancoDados:
     def __init__(self):
-        self.pool: AsyncConnectionPool | None = None
+        self.pool = None
 
     async def conectar(self):
+        if AsyncConnectionPool is None:
+            print("⚠️ psycopg_pool não disponível. Banco de dados desativado.")
+            self.pool = None
+            return
         self.pool = AsyncConnectionPool(DATABASE_URL, open=False)
         await self.pool.open()
 
