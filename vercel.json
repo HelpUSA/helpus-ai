@@ -23,6 +23,10 @@
       "dest": "/api/index.py"
     },
     {
+      "src": "/chat/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
       "src": "/conversas",
       "dest": "/api/index.py"
     },

@@ -4,6 +4,7 @@ API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
 """
 from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -584,6 +585,26 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             latency_ms=None,
             agent_trace=agent_trace,
         )
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
+    """Endpoint de conversa com streaming SSE (Server-Sent Events)"""
+    c = get_cerebro()
+    if not c:
+        raise HTTPException(
+            status_code=503,
+            detail="Modelo de IA nao carregado."
+        )
+
+    import json
+
+    async def event_generator():
+        async for chunk in c.pensar_stream(pergunta=request.mensagem):
+            yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 

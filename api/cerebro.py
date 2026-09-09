@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import json
 import time
 import httpx
 from typing import List, Dict, Tuple
@@ -225,6 +226,51 @@ class CerebroIA:
                 0,
                 tempo,
             )
+
+    async def pensar_stream(
+        self,
+        pergunta: str,
+        contexto_busca: str = "",
+        historico: List[Dict] = None,
+        max_tokens: int = None,
+    ):
+        prompt = self._construir_prompt(pergunta, contexto_busca, historico)
+        max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
+
+        if app_config.OPENAI_API_KEY:
+            try:
+                payload = dict(
+                    model=app_config.OPENAI_MODEL,
+                    messages=[dict(role="user", content=prompt)],
+                    max_tokens=max_tokens,
+                    temperature=MODEL_CONFIG["temperature"],
+                    stream=True,
+                )
+                headers = dict(Authorization="Bearer " + app_config.OPENAI_API_KEY)
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    async with client.stream("POST", "https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk_json = json.loads(data_str)
+                                delta = chunk_json["choices"][0]["delta"].get("content", "")
+                                if delta:
+                                    yield delta
+                            except Exception:
+                                pass
+                return
+            except Exception as e:
+                if DEBUG:
+                    print(f"[WARN] OpenAI streaming error: {e}")
+
+        # Fallback para resposta completa
+        texto, _, _ = await self.pensar(pergunta, contexto_busca, historico, max_tokens)
+        yield texto
 
 
 
