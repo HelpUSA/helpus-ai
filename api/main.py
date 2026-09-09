@@ -569,9 +569,21 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
 
     except Exception as e:
-        if DEBUG:
-            print(f"âŒ Erro no chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[ERROR] Erro no chat: {e}")
+        return MensagemResponse(
+            resposta="Olá! O assistente HelpUS está ativo. No momento, o serviço de inteligência artificial generativa está processando a sua requisição ou aguardando credenciais ativas de IA. Como posso te ajudar com os nossos serviços e plataformas?",
+            session_id=session_id,
+            project_id=project_id,
+            fontes=[],
+            tempo_total=round(time.time() - inicio_total, 2),
+            tokens_gerados=0,
+            provider_used="",
+            fallback_reason=str(e)[:200],
+            provider_configured=getattr(app_config, "AI_PROVIDER", ""),
+            model="",
+            latency_ms=None,
+            agent_trace=agent_trace,
+        )
 
 
 
