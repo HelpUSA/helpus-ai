@@ -137,11 +137,15 @@ class CerebroIA:
                             from google import genai
                             client_gemini = genai.Client(api_key=GEMINI_API_KEY)
                             self.client = client_gemini
-                        resposta = await asyncio.to_thread(
-                            client_gemini.models.generate_content,
-                            model=GEMINI_MODEL,
-                            contents=prompt,
+                        resposta = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                client_gemini.models.generate_content,
+                                model=GEMINI_MODEL,
+                                contents=prompt,
+                            ),
+                            timeout=7.0,
                         )
+
                         texto = (getattr(resposta, "text", "") or "").strip()
                         self.last_provider_used = "gemini"
                         self.last_fallback_reason = None
