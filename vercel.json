@@ -1,9 +1,62 @@
 {
-  "experimentalServices": {
-    "frontend": {
-      "root": "frontend",
-      "routePrefix": "/",
-      "framework": "nextjs"
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/next"
+    },
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/status",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/saude",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/chat",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/conversas",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/memorias(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/historico/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/conversa/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/admin/status",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/admin/telemetry",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/admin/operational-lessons",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
+  ]
 }

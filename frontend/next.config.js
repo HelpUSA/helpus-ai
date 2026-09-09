@@ -12,11 +12,11 @@ const appCommit = process.env.VERCEL_GIT_COMMIT_SHA || (() => {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
  reactStrictMode: true,
- env: {
- NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
- NEXT_PUBLIC_APP_VERSION: appVersion,
- NEXT_PUBLIC_APP_COMMIT: appCommit.slice(0, 7),
- },
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
+    NEXT_PUBLIC_APP_VERSION: appVersion,
+    NEXT_PUBLIC_APP_COMMIT: appCommit.slice(0, 7),
+  },
 }
 
 module.exports = nextConfig

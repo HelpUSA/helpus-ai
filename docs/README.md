@@ -13,6 +13,7 @@ A fase atual é a implantação cloud no Railway.
 ## Documentos principais
 
 - [Arquitetura de produção](ai/HELPUS_PRODUCTION_ARCHITECTURE.md)
+- [Roadmap Estratégico & Arquitetura Multissoluções](HELPUSAI_STRATEGIC_ARCHITECTURE_ROADMAP.md)
 - [Implantação Railway](ai/HELPUS_RAILWAY_MULTI_AI_DEPLOYMENT.md)
 - [Runbook](ai/HELPUS_PRODUCTION_RUNBOOK.md)
 - [Checklist](ai/HELPUS_PRODUCTION_CHECKLIST.md)
