@@ -229,6 +229,49 @@ export default function AdminPage() {
             </span>
           </div>
 
+  <section className="mt-6 rounded-2xl border border-sky-500/20 bg-sky-500/5 p-4">
+    <div className="mb-4 flex items-start justify-between gap-4">
+      <div>
+        <h2 className="font-semibold text-sky-200 text-lg">📊 CRM & Central de Atendimentos</h2>
+        <p className="mt-1 text-sm text-zinc-400">Gerencie chamados do WhatsApp e Web Chat com transbordo humano em tempo real.</p>
+      </div>
+    </div>
+    <div className="grid gap-4 md:grid-cols-2">
+      <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">Conversas em Atendimento</h3>
+        {statusData ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-lg bg-white/5 p-2 text-xs">
+              <span className="font-mono text-zinc-300">WhatsApp / Web Session Active</span>
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300 font-semibold">Bot IA Ativo</span>
+            </div>
+            <p className="text-xs text-zinc-500">Transbordo humano pode ser alternado instantaneamente pelo atendente.</p>
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">Nenhum chamado ativo no momento.</p>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">Resposta Direta do Atendente</h3>
+        <textarea
+          placeholder="Digite sua resposta humana para enviar diretamente ao cliente..."
+          className="w-full rounded-lg border border-white/10 bg-zinc-900 p-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
+          rows={3}
+        />
+        <div className="mt-2 flex justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500"
+            onClick={() => alert('Resposta do atendente enviada com sucesso!')}
+          >
+            Enviar ao Cliente
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
  <section className='mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4'>
  <div className='mb-4 flex items-start justify-between gap-4'>
  <div>

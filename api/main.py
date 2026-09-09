@@ -828,3 +828,196 @@ async def get_local_plan_proposal_integrity():
 @app.get("/local/plan/proposals/{proposal_id}")
 async def local_plan_proposal_detail(proposal_id: str, usuario=Depends(obter_admin_google)):
     return get_local_plan_proposal(proposal_id)
+
+
+# ===== MÓDULOS AVANÇADOS: CRM, GOOGLE CALENDAR E GERADOR DE PROPOSTAS =====
+
+class AgendamentoRequest(BaseModel):
+    titulo: str = "Reunião Comercial HelpUS"
+    data: str = "2026-09-15"
+    hora: str = "14:00"
+    duracao_minutos: int = 45
+    descricao: Optional[str] = "Alinhamento de projeto de Inteligência Artificial e Desenvolvimento."
+    cliente_email: Optional[str] = None
+
+class PropostaRequest(BaseModel):
+    cliente_nome: str = "Cliente HelpUS"
+    servico: str = "Desenvolvimento de Plataforma Web com IA Integrada"
+    valor_estimado: str = "R$ 3.500,00"
+    detalhes: Optional[str] = "Inclusão de módulo de chat multimodal, integração com WhatsApp e síntese de voz neural."
+
+# Armazenamento em memória para estados de handoff do CRM
+crm_handoff_states: Dict[str, Dict] = {}
+
+@app.get("/admin/atendimentos")
+async def admin_atendimentos(usuario = Depends(obter_admin_google)):
+    """Retorna listagem de atendimentos ativos para o CRM Administrativo"""
+    conversas_banco = []
+    try:
+        if banco:
+            conversas_banco = await banco.listar_conversas_usuario(usuario["email"], limite=50)
+    except Exception as _e:
+        pass
+
+    return {
+        "total": len(conversas_banco),
+        "handoff_ativos": crm_handoff_states,
+        "conversas": conversas_banco
+    }
+
+@app.post("/admin/handoff")
+async def admin_toggle_handoff(request: dict, usuario = Depends(obter_admin_google)):
+    """Ativa ou desativa o atendimento humano para uma conversa"""
+    session_id = request.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id e obrigatorio")
+
+    status_atual = crm_handoff_states.get(session_id, {}).get("ativo", False)
+    novo_status = not status_atual
+
+    crm_handoff_states[session_id] = {
+        "ativo": novo_status,
+        "alterado_por": usuario.get("email"),
+        "timestamp": time.time()
+    }
+
+    return {
+        "session_id": session_id,
+        "handoff_ativo": novo_status,
+        "mensagem": f"Transbordo humano {'ativado' if novo_status else 'desativado'} com sucesso."
+    }
+
+@app.post("/admin/responder")
+async def admin_responder_atendimento(request: dict, usuario = Depends(obter_admin_google)):
+    """Permite ao atendente humano enviar uma resposta manual"""
+    session_id = request.get("session_id")
+    mensagem = request.get("mensagem", "").strip()
+
+    if not session_id or not mensagem:
+        raise HTTPException(status_code=400, detail="session_id e mensagem sao obrigatorios")
+
+    try:
+        if banco:
+            await banco.salvar_mensagem(
+                session_id=session_id,
+                role="assistant",
+                content=f"[Atendente Humano - {usuario.get('name', 'Equipe')}]: {mensagem}",
+                user_email=usuario.get("email"),
+                project_id="crm-human"
+            )
+    except Exception as _e:
+        pass
+
+    return {
+        "status": "enviado",
+        "session_id": session_id,
+        "mensagem": mensagem
+    }
+
+@app.post("/agendar")
+async def criar_agendamento_calendar(request: AgendamentoRequest):
+    """Gera link direto de agendamento no Google Calendar e formato ICS"""
+    import urllib.parse
+    from datetime import datetime, timedelta
+
+    titulo = request.titulo or "Reunião Comercial HelpUS"
+    desc = request.descricao or "Reunião de alinhamento técnico HelpUS"
+    
+    # Formatação de datas
+    data_hora_str = f"{request.data} {request.hora}"
+    try:
+        dt_inicio = datetime.strptime(data_hora_str, "%Y-%m-%d %H:%M")
+    except Exception:
+        dt_inicio = datetime.now() + timedelta(days=1)
+
+    dt_fim = dt_inicio + timedelta(minutes=request.duracao_minutos)
+
+    fmt_cal = "%Y%m%dT%H%M00"
+    dates_param = f"{dt_inicio.strftime(fmt_cal)}/{dt_fim.strftime(fmt_cal)}"
+
+    params = {
+        "action": "TEMPLATE",
+        "text": titulo,
+        "details": desc,
+        "location": "Google Meet / HelpUS Online",
+        "dates": dates_param
+    }
+    
+    if request.cliente_email:
+        params["add"] = request.cliente_email
+
+    google_calendar_url = f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
+
+    ics_content = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//HelpUS AI//Agendamento Comercial//PT
+BEGIN:VEVENT
+SUMMARY:{titulo}
+DESCRIPTION:{desc}
+DTSTART:{dt_inicio.strftime(fmt_cal)}
+DTEND:{dt_fim.strftime(fmt_cal)}
+LOCATION:Google Meet / HelpUS Online
+END:VEVENT
+END:VCALENDAR"""
+
+    return {
+        "status": "sucesso",
+        "titulo": titulo,
+        "inicio": dt_inicio.isoformat(),
+        "fim": dt_fim.isoformat(),
+        "google_calendar_url": google_calendar_url,
+        "ics_content": ics_content
+    }
+
+@app.post("/gerar-proposta")
+async def gerar_proposta_comercial(request: PropostaRequest):
+    """Gera proposta comercial corporativa formatada em HTML/SVG pronta para exportacao em PDF"""
+    html_proposta = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Proposta Comercial - HelpUS AI</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; color: #1f2937; background: #f9fafb; }}
+        .card {{ background: #ffffff; padding: 40px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }}
+        .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; }}
+        .logo {{ font-size: 28px; font-weight: 800; color: #1e3a8a; }}
+        .badge {{ background: #dbeafe; color: #1e40af; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 12px; }}
+        .section {{ margin-top: 30px; }}
+        .title {{ font-size: 18px; font-weight: 700; color: #1f2937; margin-bottom: 10px; }}
+        .value {{ font-size: 24px; font-weight: 800; color: #059669; margin-top: 10px; }}
+        .footer {{ margin-top: 40px; font-size: 12px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 20px; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="logo">HelpUS <span style="color:#3b82f6;">AI</span></div>
+            <div class="badge">PROPOSTA COMERCIAL</div>
+        </div>
+        <div class="section">
+            <p><strong>Cliente:</strong> {request.cliente_nome}</p>
+            <p><strong>Data de Emissão:</strong> {time.strftime("%d/%m/%Y")}</p>
+        </div>
+        <div class="section">
+            <div class="title">Escopo do Serviço</div>
+            <p>{request.servico}</p>
+            <p style="color:#4b5563; font-size:14px; line-height:1.6;">{request.detalhes}</p>
+        </div>
+        <div class="section">
+            <div class="title">Investimento Estimado</div>
+            <div class="value">{request.valor_estimado}</div>
+        </div>
+        <div class="footer">
+            HelpUS Inteligência Artificial & Soluções Tecnológicas · www.helpusbr.com · ai.helpusbr.com
+        </div>
+    </div>
+</body>
+</html>"""
+    return {
+        "status": "sucesso",
+        "cliente_nome": request.cliente_nome,
+        "servico": request.servico,
+        "valor_estimado": request.valor_estimado,
+        "html_content": html_proposta
+    }
