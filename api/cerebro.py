@@ -39,41 +39,22 @@ class CerebroIA:
 
         if self.provider == "gemini":
             self.nome_modelo = GEMINI_MODEL
-
             if GEMINI_API_KEY:
-                from google import genai
-
-                self.client = genai.Client(
-                    api_key=GEMINI_API_KEY
-                )
-            elif not multi_ai_enabled:
-                raise RuntimeError(
-                    "GEMINI_API_KEY nao configurada."
-                )
-
+                try:
+                    from google import genai
+                    self.client = genai.Client(api_key=GEMINI_API_KEY)
+                except Exception as e:
+                    self.client = None
             return
 
         if self.provider == "deepseek":
             self.nome_modelo = app_config.DEEPSEEK_MODEL
-            if (
-                not app_config.DEEPSEEK_API_KEY
-                and not multi_ai_enabled
-            ):
-                raise RuntimeError(
-                    "DEEPSEEK_API_KEY nao configurada."
-                )
             return
 
         if self.provider == "openrouter":
             self.nome_modelo = app_config.OPENROUTER_MODEL
-            if (
-                not app_config.OPENROUTER_API_KEY
-                and not multi_ai_enabled
-            ):
-                raise RuntimeError(
-                    "OPENROUTER_API_KEY nao configurada."
-                )
             return
+
 
 
         if self.provider == "local":
