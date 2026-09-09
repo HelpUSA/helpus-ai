@@ -429,13 +429,13 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         if request.pesquisar_web and buscador:
             try:
-                resultados = await buscador.buscar(request.mensagem)
+                resultados = await asyncio.wait_for(buscador.buscar(request.mensagem), timeout=3.0)
                 if resultados:
-                    contexto_busca = "ðŸ“š Informacoes encontradas:\n\n"
+                    contexto_busca = "📚 Informacoes encontradas:\n\n"
                     for i, r in enumerate(resultados[:5], 1):
                         contexto_busca += f"{i}. {r['titulo']}\n"
                         contexto_busca += f"   {r['snippet'][:200]}\n"
-                        contexto_busca += f"   ðŸ”— Fonte: {r['url']}\n\n"
+                        contexto_busca += f"   🔗 Fonte: {r['url']}\n\n"
                         fontes.append({
                             "titulo": r['titulo'],
                             "url": r.get('url', ''),
@@ -443,7 +443,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                         })
             except Exception as e:
                 if DEBUG:
-                    print(f"âš ï¸ Erro na busca: {e}")
+                    print(f"[WARN] Erro ou timeout na busca: {e}")
+
 
         # Salva pergunta
         try:

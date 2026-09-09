@@ -114,8 +114,9 @@ class MotorBusca:
     def __init__(self, banco=None):
         self.banco = banco
         self.user_agent = SEARCH_CONFIG.get("user_agent", "HelpUS/1.0")
-        self.timeout = float(SEARCH_CONFIG.get("timeout", 15.0))
+        self.timeout = min(float(SEARCH_CONFIG.get("timeout", 3.0)), 3.0)
         self.max_results = int(SEARCH_CONFIG.get("max_results", 5))
+
 
     async def buscar(self, consulta: str) -> List[Dict[str, str]]:
         """Metodo principal usado pelo backend."""
