@@ -102,7 +102,6 @@ export default function HelpUSGeminiApp() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeModel, setActiveModel] = useState(MODEL_OPTIONS[0])
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'chat' | 'spark'>('chat')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
@@ -787,35 +786,6 @@ export default function HelpUSGeminiApp() {
           {/* Conteúdo da Sidebar quando expandida */}
           {sidebarOpen ? (
             <div className="flex flex-1 flex-col overflow-y-auto px-3 py-2 min-h-0">
-              {/* Abas Toggle (Chat | Spark) estilo Gemini Foto 4 */}
-              <div className="mb-3 flex rounded-full bg-[#131314] p-1 text-xs font-medium text-[#c4c7c5]">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('chat')}
-                  className={`flex-1 rounded-full py-1.5 transition ${
-                    activeTab === 'chat'
-                      ? 'bg-[#282a2c] text-white shadow-sm'
-                      : 'hover:text-white'
-                  }`}
-                >
-                  Chat
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('spark')}
-                  className={`flex-1 rounded-full py-1.5 transition flex items-center justify-center gap-1 ${
-                    activeTab === 'spark'
-                      ? 'bg-[#282a2c] text-white shadow-sm'
-                      : 'hover:text-white'
-                  }`}
-                >
-                  <span>Spark</span>
-                  <span className="rounded bg-[#004a77] px-1 py-0.2 text-[9px] font-bold text-[#7fcfff]">
-                    BETA
-                  </span>
-                </button>
-              </div>
-
               {/* Botão Nova Conversa */}
               <button
                 type="button"
@@ -1195,147 +1165,9 @@ export default function HelpUSGeminiApp() {
             </div>
           </header>
 
-          {/* ================= CORPO DO CHAT / SPARK ================= */}
+          {/* ================= CORPO DO CHAT ================= */}
           <div className="relative z-10 flex flex-1 flex-col overflow-y-auto px-4 pb-32 pt-2">
-            {activeTab === 'spark' ? (
-              <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-4 py-6 sm:px-6">
-                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/5 pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-2xl font-bold text-white">Spark</h2>
-                      <span className="rounded bg-[#004a77] px-2 py-0.5 text-[11px] font-bold text-[#7fcfff]">BETA</span>
-                    </div>
-                    <p className="mt-1 text-xs text-[#8e918f]">
-                      Espaço experimental da HelpUS para Projetos dedicados, Agentes Especializados e Ideação Contínua.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsNovoProjetoOpen(true)}
-                    className="flex items-center gap-2 rounded-full bg-[#004a77] px-4 py-2 text-xs font-semibold text-[#7fcfff] hover:bg-[#005a92] transition self-start sm:self-auto shadow"
-                  >
-                    <span>+</span> Novo Projeto
-                  </button>
-                </div>
-
-                {/* Seção 1: Workspaces de Projetos */}
-                <div className="mb-8">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-[#c4c7c5]">
-                      Workspaces de Projetos ({projetos.length})
-                    </h3>
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-                    {projetos.map((proj) => {
-                      const totalConvs = conversas.filter((c) =>
-                        proj.project_id === 'general' ? !c.project_id || c.project_id === 'general' : c.project_id === proj.project_id
-                      ).length
-                      const isAtivo = selectedProjectId === proj.project_id
-                      return (
-                        <div
-                          key={proj.project_id}
-                          className={`flex flex-col justify-between rounded-2xl border p-4 transition ${
-                            isAtivo
-                              ? 'border-[#7fcfff]/50 bg-[#1e1f20] ring-1 ring-[#7fcfff]/30'
-                              : 'border-white/5 bg-[#131314] hover:border-white/10 hover:bg-[#1e1f20]'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-2xl">📁</span>
-                              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-[#8e918f]">
-                                {totalConvs} {totalConvs === 1 ? 'conversa' : 'conversas'}
-                              </span>
-                            </div>
-                            <h4 className="mt-2 text-sm font-semibold text-white">{proj.nome}</h4>
-                            <p className="mt-1 text-xs text-[#8e918f] line-clamp-2">
-                              {proj.descricao || 'Conversas e memórias dedicadas para este projeto.'}
-                            </p>
-                          </div>
-
-                          <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedProjectId(proj.project_id)
-                                setActiveTab('chat')
-                              }}
-                              className="text-xs font-semibold text-[#7fcfff] hover:underline"
-                            >
-                              Abrir no Chat →
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedProjectId(proj.project_id)
-                                setActiveTab('chat')
-                                novaConversa()
-                              }}
-                              className="rounded-lg bg-white/5 px-2.5 py-1 text-[11px] text-[#c4c7c5] hover:bg-white/10"
-                            >
-                              + Nova conversa
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Seção 2: Agentes Especializados Spark */}
-                <div>
-                  <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#c4c7c5]">
-                    Agentes Especializados (Gems / Spark)
-                  </h3>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div
-                      onClick={() => {
-                        setActiveTab('chat')
-                        setInput('Atuar como Agente Especialista em Código e Arquitetura de Software: ')
-                        inputRef.current?.focus()
-                      }}
-                      className="cursor-pointer rounded-2xl border border-white/5 bg-[#131314] p-4 transition hover:border-[#7fcfff]/30 hover:bg-[#1e1f20]"
-                    >
-                      <span className="text-xl">⚡</span>
-                      <h4 className="mt-2 text-sm font-semibold text-white">Engenheiro & Arquiteto</h4>
-                      <p className="mt-1 text-xs text-[#8e918f]">
-                        Foco em depuração, análise de código, APIs e arquitetura de software.
-                      </p>
-                    </div>
-
-                    <div
-                      onClick={() => {
-                        setActiveTab('chat')
-                        setInput('Atuar como Agente Redator Executivo da HelpUS: ')
-                        inputRef.current?.focus()
-                      }}
-                      className="cursor-pointer rounded-2xl border border-white/5 bg-[#131314] p-4 transition hover:border-[#7fcfff]/30 hover:bg-[#1e1f20]"
-                    >
-                      <span className="text-xl">✍️</span>
-                      <h4 className="mt-2 text-sm font-semibold text-white">Redator Executivo</h4>
-                      <p className="mt-1 text-xs text-[#8e918f]">
-                        Criação de propostas, e-mails executivos, contratos e relatórios claros.
-                      </p>
-                    </div>
-
-                    <div
-                      onClick={() => {
-                        setActiveTab('chat')
-                        setInput('Atuar como Analista de Documentos e Planilhas: ')
-                        inputRef.current?.focus()
-                      }}
-                      className="cursor-pointer rounded-2xl border border-white/5 bg-[#131314] p-4 transition hover:border-[#7fcfff]/30 hover:bg-[#1e1f20]"
-                    >
-                      <span className="text-xl">📊</span>
-                      <h4 className="mt-2 text-sm font-semibold text-white">Analista de Documentos</h4>
-                      <p className="mt-1 text-xs text-[#8e918f]">
-                        Extração de insights, resumos de PDFs, planilhas CSV e tabelas de dados.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : messages.length === 0 ? (
+            {messages.length === 0 ? (
               // ESTADO INICIAL (HERO DO GEMINI)
               <div className="mx-auto flex flex-1 w-full max-w-3xl flex-col items-center justify-center text-center px-2">
                 {profile ? (
