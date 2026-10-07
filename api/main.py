@@ -278,6 +278,50 @@ async def status():
     )
 
 
+# ===== HELPUSDEV LOCAL BRIDGE ENDPOINTS =====
+try:
+    from backend.helpusdev_bridge import (
+        obter_proximo_comando,
+        processar_resultado_comando,
+        is_helpusdev_online,
+        segundos_desde_ultima_presenca,
+        BridgeResultRequest,
+        detectar_intencao_local,
+        executar_no_computador_local,
+    )
+except ModuleNotFoundError:
+    from helpusdev_bridge import (
+        obter_proximo_comando,
+        processar_resultado_comando,
+        is_helpusdev_online,
+        segundos_desde_ultima_presenca,
+        BridgeResultRequest,
+        detectar_intencao_local,
+        executar_no_computador_local,
+    )
+
+@app.get("/bridge/poll")
+async def bridge_poll():
+    """Endpoint de long-polling para a aplicação HelpUSDev local receber tarefas"""
+    cmd = await obter_proximo_comando(timeout=20.0)
+    return {"command": cmd}
+
+@app.post("/bridge/result")
+async def bridge_result(res: BridgeResultRequest):
+    """Recebe o resultado da execução realizada pelo HelpUSDev local"""
+    processar_resultado_comando(res.command_id, res.status, res.output or "")
+    return {"ok": True}
+
+@app.get("/bridge/status")
+async def bridge_status():
+    """Retorna o status da conexão com a aplicação HelpUSDev local"""
+    return {
+        "online": is_helpusdev_online(),
+        "last_seen_seconds_ago": segundos_desde_ultima_presenca(),
+    }
+
+
+
 @app.get("/admin/status", response_model=StatusResponse)
 async def admin_status(usuario = Depends(obter_admin_google)):
     """Verifica o status de todos os servicos"""
@@ -492,10 +536,28 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             user_message=str(_helpus_user_message_for_lessons),
         )
 
+        # Execução transparente no computador local via HelpUSDev
+        contexto_local = ""
+        acao_local = detectar_intencao_local(request.mensagem)
+        if acao_local:
+            action, params = acao_local
+            agent_trace.append({"label": f"Executando no computador local via HelpUSDev ({action})", "status": "running"})
+            res_local = await executar_no_computador_local(action, params)
+            if res_local.get("status") == "success":
+                saida = res_local.get("output", "")
+                contexto_local = f"\n\n[DADOS OBTIDOS DIRETAMENTE DO COMPUTADOR LOCAL VIA HELPUSDEV]:\nAção: {action}\nResultado:\n{saida}\n[FIM DOS DADOS LOCAIS]\nInstrução: Responda ao usuário com base nesses dados reais do computador dele de forma prestativa e transparente."
+                agent_trace[-1]["status"] = "done"
+            else:
+                aviso = res_local.get("output", "Falha de conexão.")
+                contexto_local = f"\n\n[AVISO HELPUSDEV LOCAL]: {aviso}\nInstrução: Informe educadamente que você tentou acessar o computador local, mas a aplicação HelpUSDev precisa estar aberta e rodando na máquina."
+                agent_trace[-1]["status"] = "warning"
+
+        pergunta_para_ia = request.mensagem + (contexto_local if contexto_local else "")
+
         # Gera resposta
         agent_trace.append({"label": "Chamando modelo de IA", "status": "running"})
         resposta, tokens, tempo_ia = await c.pensar(
-            pergunta=request.mensagem,
+            pergunta=pergunta_para_ia,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico,
             image_base64=request.image_base64,
@@ -621,11 +683,26 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             if DEBUG:
                 print(f"[WARN] Erro ao salvar mensagem do usuario em stream: {e}")
 
+    # Execução transparente no computador local via HelpUSDev
+    contexto_local = ""
+    acao_local = detectar_intencao_local(request.mensagem)
+    if acao_local:
+        action, params = acao_local
+        res_local = await executar_no_computador_local(action, params)
+        if res_local.get("status") == "success":
+            saida = res_local.get("output", "")
+            contexto_local = f"\n\n[DADOS OBTIDOS DIRETAMENTE DO COMPUTADOR LOCAL VIA HELPUSDEV]:\nAção: {action}\nResultado:\n{saida}\n[FIM DOS DADOS LOCAIS]\nInstrução: Responda ao usuário com base nesses dados reais do computador dele de forma prestativa e transparente."
+        else:
+            aviso = res_local.get("output", "Falha de conexão.")
+            contexto_local = f"\n\n[AVISO HELPUSDEV LOCAL]: {aviso}\nInstrução: Informe educadamente que você tentou acessar o computador local, mas a aplicação HelpUSDev precisa estar aberta e rodando na máquina."
+
+    pergunta_stream = request.mensagem + (contexto_local if contexto_local else "")
+
     async def event_generator():
         full_chunks = []
         try:
             async for chunk in c.pensar_stream(
-                pergunta=request.mensagem,
+                pergunta=pergunta_stream,
                 image_base64=request.image_base64,
                 image_url=request.image_url,
             ):
