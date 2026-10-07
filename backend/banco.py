@@ -1,16 +1,32 @@
 # -*- coding: utf-8 -*-
 from typing import List, Dict, Optional
-from psycopg_pool import AsyncConnectionPool
+try:
+    from psycopg_pool import AsyncConnectionPool
+except ImportError:
+    AsyncConnectionPool = None
+
 from config import DATABASE_URL
 
 
 class BancoDados:
     def __init__(self):
-        self.pool: AsyncConnectionPool | None = None
+        self.pool = None
 
     async def conectar(self):
-        self.pool = AsyncConnectionPool(DATABASE_URL, open=False)
-        await self.pool.open()
+        if AsyncConnectionPool is None:
+            print("⚠️ psycopg_pool não disponível. Banco de dados desativado.")
+            self.pool = None
+            return
+        if os.getenv("VERCEL") and ("localhost" in DATABASE_URL or "127.0.0.1" in DATABASE_URL or not DATABASE_URL):
+            print("[INFO] Vercel serverless sem banco remoto. Banco de dados desativado.")
+            self.pool = None
+            return
+        try:
+            self.pool = AsyncConnectionPool(DATABASE_URL, open=False, kwargs={"connect_timeout": 1})
+            await asyncio.wait_for(self.pool.open(), timeout=2.0)
+        except Exception as e:
+            print(f"[WARN] Falha ao conectar banco: {e}")
+            self.pool = None
 
     async def fechar(self):
         if self.pool:

@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 17, 24, 39;
-  --background-rgb: 243, 244, 246;
+  --foreground-rgb: 244, 244, 245;
+  --background-rgb: 19, 19, 20;
 }
 
 * {
@@ -16,11 +16,9 @@ body {
   max-width: 100vw;
   min-height: 100vh;
   overflow-x: hidden;
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
+  background-color: #131314;
+  color: #f4f4f5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 a {
@@ -33,5 +31,19 @@ button,
 input {
   font: inherit;
 }
-/* HelpUS dark shell */
-.helpus-dark-shell{min-height:100vh;background:#212121;color:#f4f4f5}.helpus-dark-shell .bg-white,.helpus-dark-shell .bg-slate-50{background-color:#2f2f2f!important}.helpus-dark-shell input,.helpus-dark-shell textarea{background:#2f2f2f!important;color:#f4f4f5!important}.helpus-dark-shell header{position:sticky;top:0;z-index:30}
+
+/* Custom scrollbar Gemini style */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #37393b;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #505255;
+}

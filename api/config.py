@@ -44,7 +44,7 @@ CORS_ORIGINS = [
 
 
 AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower().strip() in ("1", "true", "yes", "on")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com")
 ADMIN_EMAILS = [email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "").split(",") if email.strip()]
 
 # Multi-provider fallback

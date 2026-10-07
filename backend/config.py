@@ -9,7 +9,7 @@ load_dotenv(BASE_DIR / '.env')
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/assistente')
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'gemini').lower().strip()
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash-lite')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openrouter/auto')
 AI_REVIEW_ENABLED = os.getenv('AI_REVIEW_ENABLED', 'false').lower().strip() in ('1', 'true', 'yes', 'on')
@@ -44,11 +44,13 @@ CORS_ORIGINS = [
 
 
 AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower().strip() in ("1", "true", "yes", "on")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com")
 ADMIN_EMAILS = [email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "").split(",") if email.strip()]
 
 # Multi-provider fallback
-AI_PROVIDER_ORDER = [p.strip().lower() for p in os.getenv('AI_PROVIDER_ORDER', 'gemini,openrouter,deepseek').split(',') if p.strip()]
+AI_PROVIDER_ORDER = [p.strip().lower() for p in os.getenv('AI_PROVIDER_ORDER', 'openai,gemini,openrouter,deepseek').split(',') if p.strip()]
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 DEEPSEEK_API_URL = os.getenv('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions')

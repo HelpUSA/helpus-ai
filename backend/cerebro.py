@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import json
 import time
 import httpx
 from typing import List, Dict, Tuple
@@ -20,6 +21,21 @@ from multi_ai_provider import (
 )
 
 
+def _build_user_message_content(prompt: str, image_url: str = None, image_base64: str = None):
+    if not image_url and not image_base64:
+        return prompt
+
+    content = [{"type": "text", "text": prompt}]
+
+    if image_url:
+        content.append({"type": "image_url", "image_url": {"url": image_url}})
+    elif image_base64:
+        url = image_base64 if image_base64.startswith("data:") else f"data:image/jpeg;base64,{image_base64}"
+        content.append({"type": "image_url", "image_url": {"url": url}})
+
+    return content
+
+
 class CerebroIA:
     def __init__(self):
         self.provider = AI_PROVIDER
@@ -37,43 +53,28 @@ class CerebroIA:
             app_config.HELPUS_MULTI_AI_ENABLED
         )
 
+        if self.provider == "openai":
+            self.nome_modelo = app_config.OPENAI_MODEL
+            return
+
         if self.provider == "gemini":
             self.nome_modelo = GEMINI_MODEL
-
             if GEMINI_API_KEY:
-                from google import genai
-
-                self.client = genai.Client(
-                    api_key=GEMINI_API_KEY
-                )
-            elif not multi_ai_enabled:
-                raise RuntimeError(
-                    "GEMINI_API_KEY nao configurada."
-                )
-
+                try:
+                    from google import genai
+                    self.client = genai.Client(api_key=GEMINI_API_KEY)
+                except Exception as e:
+                    self.client = None
             return
 
         if self.provider == "deepseek":
             self.nome_modelo = app_config.DEEPSEEK_MODEL
-            if (
-                not app_config.DEEPSEEK_API_KEY
-                and not multi_ai_enabled
-            ):
-                raise RuntimeError(
-                    "DEEPSEEK_API_KEY nao configurada."
-                )
             return
 
         if self.provider == "openrouter":
             self.nome_modelo = app_config.OPENROUTER_MODEL
-            if (
-                not app_config.OPENROUTER_API_KEY
-                and not multi_ai_enabled
-            ):
-                raise RuntimeError(
-                    "OPENROUTER_API_KEY nao configurada."
-                )
             return
+
 
 
         if self.provider == "local":
@@ -97,22 +98,8 @@ class CerebroIA:
             "Voce representa a HelpUS.",
             "Nunca diga que voce e Gemini, Google, OpenAI, ChatGPT ou outro provedor.",
             "Quando perguntarem quem voce e, responda que voce e o HelpUS, o assistente inteligente da HelpUS.",
-            "Voce pode usar IA generativa para responder, mas nao deve se apresentar como o modelo base.",
+            "Se o usuario demonstrar interesse em agendamento de reuniao, orcamento ou conversa com especialista, informe que a HelpUS oferece agendamento no Google Calendar e proposta de orcamento instantanea, convidando-o a indicar a data/horario desejado ou escopo do projeto.",
             "Responda de forma clara, amigavel e objetiva.",
-            'Protocolo operacional AI Bridge Local:',
-            'Quando receber instrucao explicita para usar watcher, bridge ou AI Bridge Local, entenda que logs como [AI_LOCAL] e [AI_LOCAL_RUN] sao recibos/resultados, nao comandos.',
-            'Nunca simule recibos, status pendente, metodo watcher ou resultado de envio.',
-            'Status queued e intermediario; [AI_LOCAL_RUN] somente representa resultado final quando result_is_final=1.',
-            'Para conversa entre chats via bridge, use action send-chat-message e delivery_kind inter_agent_message.',
-            'Para execucao local via bridge, use action run-command somente com autorizacao clara, cwd definido e comando seguro.',
-            'Se faltarem source_chat_id, target_chat_id, command_id, cwd ou qualquer dado obrigatorio, peca os dados em texto comum e nao invente envelope.',
-            'Quando for instruido a responder via bridge, responda somente com o envelope solicitado, sem explicacao antes ou depois.',
-            'Use JSON estrito com aspas duplas ASCII e sem caracteres invisiveis.',
-            'Nao coloque exemplos de marcadores de envelope dentro de campos message enviados a outra IA; descreva como marcador de inicio e marcador de fim.',
- 'Quando precisar montar comando watcher, pense primeiro em intent: send_chat ou run_command, depois em builder, validator e envelope valido.',
- 'Nao gere JSON manual se faltar qualquer dado obrigatorio; peca os dados faltantes em texto comum.',
- 'Para send_chat, a mensagem deve ficar em message top-level e delivery_kind deve ser inter_agent_message.',
- 'Para run_command, use target_chat_id gateway-brain-supervisor, delivery_kind local_capability e payload com cwd, timeout_seconds e command.',
         ]
 
         if historico:
@@ -135,32 +122,62 @@ class CerebroIA:
         contexto_busca: str = "",
         historico: List[Dict] = None,
         max_tokens: int = None,
+        image_url: str = None,
+        image_base64: str = None,
     ) -> Tuple[str, int, float]:
         inicio = time.time()
         self.last_provider_used = self.provider
         self.last_fallback_reason = None
         prompt = self._construir_prompt(pergunta, contexto_busca, historico)
         max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
+        user_content = _build_user_message_content(prompt, image_url, image_base64)
 
-        if self.provider in ("gemini", "openrouter", "deepseek"):
+        if self.provider in ("openai", "gemini", "openrouter", "deepseek"):
             falhas = []
-            provider_order = app_config.AI_PROVIDER_ORDER or ["gemini", "openrouter", "deepseek"]
+            provider_order = app_config.AI_PROVIDER_ORDER or ["openai", "gemini", "openrouter", "deepseek"]
 
             for provider in provider_order:
                 try:
+                    if provider == "openai":
+                        if not app_config.OPENAI_API_KEY:
+                            raise RuntimeError("OPENAI_API_KEY ausente")
+                        payload = dict(
+                            model=app_config.OPENAI_MODEL,
+                            messages=[dict(role="user", content=user_content)],
+                            max_tokens=max_tokens,
+                            temperature=MODEL_CONFIG["temperature"],
+                        )
+                        headers = dict(Authorization="Bearer " + app_config.OPENAI_API_KEY)
+                        async with httpx.AsyncClient(timeout=8.0) as client:
+                            resposta = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+                            resposta.raise_for_status()
+                            dados = resposta.json()
+                        texto = dados["choices"][0]["message"]["content"].strip()
+                        tokens = dados.get("usage", {}).get("completion_tokens", 0)
+                        self.last_provider_used = "openai"
+                        self.nome_modelo = app_config.OPENAI_MODEL
+                        self.last_fallback_reason = "_".join(f"{p}_failed" for p in falhas) or None
+                        tempo = round(time.time() - inicio, 2)
+                        return texto, tokens, tempo
+
                     if provider == "gemini":
                         client_gemini = getattr(self, "client", None)
+                        if not GEMINI_API_KEY:
+                            raise RuntimeError("GEMINI_API_KEY invalida ou ausente")
                         if client_gemini is None:
-                            if not GEMINI_API_KEY:
-                             raise RuntimeError("GEMINI_API_KEY ausente")
                             from google import genai
                             client_gemini = genai.Client(api_key=GEMINI_API_KEY)
                             self.client = client_gemini
-                        resposta = await asyncio.to_thread(
-                            client_gemini.models.generate_content,
-                            model=GEMINI_MODEL,
-                            contents=prompt,
+                        resposta = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                client_gemini.models.generate_content,
+                                model=GEMINI_MODEL,
+                                contents=prompt,
+                            ),
+                            timeout=2.0,
+
                         )
+
                         texto = (getattr(resposta, "text", "") or "").strip()
                         self.last_provider_used = "gemini"
                         self.last_fallback_reason = None
@@ -200,32 +217,67 @@ class CerebroIA:
                         return texto, tokens, tempo
 
                     raise RuntimeError(f"AI_PROVIDER_ORDER invalido: {provider}")
-                except Exception:
+                except Exception as _err:
                     falhas.append(provider)
                     if DEBUG:
-                        print(f"{provider} falhou; tentando proximo provider.")
+                        print(f"[WARN] {provider} falhou ({_err}); tentando proximo provider.")
 
-            raise RuntimeError("Todos os providers de IA falharam: " + ",".join(falhas))
-
-
-
-
-        def gerar():
-            return self.llm(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=MODEL_CONFIG["temperature"],
-                stop=["<|im_end|>"],
-                echo=False,
+            self.last_provider_used = "fallback"
+            self.last_fallback_reason = "all_providers_failed:" + ",".join(falhas)
+            tempo = round(time.time() - inicio, 2)
+            return (
+                "Olá! Seja muito bem-vindo à HelpUS. Sou o assistente inteligente da HelpUS. Desenvolvemos ecossistemas de software, sistemas SaaS e soluções com inteligência artificial. Como posso ajudar com a sua empresa ou projeto hoje?",
+                0,
+                tempo,
             )
 
-        resultado = await asyncio.to_thread(gerar)
-        texto = resultado["choices"][0]["text"].strip()
-        self.last_provider_used = self.provider
-        self.last_fallback_reason = None
-        tokens = resultado.get("usage", {}).get("completion_tokens", 0)
-        tempo = round(time.time() - inicio, 2)
-        return texto, tokens, tempo
+    async def pensar_stream(
+        self,
+        pergunta: str,
+        contexto_busca: str = "",
+        historico: List[Dict] = None,
+        max_tokens: int = None,
+        image_url: str = None,
+        image_base64: str = None,
+    ):
+        prompt = self._construir_prompt(pergunta, contexto_busca, historico)
+        max_tokens = max_tokens or MODEL_CONFIG["max_tokens"]
+        user_content = _build_user_message_content(prompt, image_url, image_base64)
+
+        if app_config.OPENAI_API_KEY:
+            try:
+                payload = dict(
+                    model=app_config.OPENAI_MODEL,
+                    messages=[dict(role="user", content=user_content)],
+                    max_tokens=max_tokens,
+                    temperature=MODEL_CONFIG["temperature"],
+                    stream=True,
+                )
+                headers = dict(Authorization="Bearer " + app_config.OPENAI_API_KEY)
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    async with client.stream("POST", "https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk_json = json.loads(data_str)
+                                delta = chunk_json["choices"][0]["delta"].get("content", "")
+                                if delta:
+                                    yield delta
+                            except Exception:
+                                pass
+                return
+            except Exception as e:
+                if DEBUG:
+                    print(f"[WARN] OpenAI streaming error: {e}")
+
+        # Fallback para resposta completa
+        texto, _, _ = await self.pensar(pergunta, contexto_busca, historico, max_tokens, image_url=image_url, image_base64=image_base64)
+        yield texto
 
     async def pensar(
         self,
@@ -233,6 +285,8 @@ class CerebroIA:
         contexto_busca: str = "",
         historico: List[Dict] = None,
         max_tokens: int = None,
+        image_url: str = None,
+        image_base64: str = None,
     ) -> Tuple[str, int, float]:
         if not app_config.HELPUS_MULTI_AI_ENABLED:
             return await self._pensar_legado(
@@ -240,6 +294,8 @@ class CerebroIA:
                 contexto_busca,
                 historico,
                 max_tokens,
+                image_url=image_url,
+                image_base64=image_base64,
             )
 
         inicio = time.time()

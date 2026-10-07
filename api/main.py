@@ -730,9 +730,8 @@ async def atualizar_memoria(
 
 @app.get("/conversas")
 async def listar_conversas(usuario = Depends(obter_usuario_google)):
-    """Lista conversas do usuario autenticado"""
     if not usuario:
-        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+        return {"conversas": []}
 
     try:
         return {

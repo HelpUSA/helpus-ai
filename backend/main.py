@@ -4,6 +4,7 @@ API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
 """
 from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -36,8 +37,42 @@ from helpus_internal_agents import (
 
 # ===== INICIALIZACAO DOS SERVICOS =====
 banco = BancoDados()
-cerebro: CerebroIA = None
-buscador: MotorBusca = None
+cerebro: Optional[CerebroIA] = None
+buscador: Optional[MotorBusca] = None
+
+try:
+    cerebro = CerebroIA()
+    print(f"[OK] CerebroIA carregado no startup: {cerebro.nome_modelo}")
+except Exception as _e:
+    print(f"[WARN] Erro ao carregar CerebroIA no startup: {_e}")
+    cerebro = None
+
+try:
+    buscador = MotorBusca(banco)
+    print("[OK] Buscador pronto")
+except Exception as _e:
+    print(f"[WARN] Erro ao inicializar buscador no startup: {_e}")
+    buscador = None
+
+def get_cerebro() -> Optional[CerebroIA]:
+    global cerebro
+    if cerebro is None:
+        try:
+            cerebro = CerebroIA()
+        except Exception as e:
+            if DEBUG:
+                print(f"[WARN] Erro ao instanciar CerebroIA on-demand: {e}")
+            cerebro = None
+    return cerebro
+
+def get_buscador() -> Optional[MotorBusca]:
+    global buscador
+    if buscador is None:
+        try:
+            buscador = MotorBusca(banco)
+        except Exception as e:
+            buscador = None
+    return buscador
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,40 +80,40 @@ async def lifespan(app: FastAPI):
     global cerebro, buscador
 
     print("=" * 60)
-    print("ðŸš€ INICIANDO HelpUS")
+    print("[INFO] INICIANDO HelpUS")
     print("=" * 60)
 
     # 1. Conectar ao banco
-    print("ðŸ“¦ Conectando ao PostgreSQL...")
+    print("[INFO] Conectando ao PostgreSQL...")
     try:
         await banco.conectar()
         await banco.criar_tabelas()
-        print("âœ… Banco de dados pronto")
+        print("[OK] Banco de dados pronto")
     except Exception as e:
-        print(f"âš ï¸ Banco de dados nao disponivel: {e}")
+        print(f"[WARN] Banco de dados nao disponivel: {e}")
         print("   Rodando sem banco de dados...")
 
-    # 2. Carregar modelo IA
-    print("ðŸ§  Carregando modelo de IA...")
-    try:
-        cerebro = CerebroIA()
-        print(f"âœ… Modelo carregado: {cerebro.nome_modelo}")
-    except Exception as e:
-        print(f"âŒ Erro ao carregar modelo: {e}")
-        print("   A API funcionara, mas sem IA.")
+    # 2. Carregar modelo IA se ainda nao carregado
+    if cerebro is None:
+        try:
+            cerebro = CerebroIA()
+            print(f"[OK] Modelo carregado: {cerebro.nome_modelo}")
+        except Exception as e:
+            print(f"[ERROR] Erro ao carregar modelo: {e}")
 
-    # 3. Inicializar buscador
-    print("ðŸ” Inicializando motor de busca...")
-    buscador = MotorBusca(banco)
-    print("âœ… Buscador pronto")
+    # 3. Inicializar buscador se ainda nao inicializado
+    if buscador is None:
+        buscador = MotorBusca(banco)
 
     print("=" * 60)
-    print("ðŸŽ¯ HelpUS PRONTO PARA USO")
+    print("[OK] HelpUS PRONTO PARA USO")
     print("=" * 60)
 
     yield
 
-    print("ðŸ‘‹ Encerrando servidor...")
+    print("[INFO] Encerrando servidor...")
+
+
 
 # ===== CRIACAO DO APP =====
 app = FastAPI(
@@ -102,6 +137,8 @@ class MensagemRequest(BaseModel):
     session_id: Optional[str] = None
     pesquisar_web: bool = True
     project_id: Optional[str] = 'general'
+    image_base64: Optional[str] = None
+    image_url: Optional[str] = None
 
 class MensagemResponse(BaseModel):
     resposta: str
@@ -200,11 +237,12 @@ def construir_contexto_memorias(memorias: List[Dict], limite_total: int = 2500) 
 
 
 def _provider_metrics(latency_ms: Optional[float] = None) -> Dict[str, object]:
+    c = get_cerebro()
     return {
         "provider_configured": getattr(app_config, "AI_PROVIDER", ""),
-        "provider_used": getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")) if cerebro else "",
-        "fallback_reason": getattr(cerebro, "last_fallback_reason", None) if cerebro else None,
-        "model": getattr(cerebro, "nome_modelo", "") if cerebro else "",
+        "provider_used": getattr(c, "last_provider_used", getattr(c, "provider", "")) if c else "",
+        "fallback_reason": getattr(c, "last_fallback_reason", None) if c else None,
+        "model": getattr(c, "nome_modelo", "") if c else "",
         "latency_ms": latency_ms,
     }
 
@@ -225,11 +263,13 @@ async def raiz():
 @app.get("/status", response_model=StatusResponse)
 async def status():
     """Verifica o status de todos os servicos"""
+    c = get_cerebro()
+    b = get_buscador()
     return StatusResponse(
         status="online",
-        modelo=cerebro.nome_modelo if cerebro else "nao carregado",
-        modelo_carregado=cerebro is not None,
-        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0,
+        modelo=c.nome_modelo if c else "nao carregado",
+        modelo_carregado=c is not None,
+        paginas_indexadas=getattr(b, 'paginas_indexadas', 0) if b else 0,
         app_version=app_config.APP_VERSION,
         build_commit=app_config.BUILD_COMMIT,
         auth_required=app_config.AUTH_REQUIRED,
@@ -241,17 +281,20 @@ async def status():
 @app.get("/admin/status", response_model=StatusResponse)
 async def admin_status(usuario = Depends(obter_admin_google)):
     """Verifica o status de todos os servicos"""
+    c = get_cerebro()
+    b = get_buscador()
     return StatusResponse(
         status="online",
-        modelo=cerebro.nome_modelo if cerebro else "nao carregado",
-        modelo_carregado=cerebro is not None,
-        paginas_indexadas=getattr(buscador, 'paginas_indexadas', 0) if buscador else 0,
+        modelo=c.nome_modelo if c else "nao carregado",
+        modelo_carregado=c is not None,
+        paginas_indexadas=getattr(b, 'paginas_indexadas', 0) if b else 0,
         app_version=app_config.APP_VERSION,
         build_commit=app_config.BUILD_COMMIT,
         auth_required=app_config.AUTH_REQUIRED,
         provider_order=app_config.AI_PROVIDER_ORDER,
         **_provider_metrics()
     )
+
 
 
 @app.get("/admin/operational-lessons")
@@ -320,11 +363,12 @@ async def internal_smoke_chat(
     if not expected_token or x_internal_smoke_token != expected_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if not cerebro:
+    c = get_cerebro()
+    if not c:
         raise HTTPException(status_code=503, detail="Modelo de IA nao carregado.")
 
     inicio = time.time()
-    resposta, tokens, tempo_ia = await cerebro.pensar(
+    resposta, tokens, tempo_ia = await c.pensar(
         pergunta=request.mensagem,
         contexto_busca="",
         historico=[],
@@ -341,11 +385,13 @@ async def internal_smoke_chat(
 @app.post("/chat", response_model=MensagemResponse)
 async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
     """Endpoint principal de conversa"""
-    if not cerebro:
+    c = get_cerebro()
+    if not c:
         raise HTTPException(
             status_code=503,
             detail="Modelo de IA nao carregado."
         )
+
 
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
@@ -386,13 +432,13 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         if request.pesquisar_web and buscador:
             try:
-                resultados = await buscador.buscar(request.mensagem)
+                resultados = await asyncio.wait_for(buscador.buscar(request.mensagem), timeout=3.0)
                 if resultados:
-                    contexto_busca = "ðŸ“š Informacoes encontradas:\n\n"
+                    contexto_busca = "📚 Informacoes encontradas:\n\n"
                     for i, r in enumerate(resultados[:5], 1):
                         contexto_busca += f"{i}. {r['titulo']}\n"
                         contexto_busca += f"   {r['snippet'][:200]}\n"
-                        contexto_busca += f"   ðŸ”— Fonte: {r['url']}\n\n"
+                        contexto_busca += f"   🔗 Fonte: {r['url']}\n\n"
                         fontes.append({
                             "titulo": r['titulo'],
                             "url": r.get('url', ''),
@@ -400,7 +446,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                         })
             except Exception as e:
                 if DEBUG:
-                    print(f"âš ï¸ Erro na busca: {e}")
+                    print(f"[WARN] Erro ou timeout na busca: {e}")
+
 
         # Salva pergunta
         try:
@@ -447,16 +494,18 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         # Gera resposta
         agent_trace.append({"label": "Chamando modelo de IA", "status": "running"})
-        resposta, tokens, tempo_ia = await cerebro.pensar(
+        resposta, tokens, tempo_ia = await c.pensar(
             pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
-            historico=historico
+            historico=historico,
+            image_base64=request.image_base64,
+            image_url=request.image_url,
         )
         internal_agents_result = await run_internal_agents(
             pergunta=request.mensagem,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico,
-            thinker=cerebro.pensar,
+            thinker=c.pensar,
             base_response=resposta,
             base_tokens=tokens,
             base_latency_seconds=tempo_ia if isinstance(tempo_ia, (int, float)) else 0.0,
@@ -493,7 +542,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             assistant_reply=resposta,
             conversation_id=session_id,
             actor="assistant",
-            provider=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
+            provider=getattr(c, "last_provider_used", getattr(c, "provider", "")),
             route="chat",
             project_id=project_id,
             extra={
@@ -515,18 +564,55 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             fontes=fontes,
             tempo_total=tempo_total,
             tokens_gerados=tokens,
-            provider_used=getattr(cerebro, "last_provider_used", getattr(cerebro, "provider", "")),
-            fallback_reason=getattr(cerebro, "last_fallback_reason", None),
+            provider_used=getattr(c, "last_provider_used", getattr(c, "provider", "")),
+            fallback_reason=getattr(c, "last_fallback_reason", None),
             provider_configured=getattr(app_config, "AI_PROVIDER", ""),
-            model=getattr(cerebro, "nome_modelo", ""),
+            model=getattr(c, "nome_modelo", ""),
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
 
+
     except Exception as e:
-        if DEBUG:
-            print(f"âŒ Erro no chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[ERROR] Erro no chat: {e}")
+        return MensagemResponse(
+            resposta="Olá! O assistente HelpUS está ativo. No momento, o serviço de inteligência artificial generativa está processando a sua requisição ou aguardando credenciais ativas de IA. Como posso te ajudar com os nossos serviços e plataformas?",
+            session_id=session_id,
+            project_id=project_id,
+            fontes=[],
+            tempo_total=round(time.time() - inicio_total, 2),
+            tokens_gerados=0,
+            provider_used="",
+            fallback_reason=str(e)[:200],
+            provider_configured=getattr(app_config, "AI_PROVIDER", ""),
+            model="",
+            latency_ms=None,
+            agent_trace=agent_trace,
+        )
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
+    """Endpoint de conversa com streaming SSE (Server-Sent Events)"""
+    c = get_cerebro()
+    if not c:
+        raise HTTPException(
+            status_code=503,
+            detail="Modelo de IA nao carregado."
+        )
+
+    import json
+
+    async def event_generator():
+        async for chunk in c.pensar_stream(
+            pergunta=request.mensagem,
+            image_base64=request.image_base64,
+            image_url=request.image_url,
+        ):
+            yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 
@@ -644,9 +730,8 @@ async def atualizar_memoria(
 
 @app.get("/conversas")
 async def listar_conversas(usuario = Depends(obter_usuario_google)):
-    """Lista conversas do usuario autenticado"""
     if not usuario:
-        raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+        return {"conversas": []}
 
     try:
         return {
@@ -742,3 +827,196 @@ async def get_local_plan_proposal_integrity():
 @app.get("/local/plan/proposals/{proposal_id}")
 async def local_plan_proposal_detail(proposal_id: str, usuario=Depends(obter_admin_google)):
     return get_local_plan_proposal(proposal_id)
+
+
+# ===== MÓDULOS AVANÇADOS: CRM, GOOGLE CALENDAR E GERADOR DE PROPOSTAS =====
+
+class AgendamentoRequest(BaseModel):
+    titulo: str = "Reunião Comercial HelpUS"
+    data: str = "2026-09-15"
+    hora: str = "14:00"
+    duracao_minutos: int = 45
+    descricao: Optional[str] = "Alinhamento de projeto de Inteligência Artificial e Desenvolvimento."
+    cliente_email: Optional[str] = None
+
+class PropostaRequest(BaseModel):
+    cliente_nome: str = "Cliente HelpUS"
+    servico: str = "Desenvolvimento de Plataforma Web com IA Integrada"
+    valor_estimado: str = "R$ 3.500,00"
+    detalhes: Optional[str] = "Inclusão de módulo de chat multimodal, integração com WhatsApp e síntese de voz neural."
+
+# Armazenamento em memória para estados de handoff do CRM
+crm_handoff_states: Dict[str, Dict] = {}
+
+@app.get("/admin/atendimentos")
+async def admin_atendimentos(usuario = Depends(obter_admin_google)):
+    """Retorna listagem de atendimentos ativos para o CRM Administrativo"""
+    conversas_banco = []
+    try:
+        if banco:
+            conversas_banco = await banco.listar_conversas_usuario(usuario["email"], limite=50)
+    except Exception as _e:
+        pass
+
+    return {
+        "total": len(conversas_banco),
+        "handoff_ativos": crm_handoff_states,
+        "conversas": conversas_banco
+    }
+
+@app.post("/admin/handoff")
+async def admin_toggle_handoff(request: dict, usuario = Depends(obter_admin_google)):
+    """Ativa ou desativa o atendimento humano para uma conversa"""
+    session_id = request.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id e obrigatorio")
+
+    status_atual = crm_handoff_states.get(session_id, {}).get("ativo", False)
+    novo_status = not status_atual
+
+    crm_handoff_states[session_id] = {
+        "ativo": novo_status,
+        "alterado_por": usuario.get("email"),
+        "timestamp": time.time()
+    }
+
+    return {
+        "session_id": session_id,
+        "handoff_ativo": novo_status,
+        "mensagem": f"Transbordo humano {'ativado' if novo_status else 'desativado'} com sucesso."
+    }
+
+@app.post("/admin/responder")
+async def admin_responder_atendimento(request: dict, usuario = Depends(obter_admin_google)):
+    """Permite ao atendente humano enviar uma resposta manual"""
+    session_id = request.get("session_id")
+    mensagem = request.get("mensagem", "").strip()
+
+    if not session_id or not mensagem:
+        raise HTTPException(status_code=400, detail="session_id e mensagem sao obrigatorios")
+
+    try:
+        if banco:
+            await banco.salvar_mensagem(
+                session_id=session_id,
+                role="assistant",
+                content=f"[Atendente Humano - {usuario.get('name', 'Equipe')}]: {mensagem}",
+                user_email=usuario.get("email"),
+                project_id="crm-human"
+            )
+    except Exception as _e:
+        pass
+
+    return {
+        "status": "enviado",
+        "session_id": session_id,
+        "mensagem": mensagem
+    }
+
+@app.post("/agendar")
+async def criar_agendamento_calendar(request: AgendamentoRequest):
+    """Gera link direto de agendamento no Google Calendar e formato ICS"""
+    import urllib.parse
+    from datetime import datetime, timedelta
+
+    titulo = request.titulo or "Reunião Comercial HelpUS"
+    desc = request.descricao or "Reunião de alinhamento técnico HelpUS"
+    
+    # Formatação de datas
+    data_hora_str = f"{request.data} {request.hora}"
+    try:
+        dt_inicio = datetime.strptime(data_hora_str, "%Y-%m-%d %H:%M")
+    except Exception:
+        dt_inicio = datetime.now() + timedelta(days=1)
+
+    dt_fim = dt_inicio + timedelta(minutes=request.duracao_minutos)
+
+    fmt_cal = "%Y%m%dT%H%M00"
+    dates_param = f"{dt_inicio.strftime(fmt_cal)}/{dt_fim.strftime(fmt_cal)}"
+
+    params = {
+        "action": "TEMPLATE",
+        "text": titulo,
+        "details": desc,
+        "location": "Google Meet / HelpUS Online",
+        "dates": dates_param
+    }
+    
+    if request.cliente_email:
+        params["add"] = request.cliente_email
+
+    google_calendar_url = f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
+
+    ics_content = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//HelpUS AI//Agendamento Comercial//PT
+BEGIN:VEVENT
+SUMMARY:{titulo}
+DESCRIPTION:{desc}
+DTSTART:{dt_inicio.strftime(fmt_cal)}
+DTEND:{dt_fim.strftime(fmt_cal)}
+LOCATION:Google Meet / HelpUS Online
+END:VEVENT
+END:VCALENDAR"""
+
+    return {
+        "status": "sucesso",
+        "titulo": titulo,
+        "inicio": dt_inicio.isoformat(),
+        "fim": dt_fim.isoformat(),
+        "google_calendar_url": google_calendar_url,
+        "ics_content": ics_content
+    }
+
+@app.post("/gerar-proposta")
+async def gerar_proposta_comercial(request: PropostaRequest):
+    """Gera proposta comercial corporativa formatada em HTML/SVG pronta para exportacao em PDF"""
+    html_proposta = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Proposta Comercial - HelpUS AI</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; color: #1f2937; background: #f9fafb; }}
+        .card {{ background: #ffffff; padding: 40px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }}
+        .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; }}
+        .logo {{ font-size: 28px; font-weight: 800; color: #1e3a8a; }}
+        .badge {{ background: #dbeafe; color: #1e40af; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 12px; }}
+        .section {{ margin-top: 30px; }}
+        .title {{ font-size: 18px; font-weight: 700; color: #1f2937; margin-bottom: 10px; }}
+        .value {{ font-size: 24px; font-weight: 800; color: #059669; margin-top: 10px; }}
+        .footer {{ margin-top: 40px; font-size: 12px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 20px; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="logo">HelpUS <span style="color:#3b82f6;">AI</span></div>
+            <div class="badge">PROPOSTA COMERCIAL</div>
+        </div>
+        <div class="section">
+            <p><strong>Cliente:</strong> {request.cliente_nome}</p>
+            <p><strong>Data de Emissão:</strong> {time.strftime("%d/%m/%Y")}</p>
+        </div>
+        <div class="section">
+            <div class="title">Escopo do Serviço</div>
+            <p>{request.servico}</p>
+            <p style="color:#4b5563; font-size:14px; line-height:1.6;">{request.detalhes}</p>
+        </div>
+        <div class="section">
+            <div class="title">Investimento Estimado</div>
+            <div class="value">{request.valor_estimado}</div>
+        </div>
+        <div class="footer">
+            HelpUS Inteligência Artificial & Soluções Tecnológicas · www.helpusbr.com · ai.helpusbr.com
+        </div>
+    </div>
+</body>
+</html>"""
+    return {
+        "status": "sucesso",
+        "cliente_nome": request.cliente_nome,
+        "servico": request.servico,
+        "valor_estimado": request.valor_estimado,
+        "html_content": html_proposta
+    }

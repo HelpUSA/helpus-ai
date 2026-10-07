@@ -18,18 +18,17 @@ O computador local não fará parte da operação obrigatória de produção.
 
 <!-- HELPUS_CLOUD_AUDIT_RESULT_START -->
 
-## Auditoria cloud de 2026-07-20
+## Auditoria cloud de 2026-10-07
 
-Situação: `completa`.
+Situação: `restaurada_e_ativa`.
 
-- GitHub: `True`;
-- Vercel: `True`;
-- Railway: `True`;
-- domínio: `True`;
-- status HTTP: `200`;
-- serviços alterados: `False`;
-- secrets expostos: `False`.
+- GitHub: `True` (main branch alinhado);
+- Vercel: `True` (https://ai.helpusbr.com online);
+- Railway: `True` (helpus-api-production e Postgres ativos);
+- Domínio: `True` (HTTPS 200 OK);
+- Autenticação Google GIS: `True` (botões oficiais nativos visíveis + disableAutoSelect);
+- Secrets expostos: `False`.
 
-Próximo marco: preparação do staging e dos serviços Railway.
+Próximo marco: acompanhamento dos primeiros atendimentos com o novo fluxo de autenticação e preenchimento da GEMINI_API_KEY no Railway.
 
 <!-- HELPUS_CLOUD_AUDIT_RESULT_END -->

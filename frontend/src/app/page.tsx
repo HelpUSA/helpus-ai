@@ -1,4 +1,6 @@
 'use client'
+
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect, useRef, useState } from 'react'
@@ -34,9 +36,6 @@ interface ConversaResumo {
   titulo: string
   updated_at?: string
   created_at?: string
-  createdAt?: string
-  updatedAt?: string
-  data?: string
   total_mensagens: number
   project_id?: string
 }
@@ -44,43 +43,25 @@ interface ConversaResumo {
 declare global {
   interface Window {
     google?: any
+    webkitSpeechRecognition?: any
+    SpeechRecognition?: any
   }
 }
 
-const HELPUSAI_VISUAL_VERSION = 'v0.34.0-dev'
 
-const STARTER_PROMPTS = [
-  'Resuma o que já foi decidido nesta conversa.',
-  'Organize os próximos passos em ordem de prioridade.',
-  'Revise este texto e proponha uma versão mais clara.',
-  'Explique este assunto de forma simples e prática.',
-] as const
+const MODEL_OPTIONS = [
+  { id: 'gemini-2.5-flash-lite', name: 'Flash-Lite', desc: 'Rápido e eficiente' },
+  { id: 'gemini-2.5-flash', name: 'Flash', desc: 'Equilíbrio ideal de inteligência' },
+  { id: 'gemini-2.5-pro', name: 'Pro', desc: 'Raciocínio profundo e análise' },
+]
 
-function tituloConversa(conv: ConversaResumo) {
-  const titulo = (conv.titulo || '').trim()
-  if (titulo && titulo !== 'Nova conversa') return titulo
-  return `Conversa ${conv.session_id.slice(0, 8)}`
-}
-
-function formatarDataConversa(conv: ConversaResumo) {
-  const raw = conv.updated_at || conv.created_at || conv.updatedAt || conv.createdAt || conv.data
-  if (!raw) return 'Sem data'
-  const date = new Date(raw)
-  if (Number.isNaN(date.getTime())) return raw
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
 function decodeJwtProfile(token: string): GoogleProfile | null {
   try {
     const payload = token.split('.')[1]
     const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
     return {
       email: json.email || '',
-      name: json.name || json.email || 'Usuario',
+      name: json.name || json.email || 'Usuário',
       picture: json.picture || '',
     }
   } catch {
@@ -88,1939 +69,1228 @@ function decodeJwtProfile(token: string): GoogleProfile | null {
   }
 }
 
-
-interface ProjectMemory {
- id: number
- project_id: string
- title: string
- content: string
- tags?: string
- enabled: boolean
- created_by?: string
- created_at?: string
- updated_at?: string
-}
-
-export default function Home() {
+export default function HelpUSGeminiApp() {
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
-  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const [loading, setLoading] = useState(false)
-  const defaultAgentTrace: AgentTraceItem[] = [
-    { label: 'Analisando pedido', status: 'running' },
-    { label: 'Consultando memória', status: 'running' },
-    { label: 'Chamando modelo de IA', status: 'running' },
-    { label: 'Preparando resposta final', status: 'running' },
-  ]
-  const [activeAgentTrace, setActiveAgentTrace] = useState<AgentTraceItem[]>([])
-
-  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
-  const [copiedChatLink, setCopiedChatLink] = useState(false)
-  const [lastSubmittedText, setLastSubmittedText] = useState('')
-  const [chatError, setChatError] = useState('')
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
-  const messagesViewportRef = useRef<HTMLDivElement | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
   const [sessionId, setSessionId] = useState('')
-  const [pesquisarWeb, setPesquisarWeb] = useState(false)
+  const [conversas, setConversas] = useState<ConversaResumo[]>([])
   const [googleToken, setGoogleToken] = useState('')
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
-  const [conversas, setConversas] = useState<ConversaResumo[]>([])
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeModel, setActiveModel] = useState(MODEL_OPTIONS[0])
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'chat' | 'spark'>('chat')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
-  const [accountPanel, setAccountPanel] = useState<'personalizacao' | 'configuracoes' | 'ajuda' | null>(null)
-  const [chatSearch, setChatSearch] = useState('')
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [sidebarNotice, setSidebarNotice] = useState('')
-  const [deleteConfirmId, setDeleteConfirmId] = useState('')
-  const [chatMenuOpenId, setChatMenuOpenId] = useState('')
-  const [chatAliases, setChatAliases] = useState<Record<string, string>>({})
-  const [sidebarPanel, setSidebarPanel] = useState<'projects' | 'library' | 'memories' | null>(null)
-  const [activeProjectId, setActiveProjectId] = useState('general')
-  const [projectMemories, setProjectMemories] = useState<ProjectMemory[]>([])
-  const [memoryLoading, setMemoryLoading] = useState(false)
-  const [memoryNotice, setMemoryNotice] = useState('')
-  const [memoryFormOpen, setMemoryFormOpen] = useState(false)
-  const [memoryForm, setMemoryForm] = useState({ title: '', content: '', tags: '' })
+  const [aboutModalOpen, setAboutModalOpen] = useState(false)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
 
-  // Vision Image Attachment State
+  // Upload de imagem multimodal
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null)
-  const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Real-Time Web Voice Call State
+  // Chamada de voz em tempo real
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'speaking'>('idle')
   const [voiceTranscript, setVoiceTranscript] = useState('')
-  const recognitionRef = useRef<any>(null)
+  const voiceRecognitionRef = useRef<any>(null)
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Controle de scroll e viewport
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+  const googleClientId =
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+    '812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com'
+
+  // Carrega token salvo e conversas
+  useEffect(() => {
+    const savedToken = window.localStorage.getItem('helpus_google_token') || ''
+    if (savedToken) {
+      setGoogleToken(savedToken)
+      setProfile(decodeJwtProfile(savedToken))
+      carregarConversas(savedToken)
+    }
+  }, [])
+
+  // Auto-scroll
+  useEffect(() => {
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, loading])
+
+  // Inicializa Google GIS
+  const inicializarGoogle = () => {
+    if (typeof window === 'undefined' || !window.google?.accounts?.id || !googleClientId) return
+
+    try {
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: (response: any) => {
+          const token = response.credential || ''
+          const decoded = decodeJwtProfile(token)
+          setGoogleToken(token)
+          setProfile(decoded)
+          window.localStorage.setItem('helpus_google_token', token)
+          carregarConversas(token)
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      })
+
+      // Renderiza botão oficial discreto no container escondido para servir de acionador nativo
+      const container = document.getElementById('google-native-signin-anchor')
+      if (container) {
+        container.innerHTML = ''
+        window.google.accounts.id.renderButton(container, {
+          theme: 'filled_blue',
+          size: 'large',
+          text: 'signin',
+          shape: 'pill',
+          locale: 'pt-BR',
+        })
+      }
+    } catch (e) {
+      console.warn('[HelpUS Auth] Falha na inicialização do Google GIS:', e)
+    }
+  }
+
+  // Disparo do login estilo Gemini (sem estampar dados do usuário no botão antes)
+  const dispararLoginGoogle = () => {
+    if (typeof window === 'undefined') return
+    const btn = document.querySelector('#google-native-signin-anchor div[role="button"]') as HTMLElement
+    if (btn) {
+      btn.click()
+      return
+    }
+    if (window.google?.accounts?.id) {
+      inicializarGoogle()
+      window.google.accounts.id.prompt()
+    }
+  }
+
+  // Logout
+  const sair = () => {
+    setGoogleToken('')
+    setProfile(null)
+    setConversas([])
+    setMessages([])
+    setSessionId('')
+    setAccountMenuOpen(false)
+    setSettingsOpen(false)
+    window.localStorage.removeItem('helpus_google_token')
+    if (typeof window !== 'undefined' && window.google?.accounts?.id?.disableAutoSelect) {
+      window.google.accounts.id.disableAutoSelect()
+    }
+    router.push('/')
+  }
+
+  // Carregar histórico de conversas do usuário
+  const carregarConversas = async (token = googleToken) => {
+    if (!token) return
+    try {
+      const res = await fetch(`${apiUrl}/conversas`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setConversas(Array.isArray(data) ? data : data.conversas || [])
+      }
+    } catch {
+      // tolerante a falhas
+    }
+  }
+
+  // Carregar conversa específica
+  const abrirConversa = async (id: string) => {
+    if (!googleToken) return
+    try {
+      setLoading(true)
+      setSessionId(id)
+      const res = await fetch(`${apiUrl}/historico/${id}`, {
+        headers: { Authorization: `Bearer ${googleToken}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessages(
+          (data.mensagens || []).map((m: any) => ({
+            role: m.role,
+            content: m.content || m.mensagem || '',
+            image_url: m.image_url,
+            fontes: m.fontes || [],
+          }))
+        )
+      }
+    } catch {
+      // falha silenciosa
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Iniciar nova conversa
+  const novaConversa = () => {
+    setMessages([])
+    setSessionId('')
+    setInput('')
+    setSelectedImage(null)
+    setSelectedImageBase64(null)
+    inputRef.current?.focus()
+  }
+
+  // Excluir conversa
+  const excluirConversa = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!googleToken) return
+    try {
+      await fetch(`${apiUrl}/conversa/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${googleToken}` },
+      })
+      setConversas((prev) => prev.filter((c) => c.session_id !== id))
+      if (sessionId === id) novaConversa()
+    } catch {
+      // ignore
+    }
+  }
+
+  // Enviar mensagem para a IA
+  const enviarMensagem = async (texto = input) => {
+    const textoLimpo = texto.trim()
+    if (!textoLimpo && !selectedImageBase64) return
+    if (loading) return
+
+    // Se não estiver logado, dispara login oficial estilo Gemini
+    if (!googleToken) {
+      dispararLoginGoogle()
+      return
+    }
+
+    const imagemAnexa = selectedImage
+    const imagemBase64 = selectedImageBase64
+
+    setInput('')
+    setSelectedImage(null)
+    setSelectedImageBase64(null)
+
+    const novaMensagemUsuario: Message = {
+      role: 'user',
+      content: textoLimpo,
+      image_url: imagemAnexa || undefined,
+    }
+
+    setMessages((prev) => [...prev, novaMensagemUsuario])
+    setLoading(true)
+
+    // Mensagem temporária do assistente para streaming
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant',
+        content: '',
+        provider_used: activeModel.name,
+      },
+    ])
+
+    try {
+      abortControllerRef.current = new AbortController()
+
+      // Tenta rota SSE /chat/stream
+      const resStream = await fetch(`${apiUrl}/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${googleToken}`,
+        },
+        body: JSON.stringify({
+          mensagem: textoLimpo,
+          session_id: sessionId || undefined,
+          pesquisar_web: webSearchEnabled,
+          imagem_base64: imagemBase64 || undefined,
+          model: activeModel.id,
+        }),
+        signal: abortControllerRef.current.signal,
+      })
+
+      if (resStream.ok && resStream.body) {
+        const reader = resStream.body.getReader()
+        const decoder = new TextDecoder()
+        let respostaAcumulada = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value, { stream: true })
+          const lines = chunk.split('\n')
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6).trim()
+              if (dataStr === '[DONE]') continue
+              try {
+                const parsed = JSON.parse(dataStr)
+                if (parsed.text) {
+                  respostaAcumulada += parsed.text
+                  setMessages((prev) => {
+                    const copia = [...prev]
+                    const last = copia[copia.length - 1]
+                    if (last && last.role === 'assistant') {
+                      copia[copia.length - 1] = {
+                        ...last,
+                        content: respostaAcumulada,
+                        fontes: parsed.fontes || last.fontes,
+                      }
+                    }
+                    return copia
+                  })
+                }
+                if (parsed.session_id && !sessionId) {
+                  setSessionId(parsed.session_id)
+                }
+              } catch {
+                respostaAcumulada += dataStr
+                setMessages((prev) => {
+                  const copia = [...prev]
+                  const last = copia[copia.length - 1]
+                  if (last && last.role === 'assistant') {
+                    copia[copia.length - 1] = { ...last, content: respostaAcumulada }
+                  }
+                  return copia
+                })
+              }
+            }
+          }
+        }
+        carregarConversas(googleToken)
+        return
+      }
+
+      // Fallback padrão /chat síncrono
+      const res = await fetch(`${apiUrl}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${googleToken}`,
+        },
+        body: JSON.stringify({
+          mensagem: textoLimpo,
+          session_id: sessionId || undefined,
+          pesquisar_web: webSearchEnabled,
+          imagem_base64: imagemBase64 || undefined,
+          model: activeModel.id,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setMessages((prev) => {
+          const copia = [...prev]
+          copia[copia.length - 1] = {
+            role: 'assistant',
+            content: data.resposta || 'Sem resposta gerada.',
+            fontes: data.fontes || [],
+            provider_used: data.provider_used || activeModel.name,
+          }
+          return copia
+        })
+        if (data.session_id && !sessionId) {
+          setSessionId(data.session_id)
+        }
+        carregarConversas(googleToken)
+      } else {
+        throw new Error(`Erro na API (${res.status})`)
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setMessages((prev) => {
+          const copia = [...prev]
+          copia[copia.length - 1] = {
+            role: 'assistant',
+            content: 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.',
+          }
+          return copia
+        })
+      }
+    } finally {
+      setLoading(false)
+      abortControllerRef.current = null
+    }
+  }
+
+  // Upload de Imagem
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (evt) => {
-      const dataUrl = evt.target?.result as string
-      if (dataUrl) {
-        setSelectedImagePreview(dataUrl)
-        const base64Content = dataUrl.split(',')[1] || ''
-        setSelectedImageBase64(base64Content)
+    reader.onload = (event) => {
+      const result = event.target?.result as string
+      if (result) {
+        setSelectedImage(result)
+        setSelectedImageBase64(result.split(',')[1] || '')
       }
     }
     reader.readAsDataURL(file)
   }
 
-  const removeSelectedImage = () => {
-    setSelectedImagePreview(null)
-    setSelectedImageBase64(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
+  // Copiar texto da resposta
+  const copiarTexto = (texto: string, idx: number) => {
+    navigator.clipboard.writeText(texto)
+    setCopiedIndex(idx)
+    setTimeout(() => setCopiedIndex(null), 2000)
   }
 
-  const speakText = (text: string) => {
+  // Ouvir resposta (Text-to-Speech)
+  const ouvirTexto = (texto: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
     window.speechSynthesis.cancel()
-    const cleanToSpeak = text.replace(/[*_#`~]/g, '').replace(/HelpUS/gi, 'Rélp Ás')
-    const utterance = new SpeechSynthesisUtterance(cleanToSpeak)
+    const utterance = new SpeechSynthesisUtterance(texto)
     utterance.lang = 'pt-BR'
-    utterance.onstart = () => setVoiceStatus('speaking')
-    utterance.onend = () => {
-      if (isVoiceModalOpen) {
-        setVoiceStatus('listening')
-        startVoiceRecognition()
-      } else {
-        setVoiceStatus('idle')
-      }
-    }
     window.speechSynthesis.speak(utterance)
   }
 
+  // Reconhecimento de Voz (Microfone)
   const startVoiceRecognition = () => {
-    if (typeof window === 'undefined') return
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      alert('Seu navegador não possui suporte ao reconhecimento de voz nativo.')
-      return
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) return
+    const rec = new SpeechRecognition()
+    rec.lang = 'pt-BR'
+    rec.continuous = false
+    rec.interimResults = true
+    rec.onstart = () => setVoiceStatus('listening')
+    rec.onresult = (event: any) => {
+      const current = Array.from(event.results)
+        .map((r: any) => r[0].transcript)
+        .join('')
+      setVoiceTranscript(current)
     }
-
-    try {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort()
-      }
-
-      const recognition = new SpeechRecognition()
-      recognition.lang = 'pt-BR'
-      recognition.continuous = false
-      recognition.interimResults = true
-
-      recognition.onstart = () => {
-        setVoiceStatus('listening')
-        setVoiceTranscript('')
-      }
-
-      recognition.onresult = (event: any) => {
-        let current = ''
-        for (let i = 0; i < event.results.length; i++) {
-          current += event.results[i][0].transcript
-        }
-        setVoiceTranscript(current)
-      }
-
-      recognition.onend = () => {
-        setVoiceStatus('idle')
-        const finalTranscript = recognitionRef.current?.lastTranscript || ''
-        if (finalTranscript.trim()) {
-          void submitMessage(finalTranscript, true)
-        }
-      }
-
-      recognition.onerror = () => {
-        setVoiceStatus('idle')
-      }
-
-      recognitionRef.current = recognition
-      recognition.start()
-    } catch (err) {
+    rec.onend = () => {
       setVoiceStatus('idle')
+      if (voiceTranscript) {
+        setInput(voiceTranscript)
+        setIsVoiceModalOpen(false)
+      }
     }
+    voiceRecognitionRef.current = rec
+    rec.start()
   }
 
-  const startVoiceCall = () => {
-    setIsVoiceModalOpen(true)
-    startVoiceRecognition()
-  }
-
-  const endVoiceCall = () => {
-    setIsVoiceModalOpen(false)
-    setVoiceStatus('idle')
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel()
-    }
-    if (recognitionRef.current) {
-      recognitionRef.current.abort()
-      recognitionRef.current = null
-    }
-  }
-
-  const chatUrl = (id: string) => `/c/${encodeURIComponent(id)}`
-
-  const chatIdFromUrl = () => {
-    if (typeof window === 'undefined') return ''
-    const match = window.location.pathname.match(/^\/c\/([^\/#?]+)/)
-    if (match) return decodeURIComponent(match[1])
-    return new URLSearchParams(window.location.search).get('chat') || ''
-  }
-
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? '' : 'http://localhost:8000')
-  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
-  const providerBadgeDebugEnabled = typeof window !== 'undefined' && window.localStorage.getItem('helpus_provider_debug') === '1'
-
-  const tituloExibidoConversa = (
-    conv: ConversaResumo,
-  ) => (
-    chatAliases[conv.session_id]
-    || tituloConversa(conv)
+  // Filtragem de conversas na busca
+  const conversasFiltradas = conversas.filter((c) =>
+    (c.titulo || `Conversa ${c.session_id.slice(0, 6)}`)
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
   )
 
-  const chatSearchTerm =
-    chatSearch
-      .trim()
-      .toLowerCase()
-
-  const conversasFiltradas = [
-    ...conversas,
-  ]
-    .filter(
-      (conv) => {
-        if (!chatSearchTerm) {
-          return true
-        }
-
-        const titulo =
-          tituloExibidoConversa(
-            conv,
-          ).toLowerCase()
-
-        const data =
-          formatarDataConversa(
-            conv,
-          ).toLowerCase()
-
-        return (
-          titulo.includes(
-            chatSearchTerm,
-          )
-          || data.includes(
-            chatSearchTerm,
-          )
-          || conv.session_id
-            .toLowerCase()
-            .includes(
-              chatSearchTerm,
-            )
-        )
-      },
-    )
-    .sort(
-      (left, right) => {
-        const leftRaw =
-          left.updated_at
-          || left.updatedAt
-          || left.created_at
-          || left.createdAt
-          || left.data
-          || ''
-
-        const rightRaw =
-          right.updated_at
-          || right.updatedAt
-          || right.created_at
-          || right.createdAt
-          || right.data
-          || ''
-
-        const leftTime =
-          Date.parse(leftRaw)
-          || 0
-
-        const rightTime =
-          Date.parse(rightRaw)
-          || 0
-
-        return rightTime - leftTime
-      },
-    )
-
-  const activeConversation =
-    conversas.find(
-      (conv) =>
-        conv.session_id === sessionId,
-    )
-
-  const activeConversationTitle =
-    activeConversation
-      ? tituloExibidoConversa(
-          activeConversation,
-        )
-      : 'Nova conversa'
-
-  const authHeaders = (token = googleToken) => ({
-    Authorization: `Bearer ${token}`,
-  })
-
-  const scrollToBottom = (
-    behavior: ScrollBehavior = 'smooth',
-  ) => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior,
-      block: 'end',
-    })
-
-    setShowScrollToBottom(false)
-  }
-
-  const carregarConversas = async (token = googleToken) => {
-    if (!token) return
-
-    try {
-      setHistoryLoading(true)
-      const response = await fetch(`${apiUrl}/conversas`, {
-        headers: authHeaders(token),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
-      setConversas(data.conversas || [])
-      setSidebarNotice('')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      setSidebarNotice(`Nao foi possivel carregar o historico: ${message}`)
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
-
-  const carregarMemorias = async (projectId = activeProjectId, token = googleToken) => {
-    if (!token) return
-
-    try {
-      setMemoryLoading(true)
-      const response = await fetch(`${apiUrl}/memorias?project_id=${encodeURIComponent(projectId)}&include_disabled=true`, {
-        headers: authHeaders(token),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
-      setProjectMemories(data.memorias || [])
-      setMemoryNotice('')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      setMemoryNotice(`Nao foi possivel carregar memorias: ${message}`)
-    } finally {
-      setMemoryLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    const stored =
-      window.localStorage.getItem(
-        'helpus_chat_aliases_v1',
-      )
-
-    if (!stored) {
-      return
-    }
-
-    try {
-      const parsed =
-        JSON.parse(stored)
-
-      if (
-        parsed
-        && typeof parsed === 'object'
-        && !Array.isArray(parsed)
-      ) {
-        setChatAliases(
-          parsed as Record<string, string>,
-        )
-      }
-    } catch {
-      window.localStorage.removeItem(
-        'helpus_chat_aliases_v1',
-      )
-    }
-  }, [])
-
-  useEffect(() => {
-    const textarea =
-      inputRef.current
-
-    if (!textarea) {
-      return
-    }
-
-    textarea.style.height = '0px'
-
-    textarea.style.height =
-      `${Math.min(
-        Math.max(
-          textarea.scrollHeight,
-          52,
-        ),
-        180,
-      )}px`
-  }, [input])
-
-  useEffect(() => {
-    if (
-      messages.length === 0
-      && !loading
-      && activeAgentTrace.length === 0
-    ) {
-      return
-    }
-
-    const frame =
-      window.requestAnimationFrame(
-        () => {
-          scrollToBottom(
-            messages.length > 1
-              ? 'smooth'
-              : 'auto',
-          )
-        },
-      )
-
-    return () => {
-      window.cancelAnimationFrame(
-        frame,
-      )
-    }
-  }, [
-    messages,
-    loading,
-    activeAgentTrace,
-  ])
-
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort()
-    }
-  }, [])
-
-  useEffect(() => {
-    const savedToken = window.localStorage.getItem('helpus_google_token') || ''
-    const initialChatId = chatIdFromUrl()
-    if (savedToken) {
-      setGoogleToken(savedToken)
-      setProfile(decodeJwtProfile(savedToken))
-      carregarConversas(savedToken)
-      if (initialChatId) carregarHistorico(initialChatId, savedToken, false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (googleToken) {
-      carregarMemorias(activeProjectId, googleToken)
-    }
-  }, [activeProjectId, googleToken])
-
-
-  // Sincroniza a URL com a conversa ativa
-  useEffect(() => {
-    if (!sessionId || typeof window === 'undefined') return
-    const nextUrl = chatUrl(sessionId)
-    if (window.location.pathname !== nextUrl) router.replace(nextUrl)
-  }, [sessionId, router])
-
-  const inicializarGoogle = () => {
-    if (!googleClientId || !window.google?.accounts?.id) return
-
-    window.google.accounts.id.initialize({
-      client_id: googleClientId,
-      callback: (response: any) => {
-        const token = response.credential || ''
-        const decoded = decodeJwtProfile(token)
-        setGoogleToken(token)
-        setProfile(decoded)
-        window.localStorage.setItem('helpus_google_token', token)
-        carregarConversas(token)
-      },
-    })
-
-    window.google.accounts.id.renderButton(
-      document.getElementById('google-login-button'),
-      {
-        theme: 'outline',
-        size: 'large',
-        text: 'signin_with',
-        shape: 'pill',
-      }
-    )
-  }
-
-  const sair = () => {
-    setActionsMenuOpen(false)
-    setAccountMenuOpen(false)
-    setAccountPanel(null)
-    setGoogleToken('')
-    setProfile(null)
-    setConversas([])
-    window.localStorage.removeItem('helpus_google_token')
-    setMessages([])
-    setSessionId('')
-    router.push('/')
-  }
-
-  const carregarHistorico = async (id: string, token = googleToken, atualizarUrl = true) => {
-    if (!token) return
-
-    try {
-      setChatError('')
-      setLoading(true)
-      const response = await fetch(`${apiUrl}/historico/${id}`, {
-        headers: authHeaders(token),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
-
-      setSessionId(id)
-      if (atualizarUrl) router.push(chatUrl(id))
-      setMessages(data.mensagens || [])
-      setSidebarOpen(false)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: `Erro ao carregar historico: ${message}` },
-      ])
-    } finally {
-      setLoading(false)
-      setTimeout(() => inputRef.current?.focus(), 0)
-    }
-  }
-
-  const apagarConversa = async (id: string) => {
-    if (!googleToken) return
-
-    try {
-      const response = await fetch(`${apiUrl}/conversa/${id}`, {
-        method: 'DELETE',
-        headers: authHeaders(),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data?.detail || `Erro HTTP ${response.status}`)
-
-      if (sessionId === id) {
-        setMessages([])
-        setSessionId('')
-        router.push('/')
-      }
-      await carregarConversas()
-      setDeleteConfirmId('')
-      setSidebarNotice('Conversa apagada.')
-      setTimeout(() => setSidebarNotice(''), 3000)
-      setSidebarOpen(false)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      setSidebarNotice(`Nao foi possivel apagar a conversa: ${message}`)
-    }
-  }
-
-  const submitMessage = async (
-    textoOriginal: string,
-    appendUserMessage = true,
-  ) => {
-    const texto =
-      textoOriginal.trim()
-
-    if (
-      !texto
-      || loading
-    ) {
-      return
-    }
-
-    if (!googleToken) {
-      setTimeout(
-        () =>
-          inputRef.current?.focus(),
-        0,
-      )
-
-      setChatError(
-        'Entre com sua conta Google para enviar mensagens.',
-      )
-
-      return
-    }
-
-    setChatError('')
-    setLastSubmittedText(texto)
-
-    const imgBase64 = selectedImageBase64
-    const imgPreview = selectedImagePreview
-    removeSelectedImage()
-
-    if (appendUserMessage) {
-      setMessages(
-        (current) => [
-          ...current,
-          {
-            role: 'user',
-            content: texto,
-            image_url: imgPreview || undefined,
-          },
-        ],
-      )
-    }
-
-    setInput('')
-
-    setTimeout(
-      () =>
-        inputRef.current?.focus(),
-      0,
-    )
-
-    setLoading(true)
-    setActiveAgentTrace(
-      defaultAgentTrace,
-    )
-
-    const controller =
-      new AbortController()
-
-    abortControllerRef.current =
-      controller
-
-    try {
-      try {
-        const streamRes = await fetch(`${apiUrl}/chat/stream`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${googleToken}`,
-          },
-          body: JSON.stringify({
-            mensagem: texto,
-            image_base64: imgBase64 || undefined,
-            session_id: sessionId || undefined,
-            pesquisar_web: pesquisarWeb,
-            project_id: 'general',
-          }),
-          signal: controller.signal,
-        })
-
-        if (streamRes.ok && streamRes.body) {
-          const reader = streamRes.body.getReader()
-          const decoder = new TextDecoder('utf-8')
-          let accumulated = ''
-          let addedAssistantMsg = false
-          let streamBuffer = ''
-
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            streamBuffer += decoder.decode(value, { stream: true })
-            const parts = streamBuffer.split('\n\n')
-            streamBuffer = parts.pop() || ''
-
-            for (const part of parts) {
-              if (part.startsWith('data: ')) {
-                const dataStr = part.slice(6).trim()
-                if (dataStr === '[DONE]') break
-                try {
-                  const parsed = JSON.parse(dataStr)
-                  if (parsed.content) {
-                    accumulated += parsed.content
-                    if (!addedAssistantMsg) {
-                      addedAssistantMsg = true
-                      setMessages((current) => [
-                        ...current,
-                        { role: 'assistant', content: accumulated, provider_used: 'openai' },
-                      ])
-                    } else {
-                      setMessages((current) => {
-                        const updated = [...current]
-                        if (updated.length > 0) {
-                          updated[updated.length - 1] = {
-                            ...updated[updated.length - 1],
-                            content: accumulated,
-                          }
-                        }
-                        return updated
-                      })
-                    }
-                  }
-                } catch {}
-              }
-            }
-          }
-
-          if (accumulated.trim()) {
-            setLoading(false)
-            if (isVoiceModalOpen) speakText(accumulated)
-            return
-          }
-        }
-      } catch (streamErr) {
-        // Stream fallback to standard POST /chat
-      }
-
-      const response = await fetch(
-        `${apiUrl}/chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':
-              'application/json',
-            Authorization:
-              `Bearer ${googleToken}`,
-          },
-          body: JSON.stringify({
-            mensagem: texto,
-            image_base64: imgBase64 || undefined,
-            session_id:
-              sessionId
-              || undefined,
-            pesquisar_web:
-              pesquisarWeb,
-            project_id: 'general',
-          }),
-          signal: controller.signal,
-        },
-      )
-
-      const data =
-        await response
-          .json()
-          .catch(
-            () => ({}),
-          )
-
-      const responseAgentTrace:
-        AgentTraceItem[] =
-          Array.isArray(
-            data.agent_trace,
-          )
-            ? data.agent_trace
-            : []
-
-      if (
-        responseAgentTrace.length
-        > 0
-      ) {
-        setActiveAgentTrace(
-          responseAgentTrace,
-        )
-      }
-
-      if (!response.ok) {
-        const detail =
-          data?.detail
-          || `Erro HTTP ${response.status}`
-
-        throw new Error(
-          String(detail),
-        )
-      }
-
-      if (
-        data.session_id
-        && !sessionId
-      ) {
-        setSessionId(
-          data.session_id,
-        )
-      }
-
-      const assistantReply = data.resposta || 'A API respondeu sem conteúdo.'
-
-      setMessages(
-        (current) => [
-          ...current,
-          {
-            role: 'assistant',
-            content: assistantReply,
-            fontes:
-              data.fontes
-              || [],
-            provider_used:
-              data.provider_used
-              || '',
-            agent_trace:
-              responseAgentTrace,
-            fallback_reason:
-              data.fallback_reason
-              || null,
-          },
-        ],
-      )
-
-      setChatError('')
-      if (isVoiceModalOpen) speakText(assistantReply)
-
-      await carregarConversas()
-    } catch (error) {
-      if (
-        error instanceof DOMException
-        && error.name === 'AbortError'
-      ) {
-        setChatError(
-          'A resposta foi interrompida. Você pode tentar novamente.',
-        )
-
-        return
-      }
-
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Erro desconhecido'
-
-      const normalized =
-        message.toLowerCase()
-
-      const authExpired =
-        normalized.includes(
-          'token google',
-        )
-        || normalized.includes(
-          'login google',
-        )
-        || normalized.includes(
-          'token ausente',
-        )
-        || normalized.includes(
-          '401',
-        )
-
-      if (authExpired) {
-        setGoogleToken('')
-        setProfile(null)
-        setConversas([])
-
-        window.localStorage.removeItem(
-          'helpus_google_token',
-        )
-
-        setInput(texto)
-
-        setChatError(
-          'Sua sessão expirou. Entre novamente com o Google. A mensagem foi mantida na caixa de texto.',
-        )
-
-        return
-      }
-
-      setChatError(
-        `Não foi possível obter uma resposta. ${message}`,
-      )
-    } finally {
-      if (
-        abortControllerRef.current
-        === controller
-      ) {
-        abortControllerRef.current =
-          null
-      }
-
-      setLoading(false)
-
-      window.setTimeout(
-        () =>
-          setActiveAgentTrace([]),
-        2600,
-      )
-    }
-  }
-
-  const enviarMensagem = async () => {
-    await submitMessage(
-      input,
-      true,
-    )
-  }
-
-  const reenviarUltimaMensagem = () => {
-    if (
-      !lastSubmittedText
-      || loading
-    ) {
-      return
-    }
-
-    void submitMessage(
-      lastSubmittedText,
-      false,
-    )
-  }
-
-  const cancelarResposta = () => {
-    abortControllerRef.current?.abort()
-  }
-
-  async function copiarMensagem(content: string, index: number) {
-    if (!navigator.clipboard) {
-      console.warn('Clipboard indisponivel para copiar mensagem')
-      return
-    }
-
-    await navigator.clipboard.writeText(content)
-    setCopiedMessageIndex(index)
-    window.setTimeout(() => {
-      setCopiedMessageIndex(current => (current === index ? null : current))
-    }, 1800)
-  }
-
-  async function copiarLinkConversa() {
-    if (!sessionId) return
-    if (!navigator.clipboard) {
-      console.warn('Clipboard indisponivel para copiar link')
-      return
-    }
-    const link = `${window.location.origin}${chatUrl(sessionId)}`
-    await navigator.clipboard.writeText(link)
-    setCopiedChatLink(true)
-    window.setTimeout(() => setCopiedChatLink(false), 1800)
-  }
-
-  async function copiarLinkConversaPorId(
-    id: string,
-  ) {
-    const link =
-      `${window.location.origin}${chatUrl(id)}`
-
-    try {
-      await navigator.clipboard.writeText(
-        link,
-      )
-
-      setSidebarNotice(
-        'Link da conversa copiado.',
-      )
-    } catch {
-      setSidebarNotice(
-        `Copie manualmente: ${link}`,
-      )
-    }
-
-    window.setTimeout(
-      () =>
-        setSidebarNotice(''),
-      3000,
-    )
-  }
-
-  const renomearConversaLocal = (
-    conv: ConversaResumo,
-  ) => {
-    const currentTitle =
-      tituloExibidoConversa(
-        conv,
-      )
-
-    const requested =
-      window.prompt(
-        'Novo nome para esta conversa:',
-        currentTitle,
-      )
-
-    const nextTitle =
-      requested?.trim()
-
-    if (
-      !nextTitle
-      || nextTitle === currentTitle
-    ) {
-      return
-    }
-
-    setChatAliases(
-      (current) => {
-        const next = {
-          ...current,
-          [conv.session_id]: nextTitle,
-        }
-
-        window.localStorage.setItem(
-          'helpus_chat_aliases_v1',
-          JSON.stringify(next),
-        )
-
-        return next
-      },
-    )
-
-    setChatMenuOpenId('')
-
-    setSidebarNotice(
-      'Nome salvo nesta interface.',
-    )
-
-    window.setTimeout(
-      () =>
-        setSidebarNotice(''),
-      3000,
-    )
-  }
-
-  const limparChat = () => {
-    abortControllerRef.current?.abort()
-
-    setMessages([])
-    setSessionId('')
-    setChatMenuOpenId('')
-    setDeleteConfirmId('')
-    setSidebarNotice('')
-    setChatError('')
-    setLastSubmittedText('')
-    setShowScrollToBottom(false)
-
-    router.push('/')
-
-    setInput('')
-    setSidebarOpen(false)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      enviarMensagem()
-    }
-  }
+  const firstName = profile?.name ? profile.name.split(' ')[0] : 'Help'
 
   return (
-    <main className="helpus-dark-shell h-screen overflow-hidden bg-[#212121] text-zinc-100">
-      <Script src="https://accounts.google.com/gsi/client" async defer onLoad={inicializarGoogle} />
+    <>
+      <Script
+        src="https://accounts.google.com/gsi/client"
+        async
+        defer
+        onLoad={inicializarGoogle}
+      />
 
-      <div className="flex h-full w-full flex-col overflow-hidden">
-        <header className="z-40 flex-none border-b border-white/10 bg-[#212121]/95 px-3 py-2 backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-white/10"
-                aria-label="Abrir ou recolher menu"
-              >
-                Menu
-              </button>
-              <div>
-                <h1 className="max-w-[55vw] truncate text-base font-semibold tracking-tight text-zinc-100">{activeConversationTitle}</h1>
-                <div className="flex items-center gap-2">
-                  <p className="text-xs text-zinc-400">HelpUS!AI</p>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-zinc-500" title="Versao visual temporaria da HelpUSAI">{HELPUSAI_VISUAL_VERSION}</span>
-                </div>
-              </div>
-            </div>
+      {/* Anchor invisível para inicialização técnica do botão Google sem poluir a interface */}
+      <div id="google-native-signin-anchor" className="hidden" />
 
-            <div className="flex items-center gap-2">
+      <div className="flex h-screen w-screen overflow-hidden bg-[#131314] text-[#e3e3e3] font-sans">
+        {/* ================= BARRA LATERAL (SIDEBAR GEMINI) ================= */}
+        <aside
+          className={`${
+            sidebarOpen ? 'w-72' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
+          } flex flex-col border-r border-[#242526] bg-[#1e1f20] transition-all duration-300 ease-in-out z-40 shrink-0 overflow-hidden`}
+        >
+          {/* Topo da Sidebar */}
+          <div className="flex h-16 items-center justify-between px-3.5">
+            <div className="flex items-center gap-2.5 min-w-0">
               <button
-                onClick={startVoiceCall}
-                className="flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-200 transition hover:bg-sky-500/25 hover:text-white"
-                title="Iniciar Chamada de Voz em Tempo Real com a Hel"
+                onClick={() => setSidebarOpen((prev) => !prev)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
+                title={sidebarOpen ? 'Recolher menu' : 'Expandir menu'}
                 type="button"
               >
-                <span className="h-2 w-2 animate-ping rounded-full bg-sky-400" />
-                <span>🎙️ Ligar para Hel</span>
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
+                </svg>
               </button>
-              <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 sm:flex">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                Sistema operacional
-              </span>
-              <div className="relative">
-                <button
-                  onClick={() => setActionsMenuOpen(!actionsMenuOpen)}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
-                  aria-haspopup="menu"
-                  aria-expanded={actionsMenuOpen}
-                  title="Opcoes"
-                >
-                  ...
-                </button>
-                <div className={actionsMenuOpen ? "absolute right-0 top-10 z-50 w-64 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-2 text-sm text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur" : "hidden"} role="menu">
-                  <button onClick={() => { setActionsMenuOpen(false); limparChat() }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
-                    <span>Nova conversa</span>
-                    <span className="text-zinc-500">+</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setActionsMenuOpen(false)
-                      void carregarConversas()
-                    }}
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
-                    role="menuitem"
-                  >
-                    <span>Atualizar conversas</span>
-                    <span className="text-zinc-500">↻</span>
-                  </button>
-                  {sessionId ? (
-                    <button
-                      onClick={() => {
-                        setActionsMenuOpen(false)
-                        void copiarLinkConversa()
-                      }}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
-                      role="menuitem"
-                    >
-                      <span>Copiar link atual</span>
-                      <span className="text-zinc-500">↗</span>
-                    </button>
-                  ) : null}
-                  <button onClick={() => { setActionsMenuOpen(false); router.push('/admin') }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10" role="menuitem">
-                    <span>Painel operacional</span>
-                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-zinc-300">/admin</span>
-                  </button>
-                  <div className="my-2 h-px bg-white/10" />
-                  {profile ? (
-                    <button onClick={sair} className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10" role="menuitem">Sair da conta Google</button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setActionsMenuOpen(false)
-                        window.google?.accounts?.id?.prompt()
-                      }}
-                      className="block w-full rounded-xl px-3 py-2.5 text-left text-zinc-100 transition hover:bg-white/10"
-                      role="menuitem"
-                    >
-                      Entrar com Google
-                    </button>
-                  )}
+
+              {sidebarOpen && (
+                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={novaConversa}>
+                  <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10">
+                    <Image
+                      src="/logo-helpus.png"
+                      alt="HelpUS Logo"
+                      fill
+                      className="object-cover"
+                      priority
+                    />
+                  </div>
+                  <span className="text-lg font-semibold tracking-tight text-[#e3e3e3]">
+                    HelpUS
+                  </span>
                 </div>
-              </div>
+              )}
             </div>
           </div>
-          <div id="google-login-button" className="hidden" />
-        </header>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <aside
-            className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 block w-80 max-w-[85vw]' : 'hidden'} border-r border-white/10 bg-[#171717] p-2 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur lg:static lg:z-auto lg:block lg:w-72 lg:max-w-none lg:flex-none`}
-          >
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="flex items-center justify-between gap-3 px-2 py-2">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-zinc-100">
-                    Conversas
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {conversasFiltradas.length} de {conversas.length}
-                  </div>
-                </div>
-
+          {/* Conteúdo da Sidebar quando expandida */}
+          {sidebarOpen ? (
+            <div className="flex flex-1 flex-col overflow-y-auto px-3 py-2 min-h-0">
+              {/* Abas Toggle (Chat | Spark) estilo Gemini Foto 4 */}
+              <div className="mb-3 flex rounded-full bg-[#131314] p-1 text-xs font-medium text-[#c4c7c5]">
                 <button
-                  onClick={() => setSidebarOpen(false)}
-                  className="rounded-xl px-3 py-2 text-sm text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 lg:hidden"
-                  aria-label="Fechar menu"
                   type="button"
+                  onClick={() => setActiveTab('chat')}
+                  className={`flex-1 rounded-full py-1.5 transition ${
+                    activeTab === 'chat'
+                      ? 'bg-[#282a2c] text-white shadow-sm'
+                      : 'hover:text-white'
+                  }`}
                 >
-                  ×
+                  Chat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('spark')}
+                  className={`flex-1 rounded-full py-1.5 transition flex items-center justify-center gap-1 ${
+                    activeTab === 'spark'
+                      ? 'bg-[#282a2c] text-white shadow-sm'
+                      : 'hover:text-white'
+                  }`}
+                >
+                  <span>Spark</span>
+                  <span className="rounded bg-[#004a77] px-1 py-0.2 text-[9px] font-bold text-[#7fcfff]">
+                    BETA
+                  </span>
                 </button>
               </div>
 
-              <div className="space-y-2 px-2 pb-3">
-                <button
-                  onClick={limparChat}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-white/10"
-                  type="button"
-                >
-                  <span className="text-base">+</span>
-                  <span>Nova conversa</span>
-                </button>
+              {/* Botão Nova Conversa */}
+              <button
+                type="button"
+                onClick={novaConversa}
+                className="mb-2 flex w-full items-center gap-3 rounded-full bg-[#131314] px-4 py-3 text-sm font-medium text-[#e3e3e3] hover:bg-[#282a2c] transition shadow-sm"
+              >
+                <svg className="h-4 w-4 text-[#7fcfff]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Nova conversa</span>
+              </button>
 
-                <label className="flex w-full items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 text-left text-zinc-300 ring-1 ring-white/10 transition focus-within:ring-white/20">
-                  <span className="w-5 text-center text-zinc-500">
-                    ⌕
-                  </span>
-
+              {/* Ações Rápidas (Buscar, Imagens) */}
+              <div className="mb-3 space-y-0.5">
+                <div className="relative">
                   <input
-                    value={chatSearch}
-                    onChange={(event) => setChatSearch(event.target.value)}
-                    placeholder="Buscar conversas"
-                    className="min-w-0 flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
-                    type="search"
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar conversas..."
+                    className="w-full rounded-full bg-[#131314] px-9 py-2 text-xs text-[#e3e3e3] placeholder-[#8e918f] outline-none focus:ring-1 focus:ring-[#7fcfff]"
                   />
-
-                  {chatSearch ? (
-                    <button
-                      onClick={() => setChatSearch('')}
-                      className="rounded-md px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-white/10 hover:text-zinc-100"
-                      aria-label="Limpar busca"
-                      type="button"
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </label>
-
-                <button
-                  onClick={() => void carregarConversas()}
-                  disabled={historyLoading || !profile}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
-                  type="button"
-                >
-                  <span>{historyLoading ? '...' : '↻'}</span>
-                  <span>
-                    {historyLoading
-                      ? 'Atualizando'
-                      : 'Atualizar lista'}
-                  </span>
-                </button>
-              </div>
-
-              {sidebarNotice ? (
-                <p className="mx-2 mb-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-zinc-300">
-                  {sidebarNotice}
-                </p>
-              ) : null}
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-2 pr-1">
-                {!profile ? (
-                  <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm leading-6 text-zinc-500">
-                    Entre com Google para carregar suas conversas.
-                  </p>
-                ) : null}
-
-                {profile && historyLoading && conversas.length === 0 ? (
-                  <div className="space-y-2">
-                    {[1, 2, 3, 4].map((item) => (
-                      <div
-                        key={item}
-                        className="h-16 animate-pulse rounded-xl bg-white/5"
-                      />
-                    ))}
-                  </div>
-                ) : null}
-
-                {profile && !historyLoading && conversas.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm leading-6 text-zinc-500">
-                    Nenhuma conversa salva ainda.
-                  </p>
-                ) : null}
-
-                {profile
-                && conversas.length > 0
-                && conversasFiltradas.length === 0
-                ? (
-                  <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm leading-6 text-zinc-500">
-                    Nenhuma conversa corresponde à busca.
-                  </p>
-                ) : null}
-
-                <div className="space-y-1">
-                  {conversasFiltradas.map((conv) => {
-                    const active =
-                      sessionId === conv.session_id
-
-                    const displayTitle =
-                      tituloExibidoConversa(conv)
-
-                    return (
-                      <div
-                        key={conv.session_id}
-                        className={`overflow-hidden rounded-xl border transition ${
-                          active
-                            ? 'border-emerald-400/20 bg-emerald-400/[0.08]'
-                            : 'border-transparent hover:border-white/10 hover:bg-white/[0.05]'
-                        }`}
-                      >
-                        <div className="flex items-start gap-1 p-1.5">
-                          <button
-                            onClick={() => {
-                              setChatMenuOpenId('')
-                              void carregarHistorico(conv.session_id)
-                            }}
-                            className="min-w-0 flex-1 rounded-lg px-2 py-2 text-left"
-                            type="button"
-                          >
-                            <span className="flex items-start gap-2">
-                              <span
-                                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                                  active
-                                    ? 'bg-emerald-400'
-                                    : 'bg-zinc-700'
-                                }`}
-                              />
-
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-zinc-200">
-                                  {displayTitle}
-                                </span>
-
-                                <span className="mt-1 block truncate text-[11px] text-zinc-500">
-                                  {formatarDataConversa(conv)}
-                                  {' · '}
-                                  {conv.total_mensagens} mensagens
-                                </span>
-                              </span>
-                            </span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setDeleteConfirmId('')
-                              setChatMenuOpenId(
-                                chatMenuOpenId === conv.session_id
-                                  ? ''
-                                  : conv.session_id,
-                              )
-                            }}
-                            className="rounded-lg px-2 py-2 text-sm text-zinc-500 transition hover:bg-white/10 hover:text-zinc-100"
-                            aria-label={`Opções de ${displayTitle}`}
-                            title="Opções"
-                            type="button"
-                          >
-                            ⋯
-                          </button>
-                        </div>
-
-                        {chatMenuOpenId === conv.session_id ? (
-                          <div className="mx-2 mb-2 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-zinc-950/70 p-1.5">
-                            <button
-                              onClick={() => {
-                                setChatMenuOpenId('')
-                                void carregarHistorico(conv.session_id)
-                              }}
-                              className="rounded-lg px-2 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/10 hover:text-white"
-                              type="button"
-                            >
-                              Abrir conversa
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setChatMenuOpenId('')
-                                void copiarLinkConversaPorId(conv.session_id)
-                              }}
-                              className="rounded-lg px-2 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/10 hover:text-white"
-                              type="button"
-                            >
-                              Copiar link
-                            </button>
-
-                            <button
-                              onClick={() => renomearConversaLocal(conv)}
-                              className="rounded-lg px-2 py-2 text-left text-xs text-zinc-300 transition hover:bg-white/10 hover:text-white"
-                              type="button"
-                            >
-                              Renomear
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setChatMenuOpenId('')
-                                setDeleteConfirmId(conv.session_id)
-                              }}
-                              className="rounded-lg px-2 py-2 text-left text-xs text-rose-300 transition hover:bg-rose-500/10"
-                              type="button"
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        ) : null}
-
-                        {deleteConfirmId === conv.session_id ? (
-                          <div className="mx-2 mb-2 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-100">
-                            <div className="mb-2 font-medium">
-                              Excluir esta conversa permanentemente?
-                            </div>
-
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => void apagarConversa(conv.session_id)}
-                                className="rounded-lg bg-rose-500/20 px-3 py-1.5 text-rose-100 transition hover:bg-rose-500/30"
-                                type="button"
-                              >
-                                Excluir
-                              </button>
-
-                              <button
-                                onClick={() => setDeleteConfirmId('')}
-                                className="rounded-lg px-3 py-1.5 text-zinc-300 transition hover:bg-white/10"
-                                type="button"
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    )
-                  })}
+                  <svg className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#8e918f]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span>Analisar imagens</span>
+                </button>
               </div>
 
-              <div className="relative mt-2 border-t border-white/10 px-2 pt-3">
-                <button
-                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
-                  type="button"
-                >
-                  {profile?.picture ? (
-                    <img
-                      src={profile.picture}
-                      alt=""
-                      className="h-8 w-8 rounded-full"
-                    />
+              {/* Se NÃO logado: Card Informativo do Gemini Foto 2 */}
+              {!googleToken && (
+                <div className="my-2 rounded-2xl border border-white/5 bg-[#131314] p-3.5 text-xs text-[#c4c7c5]">
+                  <div className="flex items-start gap-2">
+                    <span className="text-[#7fcfff]">ⓘ</span>
+                    <div>
+                      <span>Faça login para salvar seu histórico de conversas e memórias.</span>
+                      <button
+                        type="button"
+                        onClick={dispararLoginGoogle}
+                        className="mt-2 block font-semibold text-[#7fcfff] underline hover:text-[#a8e0ff]"
+                      >
+                        Fazer login agora
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Se logado: Lista de Recentes estilo Gemini Foto 4 */}
+              {googleToken && (
+                <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
+                  <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
+                    Recentes
+                  </div>
+                  {conversasFiltradas.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-[#8e918f]">
+                      Nenhuma conversa encontrada.
+                    </div>
                   ) : (
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
-                      H
-                    </span>
+                    conversasFiltradas.map((conv) => {
+                      const ativa = sessionId === conv.session_id
+                      const titulo = conv.titulo || `Conversa ${conv.session_id.slice(0, 8)}`
+                      return (
+                        <div
+                          key={conv.session_id}
+                          onClick={() => abrirConversa(conv.session_id)}
+                          className={`group flex items-center justify-between rounded-xl px-3 py-2 text-xs cursor-pointer transition ${
+                            ativa
+                              ? 'bg-[#004a77] text-white font-medium'
+                              : 'text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white'
+                          }`}
+                        >
+                          <span className="truncate pr-2">{titulo}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => excluirConversa(conv.session_id, e)}
+                            className="hidden shrink-0 text-[#8e918f] hover:text-rose-400 group-hover:block"
+                            title="Excluir"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )
+                    })
                   )}
+                </div>
+              )}
+            </div>
+          ) : (
+            // Sidebar colapsada em ícones (modo mini)
+            <div className="flex flex-1 flex-col items-center gap-3 py-3">
+              <button
+                type="button"
+                onClick={novaConversa}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#131314] text-[#7fcfff] hover:bg-[#282a2c] transition"
+                title="Nova conversa"
+              >
+                +
+              </button>
+            </div>
+          )}
 
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-zinc-100">
-                      {profile?.name || 'HelpUS'}
-                    </span>
-
-                    <span className="block truncate text-xs text-zinc-500">
-                      {profile?.email || 'Entrar com Google'}
-                    </span>
-                  </span>
-
-                  <span className="text-xs text-zinc-500">
-                    ⋯
-                  </span>
+          {/* Rodapé da Sidebar */}
+          <div className="border-t border-[#242526] p-2.5">
+            {profile ? (
+              // Rodapé com usuário logado estilo Gemini Foto 4
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between rounded-2xl p-2 hover:bg-[#282a2c] transition text-left"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {profile.picture ? (
+                      <img
+                        src={profile.picture}
+                        alt={profile.name}
+                        className="h-8 w-8 rounded-full object-cover ring-1 ring-white/10"
+                      />
+                    ) : (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#374151] text-xs font-semibold text-white">
+                        {firstName[0]}
+                      </div>
+                    )}
+                    {sidebarOpen && (
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-semibold text-[#e3e3e3]">
+                          {profile.name}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-[#7fcfff]">
+                          <span>HelpUS</span>
+                          <span className="rounded bg-[#004a77] px-1 py-0.2 font-bold text-[#7fcfff]">
+                            Pro
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {sidebarOpen && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSettingsOpen((prev) => !prev)
+                      }}
+                      className="text-[#8e918f] hover:text-white p-1"
+                    >
+                      ⚙
+                    </button>
+                  )}
                 </button>
 
-                <div
-                  className={accountMenuOpen
-                    ? 'absolute bottom-16 left-2 right-2 z-50 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-2 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur'
-                    : 'hidden'}
-                >
-                  <button
-                    onClick={() => setAccountPanel('personalizacao')}
-                    className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${
-                      accountPanel === 'personalizacao'
-                        ? 'bg-white/10 text-white'
-                        : ''
-                    }`}
-                    type="button"
-                  >
-                    Personalização
-                  </button>
-
-                  <button
-                    onClick={() => setAccountPanel('configuracoes')}
-                    className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${
-                      accountPanel === 'configuracoes'
-                        ? 'bg-white/10 text-white'
-                        : ''
-                    }`}
-                    type="button"
-                  >
-                    Configurações
-                  </button>
-
-                  <button
-                    onClick={() => setAccountPanel('ajuda')}
-                    className={`block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 ${
-                      accountPanel === 'ajuda'
-                        ? 'bg-white/10 text-white'
-                        : ''
-                    }`}
-                    type="button"
-                  >
-                    Ajuda
-                  </button>
-
-                  {accountPanel ? (
-                    <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs leading-5 text-zinc-400">
-                      {accountPanel === 'personalizacao' ? (
-                        <div className="space-y-1">
-                          <div className="font-medium text-zinc-200">
-                            Personalização
-                          </div>
-                          <p>
-                            Os nomes alterados na lista são salvos somente neste navegador.
-                          </p>
-                        </div>
-                      ) : null}
-
-                      {accountPanel === 'configuracoes' ? (
-                        <div className="space-y-1">
-                          <div className="font-medium text-zinc-200">
-                            Configurações
-                          </div>
-                          <p>
-                            Conta conectada: {profile?.email || 'não conectado'}.
-                          </p>
-                          <p>
-                            O histórico é carregado da conta Google autenticada.
-                          </p>
-                        </div>
-                      ) : null}
-
-                      {accountPanel === 'ajuda' ? (
-                        <div className="space-y-1">
-                          <div className="font-medium text-zinc-200">
-                            Ajuda
-                          </div>
-                          <p>
-                            Clique em uma conversa para reabri-la.
-                          </p>
-                          <p>
-                            Use o menu de três pontos para copiar, renomear ou excluir.
-                          </p>
-                        </div>
-                      ) : null}
+                {/* Popover da Conta */}
+                {accountMenuOpen && (
+                  <div className="absolute bottom-14 left-0 z-50 w-60 rounded-2xl border border-[#2d2e30] bg-[#1e1f20] p-2 shadow-2xl">
+                    <div className="px-3 py-2 text-xs border-b border-white/5">
+                      <div className="font-semibold text-white truncate">{profile.name}</div>
+                      <div className="text-[11px] text-[#8e918f] truncate">{profile.email}</div>
                     </div>
-                  ) : null}
-
-                  <div className="my-1 h-px bg-white/10" />
-
-                  <button
-                    onClick={() => {
-                      setAccountMenuOpen(false)
-                      router.push('/admin')
-                    }}
-                    className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
-                    type="button"
-                  >
-                    Painel operacional
-                  </button>
-
-                  {profile ? (
                     <button
-                      onClick={sair}
-                      className="block w-full rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/10"
                       type="button"
-                    >
-                      Sair
-                    </button>
-                  ) : (
-                    <button
                       onClick={() => {
                         setAccountMenuOpen(false)
-                        setAccountPanel(null)
-                        window.google?.accounts?.id?.prompt()
+                        router.push('/admin')
                       }}
-                      className="block w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10"
-                      type="button"
+                      className="mt-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
                     >
-                      Entrar com Google
+                      <span>Painel Operacional</span>
+                      <span className="text-[10px] text-[#8e918f]">/admin</span>
                     </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div
-              ref={messagesViewportRef}
-              onScroll={(event) => {
-                const element =
-                  event.currentTarget
-
-                const distanceFromBottom =
-                  element.scrollHeight
-                  - element.scrollTop
-                  - element.clientHeight
-
-                setShowScrollToBottom(
-                  distanceFromBottom > 180,
-                )
-              }}
-              className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6"
-            >
-              {messages.length === 0 ? (
-                <div className="mx-auto flex min-h-[52vh] max-w-3xl flex-col items-center justify-center px-2 py-8 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-lg font-semibold text-zinc-100 shadow-lg shadow-black/20">
-                    H
-                  </div>
-
-                  <h2 className="mt-5 text-2xl font-semibold tracking-tight text-zinc-100">
-                    Como posso ajudar?
-                  </h2>
-
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-                    Inicie uma nova conversa ou escolha uma das sugestões abaixo.
-                  </p>
-
-                  <div className="mt-6 grid w-full gap-2 sm:grid-cols-2">
-                    {STARTER_PROMPTS.map((prompt) => (
-                      <button
-                        key={prompt}
-                        onClick={() => {
-                          setInput(prompt)
-
-                          window.setTimeout(
-                            () =>
-                              inputRef.current?.focus(),
-                            0,
-                          )
-                        }}
-                        className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm leading-5 text-zinc-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
-                        type="button"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="space-y-5">
-                {messages.map((msg, index) => (
-                  <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <article
-                      className={`max-w-[92%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[78%] ${
-                        msg.role === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : msg.content.startsWith('Erro ')
-                            ? 'border border-rose-200 bg-rose-50 text-rose-950'
-                            : 'border border-white/10 bg-[#2f2f2f] text-zinc-100'
-                      }`}
+                    <button
+                      type="button"
+                      onClick={sair}
+                      className="mt-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs text-rose-300 hover:bg-rose-500/10 transition"
                     >
-                      <div className={`mb-1 text-sm font-bold ${msg.role === 'user' ? 'text-blue-50' : 'text-zinc-100'}`}>
-                        {msg.role === 'user' ? 'Voce' : 'HelpUS'}
+                      <span>Sair da conta</span>
+                      <span>↪</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Rodapé sem login estilo Gemini Foto 2
+              <div className="flex items-center justify-between p-1">
+                <button
+                  type="button"
+                  onClick={dispararLoginGoogle}
+                  className="flex items-center gap-2 text-xs font-medium text-[#c4c7c5] hover:text-white transition"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                  </svg>
+                  {sidebarOpen && <span>Fazer login</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAboutModalOpen(true)}
+                  className="text-[#8e918f] hover:text-white p-1"
+                  title="Configurações e Sobre"
+                >
+                  ⚙
+                </button>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* ================= ÁREA PRINCIPAL ================= */}
+        <main className="relative flex flex-1 flex-col overflow-hidden bg-[#131314]">
+          {/* Fundo com efeito Glow sutil estilo Gemini */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_35%,rgba(26,115,232,0.08),rgba(19,19,20,0))]" />
+
+          {/* Header Superior Estilo Gemini */}
+          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between px-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              {!sidebarOpen && (
+                <div className="flex items-center gap-2 cursor-pointer" onClick={novaConversa}>
+                  <div className="relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-white/10">
+                    <Image src="/logo-helpus.png" alt="HelpUS Logo" fill className="object-cover" />
+                  </div>
+                  <span className="text-base font-semibold text-white">HelpUS</span>
+                </div>
+              )}
+            </div>
+
+            {/* Ações da Direita do Header */}
+            <div className="flex items-center gap-3">
+              {profile ? (
+                // Header com usuário logado (Avatar + botão Sair)
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAboutModalOpen(true)}
+                    className="hidden sm:inline-flex rounded-full px-3 py-1.5 text-xs text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
+                  >
+                    Sobre o HelpUS
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAccountMenuOpen((prev) => !prev)}
+                    className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full ring-2 ring-[#7fcfff]/30 transition hover:ring-[#7fcfff]"
+                    title="Menu da conta"
+                  >
+                    {profile.picture ? (
+                      <img src={profile.picture} alt={profile.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-[#1a73e8] text-xs font-bold text-white">
+                        {firstName[0]}
+                      </div>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                // Header sem login estilo Gemini Foto 2
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAboutModalOpen(true)}
+                    className="text-xs font-medium text-[#c4c7c5] hover:text-white transition"
+                  >
+                    Sobre o HelpUS
+                  </button>
+
+                  {/* Botão azul pílula idêntico ao Gemini Foto 2 */}
+                  <button
+                    type="button"
+                    onClick={dispararLoginGoogle}
+                    className="rounded-full bg-[#1a73e8] px-5 py-2 text-xs sm:text-sm font-semibold text-white shadow-md hover:bg-[#1557b0] transition"
+                  >
+                    Fazer login
+                  </button>
+                </div>
+              )}
+            </div>
+          </header>
+
+          {/* ================= CORPO DO CHAT ================= */}
+          <div className="relative z-10 flex flex-1 flex-col overflow-y-auto px-4 pb-32 pt-2">
+            {messages.length === 0 ? (
+              // ESTADO INICIAL (HERO DO GEMINI)
+              <div className="mx-auto flex flex-1 w-full max-w-3xl flex-col items-center justify-center text-center px-2">
+                {profile ? (
+                  // Saudação personalizada estilo Gemini Foto 4
+                  <div className="mb-8">
+                    <h1 className="text-3xl sm:text-5xl font-medium tracking-tight text-[#e3e3e3]">
+                      Olá, {firstName}
+                    </h1>
+                    <p className="mt-2 text-lg sm:text-xl font-normal text-[#8e918f]">
+                      O que vamos fazer hoje?
+                    </p>
+                  </div>
+                ) : (
+                  // Saudação de apresentação estilo Gemini Foto 2
+                  <div className="mb-8">
+                    <h1 className="text-3xl sm:text-5xl font-medium tracking-tight text-[#e3e3e3]">
+                      Conheça o HelpUS, seu assistente pessoal de IA
+                    </h1>
+                  </div>
+                )}
+
+                {/* BARRA DE PROMPT CENTRAL FLUTUANTE ESTILO GEMINI */}
+                <div className="w-full">
+                  <div className="relative flex flex-col rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-3 shadow-2xl transition-all focus-within:border-[#1a73e8] focus-within:ring-1 focus-within:ring-[#1a73e8]">
+                    {/* Imagem em anexo pré-visualizada */}
+                    {selectedImage && (
+                      <div className="relative mb-2 inline-block self-start">
+                        <img
+                          src={selectedImage}
+                          alt="Prévia"
+                          className="h-20 w-20 rounded-2xl object-cover ring-1 ring-white/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedImage(null)
+                            setSelectedImageBase64(null)
+                          }}
+                          className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white hover:bg-rose-500"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Textarea */}
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          enviarMensagem()
+                        }
+                      }}
+                      placeholder="Peça ao HelpUS"
+                      rows={1}
+                      className="w-full resize-none bg-transparent px-3 py-2 text-sm sm:text-base text-[#e3e3e3] placeholder-[#8e918f] outline-none"
+                    />
+
+                    {/* Barra de Ações Inferior da Caixa de Input */}
+                    <div className="mt-2 flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-1">
+                        {/* Botão + (Anexar Imagem) */}
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
+                          title="Adicionar imagem"
+                        >
+                          <span className="text-xl leading-none">+</span>
+                        </button>
+
+                        {/* Botão Pesquisa Web */}
+                        <button
+                          type="button"
+                          onClick={() => setWebSearchEnabled((prev) => !prev)}
+                          className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition ${
+                            webSearchEnabled
+                              ? 'bg-[#004a77] text-[#7fcfff]'
+                              : 'text-[#8e918f] hover:bg-[#282a2c] hover:text-white'
+                          }`}
+                          title="Pesquisa na web em tempo real"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                          </svg>
+                          <span>Web</span>
+                        </button>
                       </div>
 
-                      <section>
-                        {msg.image_url && (
-                          <div className="mb-2 overflow-hidden rounded-xl border border-white/20">
-                            <img src={msg.image_url} alt="Imagem anexa" className="max-h-60 max-w-full object-contain" />
-                          </div>
-                        )}
-                        {msg.role === 'assistant' ? (
-                          <MarkdownMessage content={msg.content} />
-                        ) : (
-                          <p className="whitespace-pre-wrap text-[15px] leading-7 sm:text-base">
-                            {msg.content}
-                          </p>
-                        )}
-                      </section>
-                      {providerBadgeDebugEnabled && msg.provider_used && (
-                        <div className="mt-3 rounded-lg border border-white/5 bg-white/[0.02] px-2 py-1 text-[11px] text-zinc-500">
-                          Provider: {msg.provider_used}{msg.fallback_reason ? ` (${msg.fallback_reason})` : ''}
-                        </div>
-                      )}
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {msg.role === 'assistant' ? (
+                      <div className="flex items-center gap-2">
+                        {/* Seletor de Modelo Pílula (Flash-Lite ▾) estilo Gemini */}
+                        <div className="relative">
                           <button
                             type="button"
-                            onClick={() => copiarMensagem(msg.content, index)}
-                            className="rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+                            onClick={() => setModelDropdownOpen((prev) => !prev)}
+                            className="flex items-center gap-1.5 rounded-full bg-[#131314] px-3 py-1.5 text-xs font-medium text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
                           >
-                            {copiedMessageIndex === index
-                              ? 'Copiado'
-                              : 'Copiar'}
+                            <span>{activeModel.name}</span>
+                            <span className="text-[10px] text-[#8e918f]">▾</span>
                           </button>
-                        ) : (
+
+                          {modelDropdownOpen && (
+                            <div className="absolute bottom-10 right-0 z-50 w-52 rounded-2xl border border-[#2d2e30] bg-[#1e1f20] p-1.5 shadow-2xl">
+                              {MODEL_OPTIONS.map((m) => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveModel(m)
+                                    setModelDropdownOpen(false)
+                                  }}
+                                  className={`flex w-full flex-col rounded-xl px-3 py-2 text-left text-xs transition ${
+                                    activeModel.id === m.id
+                                      ? 'bg-[#004a77] text-white'
+                                      : 'text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white'
+                                  }`}
+                                >
+                                  <span className="font-semibold">{m.name}</span>
+                                  <span className="text-[10px] opacity-75">{m.desc}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Botão Microfone / Chamada de Voz */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsVoiceModalOpen(true)
+                            startVoiceRecognition()
+                          }}
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
+                          title="Falar com HelpUS"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 02-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                          </svg>
+                        </button>
+
+                        {/* Botão de Envio ↑ */}
+                        {(input.trim() || selectedImageBase64) && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setInput(msg.content)
-
-                              window.setTimeout(
-                                () =>
-                                  inputRef.current?.focus(),
-                                0,
-                              )
-                            }}
-                            className="rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-blue-100/80 transition hover:bg-white/10 hover:text-white"
+                            onClick={() => enviarMensagem()}
+                            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3] transition shadow-md"
+                            title="Enviar"
                           >
-                            Usar novamente
+                            ↑
                           </button>
                         )}
                       </div>
+                    </div>
+                  </div>
+                </div>
 
-                      {msg.fontes && msg.fontes.length > 0 && (
-                        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Fontes consultadas
-                          </p>
-                          <div className="space-y-1">
-                            {msg.fontes.map((fonte, i) => (
-                              <SafeSourceLink
-                                key={`${fonte.url}-${i}`}
-                                fonte={fonte}
-                                index={i}
-                              />
-                            ))}
+
+              </div>
+            ) : (
+              // LISTA DE MENSAGENS EM ANDAMENTO ESTILO GEMINI
+              <div className="mx-auto w-full max-w-3xl space-y-6">
+                {messages.map((msg, idx) => (
+                  <div key={idx} className="flex flex-col gap-2">
+                    {msg.role === 'user' ? (
+                      // Mensagem do Usuário
+                      <div className="flex justify-end">
+                        <div className="max-w-[85%] rounded-3xl bg-[#282a2c] px-5 py-3 text-sm sm:text-base text-[#e3e3e3]">
+                          {msg.image_url && (
+                            <img
+                              src={msg.image_url}
+                              alt="Anexo do usuário"
+                              className="mb-2 max-h-60 rounded-xl object-contain"
+                            />
+                          )}
+                          <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      // Resposta da IA (HelpUS)
+                      <div className="flex gap-3">
+                        <div className="relative mt-1 h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10">
+                          <Image src="/logo-helpus.png" alt="HelpUS Logo" fill className="object-cover" />
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="text-sm sm:text-base leading-relaxed text-[#e3e3e3]">
+                            <MarkdownMessage content={msg.content} />
+                          </div>
+
+                          {/* Fontes consultadas na web */}
+                          {msg.fontes && msg.fontes.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {msg.fontes.map((f, i) => (
+                                <SafeSourceLink key={i} fonte={f} index={i} />
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Barra de Ferramentas da Resposta */}
+                          <div className="flex items-center gap-1 pt-1 text-[#8e918f]">
+                            <button
+                              type="button"
+                              onClick={() => copiarTexto(msg.content, idx)}
+                              className="flex items-center gap-1 rounded-full p-1.5 text-xs hover:bg-[#282a2c] hover:text-white transition"
+                              title="Copiar texto"
+                            >
+                              <span>{copiedIndex === idx ? '✓ Copiado' : '⧉ Copiar'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => ouvirTexto(msg.content)}
+                              className="flex items-center gap-1 rounded-full p-1.5 text-xs hover:bg-[#282a2c] hover:text-white transition"
+                              title="Ouvir resposta em áudio"
+                            >
+                              <span>🔊 Ouvir</span>
+                            </button>
                           </div>
                         </div>
-                      )}
-                    </article>
+                      </div>
+                    )}
                   </div>
                 ))}
 
-                {activeAgentTrace.length > 0 && (
-                  <div className="mx-auto mb-3 flex max-w-3xl items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-300 shadow-lg shadow-black/10">
-                    <span className="whitespace-nowrap font-medium text-zinc-100">Trabalho interno da HelpUSAI</span>
-                    <span className="h-1 w-1 rounded-full bg-zinc-500" />
-                    <div className="flex min-w-0 flex-wrap gap-2">
-                      {activeAgentTrace.map((step, traceIndex) => (
-                        <span key={`${step.label}-${traceIndex}`} className={`rounded-full px-2 py-1 ${step.status === 'done' ? 'bg-emerald-500/10 text-emerald-200' : step.status === 'skipped' ? 'bg-zinc-500/10 text-zinc-400' : 'bg-sky-500/10 text-sky-200'}`}>
-                          {step.label}
-                        </span>
-                      ))}
+                {/* Indicador de carregamento */}
+                {loading && (
+                  <div className="flex gap-3 items-center text-xs text-[#8e918f]">
+                    <div className="relative h-6 w-6 overflow-hidden rounded-full ring-1 ring-white/10 animate-pulse">
+                      <Image src="/logo-helpus.png" alt="HelpUS Logo" fill className="object-cover" />
                     </div>
+                    <span>HelpUS está formulando a resposta...</span>
                   </div>
                 )}
 
-                {loading ? (
-                  <div className="flex justify-start">
-                    <div className="rounded-2xl border border-white/10 bg-[#2f2f2f] px-4 py-3 shadow-sm shadow-black/20">
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
-                        <div className="flex gap-1">
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-                        </div>
-
-                        <span>
-                          HelpUS está pensando...
-                        </span>
-
-                        <button
-                          onClick={cancelarResposta}
-                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/10 hover:text-white"
-                          type="button"
-                        >
-                          Interromper
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {chatError ? (
-                  <div className="mx-auto max-w-3xl rounded-2xl border border-amber-400/20 bg-amber-400/[0.08] p-4 text-sm text-amber-50">
-                    <p className="leading-6">
-                      {chatError}
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {lastSubmittedText ? (
-                        <button
-                          onClick={reenviarUltimaMensagem}
-                          disabled={loading}
-                          className="rounded-lg bg-amber-300/15 px-3 py-1.5 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/25 disabled:cursor-not-allowed disabled:opacity-40"
-                          type="button"
-                        >
-                          Tentar novamente
-                        </button>
-                      ) : null}
-
-                      <button
-                        onClick={() => setChatError('')}
-                        className="rounded-lg px-3 py-1.5 text-xs text-amber-100/70 transition hover:bg-white/10 hover:text-amber-50"
-                        type="button"
-                      >
-                        Fechar
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div
-                  ref={messagesEndRef}
-                  className="h-px"
-                  aria-hidden="true"
-                />
+                <div ref={messagesEndRef} className="h-6" />
               </div>
+            )}
+          </div>
 
-              {showScrollToBottom ? (
-                <button
-                  onClick={() => scrollToBottom()}
-                  className="sticky bottom-3 mx-auto mt-3 flex items-center gap-2 rounded-full border border-white/10 bg-zinc-900/95 px-4 py-2 text-xs font-medium text-zinc-200 shadow-xl shadow-black/30 backdrop-blur transition hover:bg-zinc-800"
-                  type="button"
-                >
-                  <span>↓</span>
-                  <span>Ir para o fim</span>
-                </button>
-              ) : null}
-            </div>
-
-            <footer className="border-t border-white/10 bg-[#212121]/95 px-3 pb-4 pt-3 backdrop-blur">
-              <div className="mx-auto max-w-4xl">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-
-                {selectedImagePreview && (
-                  <div className="relative mb-2 inline-block">
-                    <img
-                      src={selectedImagePreview}
-                      alt="Pré-visualização"
-                      className="h-20 max-w-xs rounded-xl border border-white/20 object-cover shadow-md"
-                    />
-                    <button
-                      type="button"
-                      onClick={removeSelectedImage}
-                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white shadow hover:bg-rose-500"
-                      title="Remover imagem"
-                    >
-                      ×
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex items-end gap-2 rounded-[2rem] border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl shadow-black/30 focus-within:border-white/20">
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={profile
-                      ? 'Envie uma mensagem ou anexe uma imagem ao HelpUS'
-                      : 'Entre com Google para usar o HelpUS'}
-                    className="max-h-[180px] min-h-[52px] flex-1 resize-none overflow-y-auto rounded-2xl border-0 bg-transparent px-3 py-3.5 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
-                    rows={1}
-                    disabled={loading || !profile}
-                  />
-
-                  <div className="flex shrink-0 items-center gap-1 pb-1">
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={loading || !profile}
-                      className="flex h-9 items-center justify-center rounded-full border border-white/10 px-3 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
-                      title="Anexar imagem para visão de IA"
-                      type="button"
-                    >
-                      📷 Foto
-                    </button>
-
-                    <button
-                      onClick={() => setPesquisarWeb((current) => !current)}
-                      disabled={loading || !profile}
-                      aria-pressed={pesquisarWeb}
-                      className={`flex h-9 items-center justify-center rounded-full border px-3 text-[11px] font-semibold transition ${
-                        pesquisarWeb
-                          ? 'border-sky-400/30 bg-sky-400/15 text-sky-100'
-                          : 'border-white/10 text-zinc-400 hover:bg-white/10 hover:text-zinc-100'
-                      } disabled:cursor-not-allowed disabled:opacity-30`}
-                      title="Pesquisar na web"
-                      type="button"
-                    >
-                      Web
-                    </button>
-
-                    {input || selectedImagePreview ? (
+          {/* ================= BARRA DE INPUT FIXA INFERIOR (QUANDO HÁ CONVERSA) ================= */}
+          {messages.length > 0 && (
+            <div className="absolute bottom-6 left-0 right-0 z-30 px-4">
+              <div className="mx-auto max-w-3xl">
+                <div className="relative flex flex-col rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-3 shadow-2xl focus-within:border-[#1a73e8]">
+                  {selectedImage && (
+                    <div className="relative mb-2 inline-block self-start">
+                      <img src={selectedImage} alt="Prévia" className="h-16 w-16 rounded-xl object-cover" />
                       <button
-                        onClick={() => {
-                          setInput('')
-                          removeSelectedImage()
-                          inputRef.current?.focus()
-                        }}
-                        disabled={loading}
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-sm text-zinc-500 transition hover:bg-white/10 hover:text-zinc-100 disabled:opacity-30"
-                        aria-label="Limpar mensagem"
-                        title="Limpar mensagem"
                         type="button"
+                        onClick={() => {
+                          setSelectedImage(null)
+                          setSelectedImageBase64(null)
+                        }}
+                        className="absolute -right-2 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] text-white"
                       >
                         ×
                       </button>
-                    ) : null}
+                    </div>
+                  )}
 
-                    {loading ? (
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        enviarMensagem()
+                      }
+                    }}
+                    placeholder="Peça ao HelpUS"
+                    rows={1}
+                    className="w-full resize-none bg-transparent px-3 py-1 text-sm sm:text-base text-[#e3e3e3] placeholder-[#8e918f] outline-none"
+                  />
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={cancelarResposta}
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-sm font-bold text-rose-950 transition hover:scale-105 hover:bg-white"
-                        aria-label="Interromper resposta"
-                        title="Interromper resposta"
                         type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white"
+                        title="Adicionar imagem"
                       >
-                        ■
+                        +
                       </button>
-                    ) : (
                       <button
-                        onClick={enviarMensagem}
-                        disabled={(!input.trim() && !selectedImageBase64) || !profile}
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-950 transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
-                        aria-label="Enviar mensagem"
                         type="button"
+                        onClick={() => setWebSearchEnabled((prev) => !prev)}
+                        className={`flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium transition ${
+                          webSearchEnabled ? 'bg-[#004a77] text-[#7fcfff]' : 'text-[#8e918f] hover:text-white'
+                        }`}
                       >
-                        ↑
+                        Web
                       </button>
-                    )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[#8e918f]">{activeModel.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsVoiceModalOpen(true)
+                          startVoiceRecognition()
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c]"
+                      >
+                        🎙️
+                      </button>
+                      {(input.trim() || selectedImageBase64) && (
+                        <button
+                          type="button"
+                          onClick={() => enviarMensagem()}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3]"
+                        >
+                          ↑
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-
-                <p className="mt-2 text-center text-xs text-zinc-500">
-                  Enter envia · Shift+Enter cria uma nova linha
-                  {pesquisarWeb
-                    ? ' · Pesquisa web ativada'
-                    : ''}
-                </p>
-
-                {sessionId && (
-                  <div className="mx-auto mt-2 flex max-w-4xl items-center justify-center gap-2 text-xs text-zinc-500">
-                    <span>Historico ativo - /c/{sessionId}</span>
-                    <button
-                      type="button"
-                      onClick={copiarLinkConversa}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
-                    >
-                      {copiedChatLink ? 'Link copiado' : 'Copiar link'}
-                    </button>
-                  </div>
-                )}
               </div>
-            </footer>
-          </section>
-        </div>
+            </div>
+          )}
+
+          {/* Disclaimer Inferior Discreto Estilo Gemini */}
+          <footer className="absolute bottom-1 left-0 right-0 z-20 text-center text-[11px] text-[#8e918f] pointer-events-none">
+            Sujeito aos Termos do HelpUS e à Política de Privacidade. O HelpUS é uma IA e pode cometer erros.
+          </footer>
+        </main>
       </div>
 
-      {/* Modal Chamada de Voz em Tempo Real */}
+      {/* ================= MODAL CHAMADA DE VOZ (ESTILO GEMINI LIVE) ================= */}
       {isVoiceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-          <div className="flex w-full max-w-md flex-col items-center rounded-3xl border border-white/20 bg-zinc-900 p-6 text-center text-white shadow-2xl">
-            <div className="relative mb-6 flex h-28 w-28 items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="flex w-full max-w-sm flex-col items-center rounded-3xl border border-white/10 bg-[#1e1f20] p-6 text-center shadow-2xl">
+            <div className="relative mb-6 flex h-24 w-24 items-center justify-center">
               <span
                 className={`absolute inset-0 rounded-full ${
                   voiceStatus === 'listening'
-                    ? 'animate-ping bg-sky-500/30'
-                    : voiceStatus === 'speaking'
-                      ? 'animate-pulse bg-emerald-500/40'
-                      : 'bg-zinc-700/20'
+                    ? 'animate-ping bg-[#1a73e8]/30'
+                    : 'bg-[#1a73e8]/10'
                 }`}
               />
-              <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-emerald-500 text-3xl shadow-lg shadow-sky-500/20">
+              <div className="relative z-10 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-[#1a73e8] to-[#7fcfff] text-2xl shadow-lg">
                 🎙️
               </div>
             </div>
 
-            <h3 className="text-xl font-bold">Chamada de Voz - Hel</h3>
-            <p className="mt-1 text-xs text-zinc-400">
-              {voiceStatus === 'listening'
-                ? 'Escutando você... Fale agora'
-                : voiceStatus === 'speaking'
-                  ? 'Hel está falando...'
-                  : 'Aguardando voz...'}
+            <h3 className="text-lg font-semibold text-white">Voz em Tempo Real</h3>
+            <p className="mt-1 text-xs text-[#8e918f]">
+              {voiceStatus === 'listening' ? 'Ouvindo você... Fale agora.' : 'Aguardando voz...'}
             </p>
 
-            <div className="my-6 min-h-[60px] w-full rounded-2xl border border-white/10 bg-zinc-950/60 p-3 text-sm text-zinc-300">
-              {voiceTranscript || 'Fale no microfone para conversar em tempo real com a inteligência artificial...'}
+            <div className="my-4 min-h-[50px] w-full rounded-2xl bg-[#131314] p-3 text-xs text-[#c4c7c5]">
+              {voiceTranscript || 'Fale no microfone para conversar com o HelpUS...'}
             </div>
 
-            <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setIsVoiceModalOpen(false)
+                setVoiceStatus('idle')
+                if (voiceRecognitionRef.current) voiceRecognitionRef.current.stop()
+              }}
+              className="rounded-full bg-rose-600 px-6 py-2 text-xs font-semibold text-white hover:bg-rose-500 transition"
+            >
+              Encerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL SOBRE O HELPUS ================= */}
+      {aboutModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-6 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+              <div className="relative h-10 w-10 overflow-hidden rounded-full ring-1 ring-white/10">
+                <Image src="/logo-helpus.png" alt="HelpUS Logo" fill className="object-cover" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">HelpUS AI</h3>
+                <p className="text-xs text-[#8e918f]">Assistente Pessoal de Inteligência Artificial</p>
+              </div>
+            </div>
+
+            <div className="my-4 space-y-3 text-xs leading-relaxed text-[#c4c7c5]">
+              <p>
+                O <strong>HelpUS AI</strong> é a plataforma proprietária de inteligência artificial da HelpUS, projetada para proporcionar respostas inteligentes, raciocínio aprofundado e automação operacional.
+              </p>
+              <div className="rounded-2xl bg-[#131314] p-3 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-[#8e918f]">Versão:</span>
+                  <span className="text-white font-medium">1.0.0 (Gemini Interface)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#8e918f]">Provedor Padrão:</span>
+                  <span className="text-white font-medium">Google Gemini 2.5</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#8e918f]">Status da Nuvem:</span>
+                  <span className="text-emerald-400 font-medium">● Online (Vercel + Railway)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={startVoiceRecognition}
-                disabled={voiceStatus === 'listening'}
-                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold hover:bg-white/20 disabled:opacity-40"
+                onClick={() => setAboutModalOpen(false)}
+                className="rounded-full bg-white/10 px-5 py-2 text-xs font-semibold text-white hover:bg-white/20 transition"
               >
-                Falar Novamente
-              </button>
-              <button
-                type="button"
-                onClick={endVoiceCall}
-                className="rounded-full bg-rose-600 px-6 py-2 text-xs font-bold text-white shadow-lg transition hover:bg-rose-500"
-              >
-                Desligar Chamada
+                Fechar
               </button>
             </div>
           </div>
         </div>
       )}
-    </main>
+    </>
   )
 }

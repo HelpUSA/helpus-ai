@@ -38,7 +38,10 @@ def _truthy(value: str | None) -> bool:
 
 
 def internal_agents_enabled() -> bool:
+    if os.getenv("VERCEL"):
+        return False
     return _truthy(os.getenv(INTERNAL_AGENTS_ENABLED_ENV))
+
 
 
 def internal_agents_visible_trace_enabled() -> bool:

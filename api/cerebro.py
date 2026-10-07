@@ -162,7 +162,7 @@ class CerebroIA:
 
                     if provider == "gemini":
                         client_gemini = getattr(self, "client", None)
-                        if not GEMINI_API_KEY or not GEMINI_API_KEY.startswith("AIza"):
+                        if not GEMINI_API_KEY:
                             raise RuntimeError("GEMINI_API_KEY invalida ou ausente")
                         if client_gemini is None:
                             from google import genai
