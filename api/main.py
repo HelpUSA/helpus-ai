@@ -538,7 +538,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         # Execução transparente no computador local via HelpUSDev
         contexto_local = ""
-        acao_local = detectar_intencao_local(request.mensagem)
+        acao_local = detectar_intencao_local(request.mensagem, historico=historico)
         if acao_local:
             action, params = acao_local
             agent_trace.append({"label": f"Executando no computador local via HelpUSDev ({action})", "status": "running"})
@@ -683,9 +683,17 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             if DEBUG:
                 print(f"[WARN] Erro ao salvar mensagem do usuario em stream: {e}")
 
+    # Carrega histórico recente para contexto conversacional
+    historico_recente = []
+    if banco:
+        try:
+            historico_recente = await banco.carregar_mensagens(session_id, limite=6)
+        except:
+            pass
+
     # Execução transparente no computador local via HelpUSDev
     contexto_local = ""
-    acao_local = detectar_intencao_local(request.mensagem)
+    acao_local = detectar_intencao_local(request.mensagem, historico=historico_recente)
     if acao_local:
         action, params = acao_local
         res_local = await executar_no_computador_local(action, params)
