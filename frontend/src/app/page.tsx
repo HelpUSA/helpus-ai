@@ -303,13 +303,17 @@ export default function HelpUSGeminiApp() {
     try {
       abortControllerRef.current = new AbortController()
 
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (googleToken && googleToken !== 'null' && googleToken !== 'undefined') {
+        authHeaders['Authorization'] = `Bearer ${googleToken}`
+      }
+
       // Tenta rota SSE /chat/stream
       const resStream = await fetch(`${apiUrl}/chat/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${googleToken}`,
-        },
+        headers: authHeaders,
         body: JSON.stringify({
           mensagem: textoLimpo,
           session_id: sessionId || undefined,
@@ -334,11 +338,12 @@ export default function HelpUSGeminiApp() {
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const dataStr = line.slice(6).trim()
-              if (dataStr === '[DONE]') continue
+              if (!dataStr || dataStr === '[DONE]') continue
               try {
                 const parsed = JSON.parse(dataStr)
-                if (parsed.text) {
-                  respostaAcumulada += parsed.text
+                const chunkText = parsed.content ?? parsed.text ?? parsed.chunk ?? ''
+                if (chunkText) {
+                  respostaAcumulada += chunkText
                   setMessages((prev) => {
                     const copia = [...prev]
                     const last = copia[copia.length - 1]
@@ -369,17 +374,16 @@ export default function HelpUSGeminiApp() {
             }
           }
         }
-        carregarConversas(googleToken)
-        return
+        if (respostaAcumulada.trim().length > 0) {
+          carregarConversas(googleToken)
+          return
+        }
       }
 
       // Fallback padrão /chat síncrono
       const res = await fetch(`${apiUrl}/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${googleToken}`,
-        },
+        headers: authHeaders,
         body: JSON.stringify({
           mensagem: textoLimpo,
           session_id: sessionId || undefined,

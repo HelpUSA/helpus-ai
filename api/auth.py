@@ -50,7 +50,7 @@ def verificar_google_id_token(token: str) -> Dict[str, Any]:
 async def obter_usuario_google(authorization: Optional[str] = Header(default=None)) -> Optional[Dict[str, Any]]:
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
-        if token:
+        if token and token.lower() not in ("null", "undefined", "none", ""):
             try:
                 return verificar_google_id_token(token)
             except Exception:

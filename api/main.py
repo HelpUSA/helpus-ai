@@ -609,7 +609,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             image_base64=request.image_base64,
             image_url=request.image_url,
         ):
-            yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'content': chunk, 'text': chunk}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
