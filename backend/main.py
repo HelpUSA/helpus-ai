@@ -603,16 +603,58 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     import json
 
+    session_id = request.session_id or str(uuid.uuid4())
+    user_email = usuario["email"] if usuario else None
+    project_id = request.project_id or "general"
+
+    # Salva mensagem do usuario imediatamente
+    if banco:
+        try:
+            await banco.salvar_mensagem(
+                session_id=session_id,
+                role="user",
+                content=request.mensagem,
+                user_email=user_email,
+                project_id=project_id,
+            )
+        except Exception as e:
+            if DEBUG:
+                print(f"[WARN] Erro ao salvar mensagem do usuario em stream: {e}")
+
     async def event_generator():
-        async for chunk in c.pensar_stream(
-            pergunta=request.mensagem,
-            image_base64=request.image_base64,
-            image_url=request.image_url,
-        ):
-            yield f"data: {json.dumps({'content': chunk, 'text': chunk}, ensure_ascii=False)}\n\n"
+        full_chunks = []
+        try:
+            async for chunk in c.pensar_stream(
+                pergunta=request.mensagem,
+                image_base64=request.image_base64,
+                image_url=request.image_url,
+            ):
+                full_chunks.append(chunk)
+                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        except Exception as err:
+            err_msg = f"Erro durante streaming: {str(err)}"
+            yield f"data: {json.dumps({'error': err_msg, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
+        # Salva resposta final gerada pelo assistente
+        resposta_completa = "".join(full_chunks)
+        if banco and resposta_completa:
+            try:
+                await banco.salvar_mensagem(
+                    session_id=session_id,
+                    role="assistant",
+                    content=resposta_completa,
+                    user_email=user_email,
+                    project_id=project_id,
+                )
+            except Exception as e:
+                if DEBUG:
+                    print(f"[WARN] Erro ao salvar resposta do assistente em stream: {e}")
+
+        yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 
 
@@ -728,14 +770,26 @@ async def atualizar_memoria(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RenomearConversaRequest(BaseModel):
+    titulo: str
+
+class MoverConversaProjetoRequest(BaseModel):
+    project_id: str
+
+class CriarProjetoRequest(BaseModel):
+    project_id: Optional[str] = None
+    nome: str
+    descricao: Optional[str] = ""
+    instrucoes: Optional[str] = ""
+
 @app.get("/conversas")
-async def listar_conversas(usuario = Depends(obter_usuario_google)):
+async def listar_conversas(project_id: Optional[str] = None, usuario = Depends(obter_usuario_google)):
     if not usuario:
         return {"conversas": []}
 
     try:
         return {
-            "conversas": await banco.listar_conversas_usuario(usuario["email"], limite=50)
+            "conversas": await banco.listar_conversas_usuario(usuario["email"], limite=50, project_id=project_id)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -762,6 +816,51 @@ async def apagar_conversa(session_id: str, usuario = Depends(obter_usuario_googl
         return {"status": "apagada", "session_id": session_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/conversa/{session_id}")
+async def renomear_conversa(session_id: str, request: RenomearConversaRequest, usuario = Depends(obter_usuario_google)):
+    """Renomeia o titulo de uma conversa"""
+    try:
+        await banco.renomear_conversa(session_id, request.titulo, user_email=usuario["email"] if usuario else None)
+        return {"status": "renomeada", "session_id": session_id, "titulo": request.titulo}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/conversa/{session_id}/projeto")
+async def mover_conversa_projeto(session_id: str, request: MoverConversaProjetoRequest, usuario = Depends(obter_usuario_google)):
+    """Move uma conversa para outro projeto"""
+    try:
+        await banco.mover_conversa_projeto(session_id, request.project_id, user_email=usuario["email"] if usuario else None)
+        return {"status": "movida", "session_id": session_id, "project_id": request.project_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/projetos")
+async def listar_projetos(usuario = Depends(obter_usuario_google)):
+    """Lista todos os projetos disponiveis para o usuario"""
+    try:
+        email = usuario["email"] if usuario else None
+        return {"projetos": await banco.listar_projetos(email)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/projetos")
+async def criar_projeto(request: CriarProjetoRequest, usuario = Depends(obter_usuario_google)):
+    """Cria um novo projeto com instrucoes personalizadas"""
+    try:
+        email = usuario["email"] if usuario else None
+        pid = request.project_id or f"proj_{uuid.uuid4().hex[:8]}"
+        projeto = await banco.criar_projeto(
+            project_id=pid,
+            nome=request.nome,
+            descricao=request.descricao or "",
+            instrucoes=request.instrucoes or "",
+            user_email=email,
+        )
+        return {"projeto": projeto}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/indexar")
 async def indexar_site(request: IndexarRequest):

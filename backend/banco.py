@@ -117,6 +117,24 @@ class BancoDados:
                     )
                 """)
 
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS projetos (
+                        id SERIAL PRIMARY KEY,
+                        project_id TEXT UNIQUE NOT NULL,
+                        nome TEXT NOT NULL,
+                        descricao TEXT DEFAULT '',
+                        instrucoes TEXT DEFAULT '',
+                        user_email TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_projetos_user_email
+                    ON projetos(user_email)
+                """)
+
                 await conn.commit()
 
     async def salvar_mensagem(
@@ -179,14 +197,33 @@ class BancoDados:
                 rows = await cur.fetchall()
                 return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
-    async def listar_conversas_usuario(self, user_email: str, limite: int = 50) -> List[Dict]:
+    async def listar_conversas_usuario(self, user_email: str, limite: int = 50, project_id: Optional[str] = None) -> List[Dict]:
         if not self.pool:
             return []
 
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
+                if project_id and project_id not in ("all", "*"):
+                    query = """
+                    SELECT
+                        session_id,
+                        COALESCE(
+                            NULLIF(MAX(title), ''),
+                            LEFT((ARRAY_AGG(content ORDER BY created_at ASC))[1], 80),
+                            'Nova conversa'
+                        ) AS titulo,
+                        MAX(created_at) AS updated_at,
+                        COUNT(*) AS total_mensagens,
+                        COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
+                    FROM conversas
+                    WHERE user_email = %s AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
+                    GROUP BY session_id
+                    ORDER BY MAX(created_at) DESC
+                    LIMIT %s
                     """
+                    params = (user_email, project_id, project_id, limite)
+                else:
+                    query = """
                     SELECT
                         session_id,
                         COALESCE(
@@ -202,10 +239,10 @@ class BancoDados:
                     GROUP BY session_id
                     ORDER BY MAX(created_at) DESC
                     LIMIT %s
-                    """,
-                    (user_email, limite)
-                )
+                    """
+                    params = (user_email, limite)
 
+                await cur.execute(query, params)
                 rows = await cur.fetchall()
                 return [
                     {
@@ -217,6 +254,115 @@ class BancoDados:
                     }
                     for r in rows
                 ]
+
+    async def renomear_conversa(self, session_id: str, novo_titulo: str, user_email: Optional[str] = None):
+        if not self.pool:
+            return
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                if user_email:
+                    await cur.execute(
+                        "UPDATE conversas SET title = %s WHERE session_id = %s AND user_email = %s",
+                        (novo_titulo, session_id, user_email)
+                    )
+                else:
+                    await cur.execute(
+                        "UPDATE conversas SET title = %s WHERE session_id = %s",
+                        (novo_titulo, session_id)
+                    )
+                await conn.commit()
+
+    async def mover_conversa_projeto(self, session_id: str, project_id: str, user_email: Optional[str] = None):
+        if not self.pool:
+            return
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                if user_email:
+                    await cur.execute(
+                        "UPDATE conversas SET project_id = %s WHERE session_id = %s AND user_email = %s",
+                        (project_id or "general", session_id, user_email)
+                    )
+                else:
+                    await cur.execute(
+                        "UPDATE conversas SET project_id = %s WHERE session_id = %s",
+                        (project_id or "general", session_id)
+                    )
+                await conn.commit()
+
+    async def listar_projetos(self, user_email: Optional[str] = None) -> List[Dict]:
+        padrao = [{"project_id": "general", "nome": "Geral", "descricao": "Conversas gerais do HelpUS", "instrucoes": ""}]
+        if not self.pool:
+            return padrao
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                if user_email:
+                    await cur.execute(
+                        """
+                        SELECT project_id, nome, descricao, instrucoes, created_at
+                        FROM projetos
+                        WHERE user_email = %s OR user_email IS NULL
+                        ORDER BY created_at ASC
+                        """,
+                        (user_email,)
+                    )
+                else:
+                    await cur.execute(
+                        """
+                        SELECT project_id, nome, descricao, instrucoes, created_at
+                        FROM projetos
+                        WHERE user_email IS NULL
+                        ORDER BY created_at ASC
+                        """
+                    )
+                rows = await cur.fetchall()
+                itens = [
+                    {
+                        "project_id": r[0],
+                        "nome": r[1],
+                        "descricao": r[2] or "",
+                        "instrucoes": r[3] or "",
+                        "created_at": r[4].isoformat() if r[4] else None,
+                    }
+                    for r in rows
+                ]
+                if not any(p["project_id"] == "general" for p in itens):
+                    itens.insert(0, padrao[0])
+                return itens
+
+    async def criar_projeto(
+        self,
+        project_id: str,
+        nome: str,
+        descricao: str = "",
+        instrucoes: str = "",
+        user_email: Optional[str] = None,
+    ) -> Dict:
+        if not self.pool:
+            return {"project_id": project_id, "nome": nome, "descricao": descricao, "instrucoes": instrucoes}
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO projetos (project_id, nome, descricao, instrucoes, user_email)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (project_id) DO UPDATE
+                    SET nome = EXCLUDED.nome,
+                        descricao = EXCLUDED.descricao,
+                        instrucoes = EXCLUDED.instrucoes,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING project_id, nome, descricao, instrucoes, created_at
+                    """,
+                    (project_id, nome, descricao, instrucoes, user_email)
+                )
+                r = await cur.fetchone()
+                await conn.commit()
+                return {
+                    "project_id": r[0],
+                    "nome": r[1],
+                    "descricao": r[2] or "",
+                    "instrucoes": r[3] or "",
+                    "created_at": r[4].isoformat() if r[4] else None,
+                }
 
     async def apagar_conversa(self, session_id: str, user_email: Optional[str] = None):
         if not self.pool:

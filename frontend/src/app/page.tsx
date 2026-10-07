@@ -19,6 +19,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   image_url?: string
+  file_name?: string
   fontes?: MessageSource[]
   provider_used?: string
   agent_trace?: AgentTraceItem[]
@@ -39,6 +40,25 @@ interface ConversaResumo {
   total_mensagens: number
   project_id?: string
 }
+
+interface Projeto {
+  project_id: string
+  nome: string
+  descricao?: string
+  instrucoes?: string
+  created_at?: string
+}
+
+interface AttachedFile {
+  name: string
+  size: number
+  type: string
+  isImage: boolean
+  previewUrl?: string
+  base64?: string
+  textContent?: string
+}
+
 
 declare global {
   interface Window {
@@ -88,10 +108,22 @@ export default function HelpUSGeminiApp() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
 
-  // Upload de imagem multimodal
+  // Upload de arquivos e imagens (multimodal)
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Projetos & Renomeação de conversas
+  const [projetos, setProjetos] = useState<Projeto[]>([
+    { project_id: 'general', nome: 'Geral', descricao: 'Conversas gerais da HelpUS' },
+  ])
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [isNovoProjetoOpen, setIsNovoProjetoOpen] = useState(false)
+  const [novoProjetoNome, setNovoProjetoNome] = useState('')
+  const [novoProjetoDesc, setNovoProjetoDesc] = useState('')
 
   // Chamada de voz em tempo real
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false)
@@ -110,15 +142,23 @@ export default function HelpUSGeminiApp() {
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     '812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com'
 
-  // Carrega token salvo e conversas
+  // Carrega token salvo, projetos e conversas
   useEffect(() => {
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
     if (savedToken) {
       setGoogleToken(savedToken)
       setProfile(decodeJwtProfile(savedToken))
       carregarConversas(savedToken)
+      carregarProjetos(savedToken)
+    } else {
+      carregarProjetos()
+      try {
+        const loc = window.localStorage.getItem('helpus_conversas_locais')
+        if (loc) setConversas(JSON.parse(loc))
+      } catch {}
     }
   }, [])
+
 
   // Auto-scroll
   useEffect(() => {
@@ -193,30 +233,86 @@ export default function HelpUSGeminiApp() {
     router.push('/')
   }
 
-  // Carregar histórico de conversas do usuário
-  const carregarConversas = async (token = googleToken) => {
-    if (!token) return
+  // Carregar projetos disponíveis
+  const carregarProjetos = async (token = googleToken) => {
     try {
-      const res = await fetch(`${apiUrl}/conversas`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${apiUrl}/projetos`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (res.ok) {
         const data = await res.json()
-        setConversas(Array.isArray(data) ? data : data.conversas || [])
+        if (data.projetos && Array.isArray(data.projetos)) {
+          setProjetos(data.projetos)
+        }
+      }
+    } catch {}
+  }
+
+  // Criar novo projeto
+  const criarNovoProjeto = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!novoProjetoNome.trim()) return
+    const pid = `proj_${Date.now()}`
+    const novo: Projeto = {
+      project_id: pid,
+      nome: novoProjetoNome.trim(),
+      descricao: novoProjetoDesc.trim(),
+    }
+    setProjetos((prev) => [...prev, novo])
+    setSelectedProjectId(pid)
+    setIsNovoProjetoOpen(false)
+    setNovoProjetoNome('')
+    setNovoProjetoDesc('')
+    try {
+      await fetch(`${apiUrl}/projetos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(googleToken ? { Authorization: `Bearer ${googleToken}` } : {}),
+        },
+        body: JSON.stringify(novo),
+      })
+    } catch {}
+    novaConversa()
+  }
+
+  // Carregar histórico de conversas do usuário
+  const carregarConversas = async (token = googleToken, projId = selectedProjectId) => {
+    try {
+      const url = projId && projId !== 'all' ? `${apiUrl}/conversas?project_id=${projId}` : `${apiUrl}/conversas`
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const lista = Array.isArray(data) ? data : data.conversas || []
+        if (lista.length > 0) {
+          setConversas(lista)
+          try {
+            window.localStorage.setItem('helpus_conversas_locais', JSON.stringify(lista))
+          } catch {}
+        } else {
+          try {
+            const loc = window.localStorage.getItem('helpus_conversas_locais')
+            if (loc) setConversas(JSON.parse(loc))
+          } catch {}
+        }
       }
     } catch {
-      // tolerante a falhas
+      try {
+        const loc = window.localStorage.getItem('helpus_conversas_locais')
+        if (loc) setConversas(JSON.parse(loc))
+      } catch {}
     }
   }
 
   // Carregar conversa específica
   const abrirConversa = async (id: string) => {
-    if (!googleToken) return
     try {
       setLoading(true)
       setSessionId(id)
       const res = await fetch(`${apiUrl}/historico/${id}`, {
-        headers: { Authorization: `Bearer ${googleToken}` },
+        headers: googleToken ? { Authorization: `Bearer ${googleToken}` } : {},
       })
       if (res.ok) {
         const data = await res.json()
@@ -243,29 +339,70 @@ export default function HelpUSGeminiApp() {
     setInput('')
     setSelectedImage(null)
     setSelectedImageBase64(null)
+    setAttachedFile(null)
     inputRef.current?.focus()
   }
 
   // Excluir conversa
-  const excluirConversa = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!googleToken) return
+  const excluirConversa = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setConversas((prev) => {
+      const atualizadas = prev.filter((c) => c.session_id !== id)
+      try {
+        window.localStorage.setItem('helpus_conversas_locais', JSON.stringify(atualizadas))
+      } catch {}
+      return atualizadas
+    })
+    if (sessionId === id) novaConversa()
+
     try {
       await fetch(`${apiUrl}/conversa/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${googleToken}` },
+        headers: googleToken ? { Authorization: `Bearer ${googleToken}` } : {},
       })
-      setConversas((prev) => prev.filter((c) => c.session_id !== id))
-      if (sessionId === id) novaConversa()
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
+
+  // Renomear conversa
+  const salvarRenomeacao = async (id: string) => {
+    const novoTitulo = editingTitle.trim()
+    if (!novoTitulo) {
+      setEditingSessionId(null)
+      return
+    }
+    setConversas((prev) => {
+      const atualizadas = prev.map((c) => (c.session_id === id ? { ...c, titulo: novoTitulo } : c))
+      try {
+        window.localStorage.setItem('helpus_conversas_locais', JSON.stringify(atualizadas))
+      } catch {}
+      return atualizadas
+    })
+    setEditingSessionId(null)
+    try {
+      await fetch(`${apiUrl}/conversa/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(googleToken ? { Authorization: `Bearer ${googleToken}` } : {}),
+        },
+        body: JSON.stringify({ titulo: novoTitulo }),
+      })
+    } catch {}
+  }
+
+  // Filtro de conversas por busca e por projeto
+  const conversasFiltradas = conversas.filter((c) => {
+    const matchBusca = (c.titulo || '').toLowerCase().includes(searchQuery.toLowerCase())
+    if (!matchBusca) return false
+    if (selectedProjectId === 'all') return true
+    if (selectedProjectId === 'general') return !c.project_id || c.project_id === 'general'
+    return c.project_id === selectedProjectId
+  })
 
   // Enviar mensagem para a IA
   const enviarMensagem = async (texto = input) => {
     const textoLimpo = texto.trim()
-    if (!textoLimpo && !selectedImageBase64) return
+    if (!textoLimpo && !selectedImageBase64 && !attachedFile) return
     if (loading) return
 
     // Se não estiver logado, dispara login oficial estilo Gemini
@@ -274,17 +411,58 @@ export default function HelpUSGeminiApp() {
       return
     }
 
-    const imagemAnexa = selectedImage
-    const imagemBase64 = selectedImageBase64
+    let textoFinal = textoLimpo
+    let imagemBase64ParaEnvio: string | undefined = selectedImageBase64 || undefined
+    let imagemPreviewUrl: string | undefined = selectedImage || undefined
+    let documentoNome: string | undefined = undefined
+
+    if (attachedFile) {
+      if (attachedFile.isImage) {
+        imagemBase64ParaEnvio = attachedFile.base64
+        imagemPreviewUrl = attachedFile.previewUrl
+      } else if (attachedFile.type === 'application/pdf' && attachedFile.base64) {
+        imagemBase64ParaEnvio = attachedFile.base64
+        documentoNome = attachedFile.name
+        if (!textoFinal) textoFinal = `Por favor, analise este documento PDF (${attachedFile.name}) e resuma seus pontos principais.`
+      } else if (attachedFile.textContent) {
+        textoFinal += `\n\n[Documento Anexado: ${attachedFile.name}]\n\`\`\`\n${attachedFile.textContent}\n\`\`\``
+        documentoNome = attachedFile.name
+      } else {
+        documentoNome = attachedFile.name
+      }
+    }
+
+    const currentSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+    if (!sessionId) setSessionId(currentSessionId)
+
+    // Otimisticamente adiciona conversa à lista de Recentes
+    setConversas((prev) => {
+      const existe = prev.some((c) => c.session_id === currentSessionId)
+      if (existe) return prev
+      const nova: ConversaResumo = {
+        session_id: currentSessionId,
+        titulo: (textoLimpo || attachedFile?.name || 'Nova conversa').slice(0, 45),
+        updated_at: new Date().toISOString(),
+        total_mensagens: 1,
+        project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
+      }
+      const lista = [nova, ...prev]
+      try {
+        window.localStorage.setItem('helpus_conversas_locais', JSON.stringify(lista))
+      } catch {}
+      return lista
+    })
 
     setInput('')
     setSelectedImage(null)
     setSelectedImageBase64(null)
+    setAttachedFile(null)
 
     const novaMensagemUsuario: Message = {
       role: 'user',
-      content: textoLimpo,
-      image_url: imagemAnexa || undefined,
+      content: textoLimpo || (attachedFile ? `Analisar anexo: ${attachedFile.name}` : ''),
+      image_url: imagemPreviewUrl,
+      file_name: documentoNome,
     }
 
     setMessages((prev) => [...prev, novaMensagemUsuario])
@@ -315,11 +493,12 @@ export default function HelpUSGeminiApp() {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({
-          mensagem: textoLimpo,
-          session_id: sessionId || undefined,
+          mensagem: textoFinal,
+          session_id: currentSessionId,
           pesquisar_web: webSearchEnabled,
-          imagem_base64: imagemBase64 || undefined,
+          imagem_base64: imagemBase64ParaEnvio,
           model: activeModel.id,
+          project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
         }),
         signal: abortControllerRef.current.signal,
       })
@@ -385,11 +564,12 @@ export default function HelpUSGeminiApp() {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({
-          mensagem: textoLimpo,
-          session_id: sessionId || undefined,
+          mensagem: textoFinal,
+          session_id: currentSessionId,
           pesquisar_web: webSearchEnabled,
-          imagem_base64: imagemBase64 || undefined,
+          imagem_base64: imagemBase64ParaEnvio,
           model: activeModel.id,
+          project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
         }),
       })
 
@@ -410,38 +590,102 @@ export default function HelpUSGeminiApp() {
         }
         carregarConversas(googleToken)
       } else {
-        throw new Error(`Erro na API (${res.status})`)
+        throw new Error('Falha no endpoint /chat')
       }
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setMessages((prev) => {
-          const copia = [...prev]
-          copia[copia.length - 1] = {
-            role: 'assistant',
-            content: 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.',
-          }
-          return copia
-        })
-      }
+      if (err.name === 'AbortError') return
+      setMessages((prev) => {
+        const copia = [...prev]
+        copia[copia.length - 1] = {
+          role: 'assistant',
+          content: 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.',
+        }
+        return copia
+      })
     } finally {
       setLoading(false)
-      abortControllerRef.current = null
     }
   }
 
-  // Upload de Imagem
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Upload de Arquivos e Imagens
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const result = event.target?.result as string
-      if (result) {
-        setSelectedImage(result)
-        setSelectedImageBase64(result.split(',')[1] || '')
+
+    const isImage = file.type.startsWith('image/')
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    const isTextDoc = /\.(txt|md|csv|json|js|ts|py|sql|html|css|log|env|xml|yaml|yml)$/i.test(file.name)
+
+    if (isImage) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            isImage: true,
+            previewUrl: result,
+            base64: result.split(',')[1] || '',
+          })
+          setSelectedImage(result)
+          setSelectedImageBase64(result.split(',')[1] || '')
+        }
       }
+      reader.readAsDataURL(file)
+    } else if (isPdf) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: 'application/pdf',
+            isImage: false,
+            base64: result,
+          })
+          setSelectedImage(null)
+          setSelectedImageBase64(result)
+        }
+      }
+      reader.readAsDataURL(file)
+    } else if (isTextDoc) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const text = event.target?.result as string
+        if (text) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: file.type || 'text/plain',
+            isImage: false,
+            textContent: text,
+          })
+          setSelectedImage(null)
+          setSelectedImageBase64(null)
+        }
+      }
+      reader.readAsText(file)
+    } else {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        setAttachedFile({
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          isImage: false,
+          base64: result ? result.split(',')[1] : '',
+        })
+        setSelectedImage(null)
+        setSelectedImageBase64(null)
+      }
+      reader.readAsDataURL(file)
     }
-    reader.readAsDataURL(file)
+
+    e.target.value = ''
   }
 
   // Copiar texto da resposta
@@ -485,13 +729,6 @@ export default function HelpUSGeminiApp() {
     voiceRecognitionRef.current = rec
     rec.start()
   }
-
-  // Filtragem de conversas na busca
-  const conversasFiltradas = conversas.filter((c) =>
-    (c.titulo || `Conversa ${c.session_id.slice(0, 6)}`)
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase())
-  )
 
   const firstName = profile?.name ? profile.name.split(' ')[0] : 'Help'
 
@@ -612,23 +849,67 @@ export default function HelpUSGeminiApp() {
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
-                  <span>Analisar imagens</span>
+                  <span>Anexar arquivos e imagens</span>
                 </button>
               </div>
 
-              {/* Se NÃO logado: Card Informativo do Gemini Foto 2 */}
+              {/* Seletor de Projetos */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
+                  <span>Projetos</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsNovoProjetoOpen(true)}
+                    className="text-[#7fcfff] hover:underline normal-case text-xs font-medium"
+                    title="Criar novo projeto"
+                  >
+                    + Novo
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1 px-1 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProjectId('all')}
+                    className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                      selectedProjectId === 'all'
+                        ? 'bg-[#004a77] text-white font-medium'
+                        : 'bg-[#131314] text-[#8e918f] hover:bg-[#282a2c] hover:text-white'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  {projetos.map((proj) => (
+                    <button
+                      key={proj.project_id}
+                      type="button"
+                      onClick={() => setSelectedProjectId(proj.project_id)}
+                      className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition ${
+                        selectedProjectId === proj.project_id
+                          ? 'bg-[#004a77] text-white font-medium'
+                          : 'bg-[#131314] text-[#8e918f] hover:bg-[#282a2c] hover:text-white'
+                      }`}
+                      title={proj.descricao || proj.nome}
+                    >
+                      <span>📁</span>
+                      <span className="max-w-[85px] truncate">{proj.nome}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Se NÃO logado: Card Informativo do Gemini */}
               {!googleToken && (
-                <div className="my-2 rounded-2xl border border-white/5 bg-[#131314] p-3.5 text-xs text-[#c4c7c5]">
+                <div className="my-2 rounded-2xl border border-white/5 bg-[#131314] p-3 text-xs text-[#c4c7c5]">
                   <div className="flex items-start gap-2">
                     <span className="text-[#7fcfff]">ⓘ</span>
                     <div>
-                      <span>Faça login para salvar seu histórico de conversas e memórias.</span>
+                      <span>Faça login para salvar suas conversas na nuvem.</span>
                       <button
                         type="button"
                         onClick={dispararLoginGoogle}
-                        className="mt-2 block font-semibold text-[#7fcfff] underline hover:text-[#a8e0ff]"
+                        className="mt-1 block font-semibold text-[#7fcfff] underline hover:text-[#a8e0ff]"
                       >
                         Fazer login agora
                       </button>
@@ -637,45 +918,93 @@ export default function HelpUSGeminiApp() {
                 </div>
               )}
 
-              {/* Se logado: Lista de Recentes estilo Gemini Foto 4 */}
-              {googleToken && (
-                <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
-                  <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
-                    Recentes
+              {/* Lista de Recentes estilo Gemini com Renomear e Excluir */}
+              <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
+                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
+                  Recentes
+                </div>
+                {conversasFiltradas.length === 0 ? (
+                  <div className="px-2 py-3 text-xs text-[#8e918f]">
+                    Nenhuma conversa encontrada.
                   </div>
-                  {conversasFiltradas.length === 0 ? (
-                    <div className="px-2 py-3 text-xs text-[#8e918f]">
-                      Nenhuma conversa encontrada.
-                    </div>
-                  ) : (
-                    conversasFiltradas.map((conv) => {
-                      const ativa = sessionId === conv.session_id
-                      const titulo = conv.titulo || `Conversa ${conv.session_id.slice(0, 8)}`
+                ) : (
+                  conversasFiltradas.map((conv) => {
+                    const ativa = sessionId === conv.session_id
+                    const titulo = conv.titulo || `Conversa ${conv.session_id.slice(0, 8)}`
+                    const isEditing = editingSessionId === conv.session_id
+
+                    if (isEditing) {
                       return (
-                        <div
-                          key={conv.session_id}
-                          onClick={() => abrirConversa(conv.session_id)}
-                          className={`group flex items-center justify-between rounded-xl px-3 py-2 text-xs cursor-pointer transition ${
-                            ativa
-                              ? 'bg-[#004a77] text-white font-medium'
-                              : 'text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white'
-                          }`}
-                        >
-                          <span className="truncate pr-2">{titulo}</span>
+                        <div key={conv.session_id} className="flex items-center gap-1 rounded-xl bg-[#282a2c] p-1 text-xs">
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') salvarRenomeacao(conv.session_id)
+                              if (e.key === 'Escape') setEditingSessionId(null)
+                            }}
+                            className="flex-1 rounded-lg bg-[#131314] px-2 py-1 text-xs text-white border border-[#7fcfff] outline-none"
+                            autoFocus
+                          />
                           <button
                             type="button"
-                            onClick={(e) => excluirConversa(conv.session_id, e)}
-                            className="hidden shrink-0 text-[#8e918f] hover:text-rose-400 group-hover:block"
-                            title="Excluir"
+                            onClick={() => salvarRenomeacao(conv.session_id)}
+                            className="p-1 text-xs text-emerald-400 hover:text-emerald-300"
+                            title="Salvar novo título"
                           >
-                            ×
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingSessionId(null)}
+                            className="p-1 text-xs text-[#8e918f] hover:text-white"
+                            title="Cancelar"
+                          >
+                            ✕
                           </button>
                         </div>
                       )
-                    })
-                  )}
-                </div>
-              )}
+                    }
+
+                    return (
+                      <div
+                        key={conv.session_id}
+                        onClick={() => abrirConversa(conv.session_id)}
+                        className={`group flex items-center justify-between rounded-xl px-3 py-2 text-xs cursor-pointer transition ${
+                          ativa
+                            ? 'bg-[#004a77] text-white font-medium'
+                            : 'text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white'
+                        }`}
+                      >
+                        <span className="truncate pr-2 flex-1">{titulo}</span>
+                        <div className="hidden shrink-0 items-center gap-1 group-hover:flex">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingSessionId(conv.session_id)
+                              setEditingTitle(conv.titulo)
+                            }}
+                            className="text-[#8e918f] hover:text-[#7fcfff] p-0.5 transition"
+                            title="Renomear conversa"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => excluirConversa(conv.session_id, e)}
+                            className="text-[#8e918f] hover:text-rose-400 p-0.5 transition font-bold"
+                            title="Excluir conversa"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
             </div>
           ) : (
             // Sidebar colapsada em ícones (modo mini)
@@ -866,9 +1195,147 @@ export default function HelpUSGeminiApp() {
             </div>
           </header>
 
-          {/* ================= CORPO DO CHAT ================= */}
+          {/* ================= CORPO DO CHAT / SPARK ================= */}
           <div className="relative z-10 flex flex-1 flex-col overflow-y-auto px-4 pb-32 pt-2">
-            {messages.length === 0 ? (
+            {activeTab === 'spark' ? (
+              <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-4 py-6 sm:px-6">
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/5 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl font-bold text-white">Spark</h2>
+                      <span className="rounded bg-[#004a77] px-2 py-0.5 text-[11px] font-bold text-[#7fcfff]">BETA</span>
+                    </div>
+                    <p className="mt-1 text-xs text-[#8e918f]">
+                      Espaço experimental da HelpUS para Projetos dedicados, Agentes Especializados e Ideação Contínua.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsNovoProjetoOpen(true)}
+                    className="flex items-center gap-2 rounded-full bg-[#004a77] px-4 py-2 text-xs font-semibold text-[#7fcfff] hover:bg-[#005a92] transition self-start sm:self-auto shadow"
+                  >
+                    <span>+</span> Novo Projeto
+                  </button>
+                </div>
+
+                {/* Seção 1: Workspaces de Projetos */}
+                <div className="mb-8">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-[#c4c7c5]">
+                      Workspaces de Projetos ({projetos.length})
+                    </h3>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                    {projetos.map((proj) => {
+                      const totalConvs = conversas.filter((c) =>
+                        proj.project_id === 'general' ? !c.project_id || c.project_id === 'general' : c.project_id === proj.project_id
+                      ).length
+                      const isAtivo = selectedProjectId === proj.project_id
+                      return (
+                        <div
+                          key={proj.project_id}
+                          className={`flex flex-col justify-between rounded-2xl border p-4 transition ${
+                            isAtivo
+                              ? 'border-[#7fcfff]/50 bg-[#1e1f20] ring-1 ring-[#7fcfff]/30'
+                              : 'border-white/5 bg-[#131314] hover:border-white/10 hover:bg-[#1e1f20]'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-2xl">📁</span>
+                              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-[#8e918f]">
+                                {totalConvs} {totalConvs === 1 ? 'conversa' : 'conversas'}
+                              </span>
+                            </div>
+                            <h4 className="mt-2 text-sm font-semibold text-white">{proj.nome}</h4>
+                            <p className="mt-1 text-xs text-[#8e918f] line-clamp-2">
+                              {proj.descricao || 'Conversas e memórias dedicadas para este projeto.'}
+                            </p>
+                          </div>
+
+                          <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedProjectId(proj.project_id)
+                                setActiveTab('chat')
+                              }}
+                              className="text-xs font-semibold text-[#7fcfff] hover:underline"
+                            >
+                              Abrir no Chat →
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedProjectId(proj.project_id)
+                                setActiveTab('chat')
+                                novaConversa()
+                              }}
+                              className="rounded-lg bg-white/5 px-2.5 py-1 text-[11px] text-[#c4c7c5] hover:bg-white/10"
+                            >
+                              + Nova conversa
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Seção 2: Agentes Especializados Spark */}
+                <div>
+                  <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#c4c7c5]">
+                    Agentes Especializados (Gems / Spark)
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div
+                      onClick={() => {
+                        setActiveTab('chat')
+                        setInput('Atuar como Agente Especialista em Código e Arquitetura de Software: ')
+                        inputRef.current?.focus()
+                      }}
+                      className="cursor-pointer rounded-2xl border border-white/5 bg-[#131314] p-4 transition hover:border-[#7fcfff]/30 hover:bg-[#1e1f20]"
+                    >
+                      <span className="text-xl">⚡</span>
+                      <h4 className="mt-2 text-sm font-semibold text-white">Engenheiro & Arquiteto</h4>
+                      <p className="mt-1 text-xs text-[#8e918f]">
+                        Foco em depuração, análise de código, APIs e arquitetura de software.
+                      </p>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        setActiveTab('chat')
+                        setInput('Atuar como Agente Redator Executivo da HelpUS: ')
+                        inputRef.current?.focus()
+                      }}
+                      className="cursor-pointer rounded-2xl border border-white/5 bg-[#131314] p-4 transition hover:border-[#7fcfff]/30 hover:bg-[#1e1f20]"
+                    >
+                      <span className="text-xl">✍️</span>
+                      <h4 className="mt-2 text-sm font-semibold text-white">Redator Executivo</h4>
+                      <p className="mt-1 text-xs text-[#8e918f]">
+                        Criação de propostas, e-mails executivos, contratos e relatórios claros.
+                      </p>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        setActiveTab('chat')
+                        setInput('Atuar como Analista de Documentos e Planilhas: ')
+                        inputRef.current?.focus()
+                      }}
+                      className="cursor-pointer rounded-2xl border border-white/5 bg-[#131314] p-4 transition hover:border-[#7fcfff]/30 hover:bg-[#1e1f20]"
+                    >
+                      <span className="text-xl">📊</span>
+                      <h4 className="mt-2 text-sm font-semibold text-white">Analista de Documentos</h4>
+                      <p className="mt-1 text-xs text-[#8e918f]">
+                        Extração de insights, resumos de PDFs, planilhas CSV e tabelas de dados.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : messages.length === 0 ? (
               // ESTADO INICIAL (HERO DO GEMINI)
               <div className="mx-auto flex flex-1 w-full max-w-3xl flex-col items-center justify-center text-center px-2">
                 {profile ? (
@@ -893,21 +1360,31 @@ export default function HelpUSGeminiApp() {
                 {/* BARRA DE PROMPT CENTRAL FLUTUANTE ESTILO GEMINI */}
                 <div className="w-full">
                   <div className="relative flex flex-col rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-3 shadow-2xl transition-all focus-within:border-[#1a73e8] focus-within:ring-1 focus-within:ring-[#1a73e8]">
-                    {/* Imagem em anexo pré-visualizada */}
-                    {selectedImage && (
-                      <div className="relative mb-2 inline-block self-start">
-                        <img
-                          src={selectedImage}
-                          alt="Prévia"
-                          className="h-20 w-20 rounded-2xl object-cover ring-1 ring-white/20"
-                        />
+                    {/* Anexo pré-visualizado (Imagem ou Documento) */}
+                    {attachedFile && (
+                      <div className="relative mb-2 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-[#282a2c] p-2 text-xs text-[#e3e3e3] shadow-md self-start">
+                        {attachedFile.isImage && attachedFile.previewUrl ? (
+                          <img src={attachedFile.previewUrl} alt="Prévia" className="h-14 w-14 rounded-xl object-cover" />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#004a77] text-lg text-[#7fcfff]">
+                            📄
+                          </div>
+                        )}
+                        <div className="flex flex-col pr-6">
+                          <span className="max-w-[220px] truncate font-medium">{attachedFile.name}</span>
+                          <span className="text-[10px] text-[#8e918f]">
+                            {(attachedFile.size / 1024).toFixed(1)} KB {attachedFile.isImage ? '• Imagem' : '• Documento'}
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
+                            setAttachedFile(null)
                             setSelectedImage(null)
                             setSelectedImageBase64(null)
                           }}
-                          className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white hover:bg-rose-500"
+                          className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white hover:bg-rose-500 shadow"
+                          title="Remover anexo"
                         >
                           ×
                         </button>
@@ -933,19 +1410,19 @@ export default function HelpUSGeminiApp() {
                     {/* Barra de Ações Inferior da Caixa de Input */}
                     <div className="mt-2 flex items-center justify-between pt-1">
                       <div className="flex items-center gap-1">
-                        {/* Botão + (Anexar Imagem) */}
+                        {/* Botão + (Anexar Arquivo ou Imagem) */}
                         <input
                           type="file"
                           ref={fileInputRef}
-                          accept="image/*"
-                          onChange={handleImageUpload}
+                          accept="image/*,application/pdf,.txt,.md,.csv,.json,.doc,.docx,.xlsx,.xls"
+                          onChange={handleFileUpload}
                           className="hidden"
                         />
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
                           className="flex h-9 w-9 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition"
-                          title="Adicionar imagem"
+                          title="Anexar imagem ou documento (PDF, DOCX, TXT, CSV, etc.)"
                         >
                           <span className="text-xl leading-none">+</span>
                         </button>
@@ -1020,7 +1497,7 @@ export default function HelpUSGeminiApp() {
                         </button>
 
                         {/* Botão de Envio ↑ */}
-                        {(input.trim() || selectedImageBase64) && (
+                        {(input.trim() || selectedImageBase64 || attachedFile) && (
                           <button
                             type="button"
                             onClick={() => enviarMensagem()}
@@ -1046,6 +1523,12 @@ export default function HelpUSGeminiApp() {
                       // Mensagem do Usuário
                       <div className="flex justify-end">
                         <div className="max-w-[85%] rounded-3xl bg-[#282a2c] px-5 py-3 text-sm sm:text-base text-[#e3e3e3]">
+                          {msg.file_name && (
+                            <div className="mb-2 inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-1.5 text-xs text-[#c4c7c5]">
+                              <span>📄</span>
+                              <span className="font-medium text-white">{msg.file_name}</span>
+                            </div>
+                          )}
                           {msg.image_url && (
                             <img
                               src={msg.image_url}
@@ -1121,16 +1604,31 @@ export default function HelpUSGeminiApp() {
             <div className="absolute bottom-6 left-0 right-0 z-30 px-4">
               <div className="mx-auto max-w-3xl">
                 <div className="relative flex flex-col rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-3 shadow-2xl focus-within:border-[#1a73e8]">
-                  {selectedImage && (
-                    <div className="relative mb-2 inline-block self-start">
-                      <img src={selectedImage} alt="Prévia" className="h-16 w-16 rounded-xl object-cover" />
+                  {/* Anexo pré-visualizado (Imagem ou Documento) */}
+                  {attachedFile && (
+                    <div className="relative mb-2 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-[#282a2c] p-2 text-xs text-[#e3e3e3] shadow-md self-start">
+                      {attachedFile.isImage && attachedFile.previewUrl ? (
+                        <img src={attachedFile.previewUrl} alt="Prévia" className="h-12 w-12 rounded-xl object-cover" />
+                      ) : (
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#004a77] text-base text-[#7fcfff]">
+                          📄
+                        </div>
+                      )}
+                      <div className="flex flex-col pr-5">
+                        <span className="max-w-[180px] truncate font-medium">{attachedFile.name}</span>
+                        <span className="text-[10px] text-[#8e918f]">
+                          {(attachedFile.size / 1024).toFixed(1)} KB {attachedFile.isImage ? '• Imagem' : '• Documento'}
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
+                          setAttachedFile(null)
                           setSelectedImage(null)
                           setSelectedImageBase64(null)
                         }}
-                        className="absolute -right-2 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] text-white"
+                        className="absolute -right-2 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] font-bold text-white hover:bg-rose-500 shadow"
+                        title="Remover anexo"
                       >
                         ×
                       </button>
@@ -1158,7 +1656,7 @@ export default function HelpUSGeminiApp() {
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         className="flex h-8 w-8 items-center justify-center rounded-full text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white"
-                        title="Adicionar imagem"
+                        title="Anexar imagem ou documento"
                       >
                         +
                       </button>
@@ -1185,7 +1683,7 @@ export default function HelpUSGeminiApp() {
                       >
                         🎙️
                       </button>
-                      {(input.trim() || selectedImageBase64) && (
+                      {(input.trim() || selectedImageBase64 || attachedFile) && (
                         <button
                           type="button"
                           onClick={() => enviarMensagem()}
@@ -1292,6 +1790,78 @@ export default function HelpUSGeminiApp() {
                 Fechar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL NOVO PROJETO ================= */}
+      {isNovoProjetoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#004a77] text-base text-[#7fcfff]">
+                  📁
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-white">Criar Novo Projeto</h3>
+                  <p className="text-xs text-[#8e918f]">Organize chats, documentos e instruções</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNovoProjetoOpen(false)}
+                className="text-[#8e918f] hover:text-white transition text-lg"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={criarNovoProjeto} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-[#c4c7c5] mb-1">
+                  Nome do Projeto *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Suporte Técnico, Auditoria Fiscal, Sistema..."
+                  value={novoProjetoNome}
+                  onChange={(e) => setNovoProjetoNome(e.target.value)}
+                  className="w-full rounded-2xl border border-[#2d2e30] bg-[#131314] px-4 py-2.5 text-xs text-white placeholder-[#8e918f] outline-none focus:border-[#7fcfff] transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#c4c7c5] mb-1">
+                  Descrição ou Objetivo (opcional)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Contexto e diretrizes específicas que a IA deve lembrar neste projeto..."
+                  value={novoProjetoDesc}
+                  onChange={(e) => setNovoProjetoDesc(e.target.value)}
+                  className="w-full resize-none rounded-2xl border border-[#2d2e30] bg-[#131314] px-4 py-2 text-xs text-white placeholder-[#8e918f] outline-none focus:border-[#7fcfff] transition"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setIsNovoProjetoOpen(false)}
+                  className="rounded-full bg-white/5 px-4 py-2 text-xs font-medium text-[#c4c7c5] hover:bg-white/10 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!novoProjetoNome.trim()}
+                  className="rounded-full bg-[#1a73e8] px-5 py-2 text-xs font-medium text-white hover:bg-[#1558b0] transition disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                >
+                  Criar Projeto
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
