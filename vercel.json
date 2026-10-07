@@ -43,6 +43,10 @@
       "dest": "/api/index.py"
     },
     {
+      "src": "/projetos(.*)",
+      "dest": "/api/index.py"
+    },
+    {
       "src": "/admin/status",
       "dest": "/api/index.py"
     },

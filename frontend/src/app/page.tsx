@@ -143,6 +143,32 @@ export default function HelpUSGeminiApp() {
 
   // Carrega token salvo, projetos e conversas
   useEffect(() => {
+    // 1. Restaura projetos salvos no cache local imediatamente
+    try {
+      const savedProjs = window.localStorage.getItem('helpus_projetos_locais')
+      if (savedProjs) {
+        const parsed = JSON.parse(savedProjs)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProjetos(parsed)
+        }
+      }
+    } catch {}
+
+    // 2. Restaura sessão e mensagens ativas se houver (para F5 não deixar a tela em branco)
+    try {
+      const savedActiveSession = window.localStorage.getItem('helpus_active_session_id')
+      if (savedActiveSession) {
+        setSessionId(savedActiveSession)
+        const cachedMsgs = window.localStorage.getItem(`helpus_msgs_${savedActiveSession}`)
+        if (cachedMsgs) {
+          const parsed = JSON.parse(cachedMsgs)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMessages(parsed)
+          }
+        }
+      }
+    } catch {}
+
     const savedToken = window.localStorage.getItem('helpus_google_token') || ''
     if (savedToken) {
       setGoogleToken(savedToken)
@@ -158,6 +184,15 @@ export default function HelpUSGeminiApp() {
     }
   }, [])
 
+  // Salva mensagens da sessão ativa no cache local para resiliência a F5
+  useEffect(() => {
+    if (sessionId && messages.length > 0) {
+      try {
+        window.localStorage.setItem(`helpus_msgs_${sessionId}`, JSON.stringify(messages))
+        window.localStorage.setItem('helpus_active_session_id', sessionId)
+      } catch {}
+    }
+  }, [messages, sessionId])
 
   // Auto-scroll
   useEffect(() => {
@@ -225,7 +260,10 @@ export default function HelpUSGeminiApp() {
     setSessionId('')
     setAccountMenuOpen(false)
     setSettingsOpen(false)
-    window.localStorage.removeItem('helpus_google_token')
+    try {
+      window.localStorage.removeItem('helpus_google_token')
+      window.localStorage.removeItem('helpus_active_session_id')
+    } catch {}
     if (typeof window !== 'undefined' && window.google?.accounts?.id?.disableAutoSelect) {
       window.google.accounts.id.disableAutoSelect()
     }
@@ -240,8 +278,19 @@ export default function HelpUSGeminiApp() {
       })
       if (res.ok) {
         const data = await res.json()
-        if (data.projetos && Array.isArray(data.projetos)) {
-          setProjetos(data.projetos)
+        if (data.projetos && Array.isArray(data.projetos) && data.projetos.length > 0) {
+          setProjetos((prev) => {
+            const mapa = new Map<string, Projeto>()
+            data.projetos.forEach((p: Projeto) => mapa.set(p.project_id, p))
+            prev.forEach((p) => {
+              if (!mapa.has(p.project_id)) mapa.set(p.project_id, p)
+            })
+            const unificados = Array.from(mapa.values())
+            try {
+              window.localStorage.setItem('helpus_projetos_locais', JSON.stringify(unificados))
+            } catch {}
+            return unificados
+          })
         }
       }
     } catch {}
@@ -257,7 +306,13 @@ export default function HelpUSGeminiApp() {
       nome: novoProjetoNome.trim(),
       descricao: novoProjetoDesc.trim(),
     }
-    setProjetos((prev) => [...prev, novo])
+    setProjetos((prev) => {
+      const atualizados = [...prev, novo]
+      try {
+        window.localStorage.setItem('helpus_projetos_locais', JSON.stringify(atualizados))
+      } catch {}
+      return atualizados
+    })
     setSelectedProjectId(pid)
     setIsNovoProjetoOpen(false)
     setNovoProjetoNome('')
@@ -310,19 +365,39 @@ export default function HelpUSGeminiApp() {
     try {
       setLoading(true)
       setSessionId(id)
+      try {
+        window.localStorage.setItem('helpus_active_session_id', id)
+      } catch {}
+
+      // 1. Tenta carregar do cache local imediatamente para exibição instantânea
+      try {
+        const cached = window.localStorage.getItem(`helpus_msgs_${id}`)
+        if (cached) {
+          const parsed = JSON.parse(cached)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMessages(parsed)
+          }
+        }
+      } catch {}
+
+      // 2. Busca do backend para atualizar
       const res = await fetch(`${apiUrl}/historico/${id}`, {
         headers: googleToken ? { Authorization: `Bearer ${googleToken}` } : {},
       })
       if (res.ok) {
         const data = await res.json()
-        setMessages(
-          (data.mensagens || []).map((m: any) => ({
-            role: m.role,
-            content: m.content || m.mensagem || '',
-            image_url: m.image_url,
-            fontes: m.fontes || [],
-          }))
-        )
+        const msgs = (data.mensagens || []).map((m: any) => ({
+          role: m.role,
+          content: m.content || m.mensagem || '',
+          image_url: m.image_url,
+          fontes: m.fontes || [],
+        }))
+        if (msgs.length > 0) {
+          setMessages(msgs)
+          try {
+            window.localStorage.setItem(`helpus_msgs_${id}`, JSON.stringify(msgs))
+          } catch {}
+        }
       }
     } catch {
       // falha silenciosa
@@ -335,6 +410,9 @@ export default function HelpUSGeminiApp() {
   const novaConversa = () => {
     setMessages([])
     setSessionId('')
+    try {
+      window.localStorage.removeItem('helpus_active_session_id')
+    } catch {}
     setInput('')
     setSelectedImage(null)
     setSelectedImageBase64(null)
@@ -345,6 +423,12 @@ export default function HelpUSGeminiApp() {
   // Excluir conversa
   const excluirConversa = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
+    try {
+      window.localStorage.removeItem(`helpus_msgs_${id}`)
+      if (sessionId === id) {
+        window.localStorage.removeItem('helpus_active_session_id')
+      }
+    } catch {}
     setConversas((prev) => {
       const atualizadas = prev.filter((c) => c.session_id !== id)
       try {
