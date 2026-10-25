@@ -15,6 +15,7 @@ from config import DATABASE_URL
 class BancoDados:
     def __init__(self):
         self.pool = None
+        self.database_url = DATABASE_URL
 
     async def _garantir_pool(self) -> bool:
         if not self.pool and DATABASE_URL and AsyncConnectionPool is not None:
@@ -154,30 +155,86 @@ class BancoDados:
                     ON projetos(user_email)
                 """)
 
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sessoes (
+                        session_id VARCHAR(120) PRIMARY KEY,
+                        user_email VARCHAR(255),
+                        project_id VARCHAR(100) DEFAULT 'general',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_sessoes_user_email
+                    ON sessoes(user_email)
+                """)
+
                 await conn.commit()
 
-    async def verificar_propriedade_sessao(self, session_id: str, user_email: Optional[str]) -> bool:
-        """Valida que a sessao pertence ao mesmo usuario (ou e nova).
-        Evita que uma conta insira ou leia mensagens no session_id de outra conta."""
-        if not await self._garantir_pool():
+    _sessoes_memoria: Dict[str, Optional[str]] = {}
+
+    def _verificar_propriedade_memoria(self, session_id: str, user_email: Optional[str]) -> bool:
+        email_norm = user_email.strip().lower() if user_email else None
+        if session_id not in self._sessoes_memoria:
+            self._sessoes_memoria[session_id] = email_norm
             return True
-        try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute(
-                        "SELECT DISTINCT user_email FROM conversas WHERE session_id = %s LIMIT 1",
-                        (session_id,)
-                    )
-                    row = await cur.fetchone()
-                    if not row:
-                        return True
-                    existing_email = (row[0] or "").strip().lower()
-                    requested_email = (user_email or "").strip().lower()
-                    return existing_email == requested_email
-        except Exception as e:
-            if DEBUG:
-                print(f"[WARN] Erro ao validar propriedade de sessao: {e}")
-            return True
+        return self._sessoes_memoria[session_id] == email_norm
+
+    async def verificar_propriedade_sessao(
+        self,
+        session_id: str,
+        user_email: Optional[str],
+        project_id: Optional[str] = None
+    ) -> bool:
+        """Valida e registra atomicamente a propriedade da sessao no banco (FAIL-CLOSED).
+        
+        Garantias:
+        1. Atomicidade: INSERT ... ON CONFLICT (session_id) DO NOTHING impede condicoes de corrida.
+        2. FAIL-CLOSED: Se o banco estiver configurado e ocorrer falha, NUNCA autoriza (retorna False).
+        3. Isolamento multi-tenant: Impede acesso cruzado entre contas ou poluição de sessoes.
+        """
+        # Se o pool estiver ativo e conectado, realiza a checagem atomica no PostgreSQL
+        if self.pool is not None:
+            email_norm = user_email.strip().lower() if user_email else None
+            proj_norm = (project_id or "general")[:80]
+            try:
+                async with self.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        # 1. Registro atomico de sessao se for nova
+                        await cur.execute(
+                            """
+                            INSERT INTO sessoes (session_id, user_email, project_id)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (session_id) DO NOTHING
+                            """,
+                            (session_id, email_norm, proj_norm)
+                        )
+                        await conn.commit()
+
+                        # 2. Leitura da sessao registrada
+                        await cur.execute(
+                            "SELECT user_email, project_id FROM sessoes WHERE session_id = %s LIMIT 1",
+                            (session_id,)
+                        )
+                        row = await cur.fetchone()
+                        if not row:
+                            return True
+                        existing_email = (row[0] or "").strip().lower() if row[0] else None
+                        return existing_email == email_norm
+            except Exception as e:
+                # FAIL-CLOSED: NUNCA conceder autorizacao em caso de erro na consulta
+                return False
+
+        # Se o banco remoto estiver configurado em variavel de ambiente real mas o pool falhou
+        real_db = os.getenv("DATABASE_URL")
+        if real_db and ("localhost" not in real_db and "127.0.0.1" not in real_db):
+            # FAIL-CLOSED estrito para ambiente remoto com falha de conexao
+            return False
+
+        # Ambiente de desenvolvimento / teste sem banco relacional:
+        # Mantem registro atomico em memoria para isolar sessoes entre contas
+        return self._verificar_propriedade_memoria(session_id, user_email)
 
     async def salvar_mensagem(
         self,

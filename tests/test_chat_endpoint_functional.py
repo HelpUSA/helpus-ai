@@ -60,24 +60,30 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
 
     def test_chat_idempotency_cross_user_isolation(self):
         req_id = f"req_cross_{uuid.uuid4().hex[:8]}"
-        session_id = f"sess_{uuid.uuid4().hex[:8]}"
-        payload = {
+        session_id_u1 = f"sess_u1_{uuid.uuid4().hex[:8]}"
+        session_id_u2 = f"sess_u2_{uuid.uuid4().hex[:8]}"
+        payload1 = {
             "mensagem": "Pergunta do usuario A",
-            "session_id": session_id,
+            "session_id": session_id_u1,
             "model": "gemini-2.5-flash",
             "client_request_id": req_id,
         }
 
         # Simula Usuario 1
         app.dependency_overrides[obter_usuario_google] = lambda: {"email": "user1@helpusbr.com", "name": "User 1"}
-        res1 = client.post("/chat", json=payload)
+        res1 = client.post("/chat", json=payload1)
         self.assertEqual(res1.status_code, 200)
 
-        # Simula Usuario 2 com o mesmo client_request_id e session_id
+        # Simula Usuario 2 com o mesmo client_request_id mas em sua propria sessao
         # Deve processar independentemente e nao reutilizar o cache de User 1
         app.dependency_overrides[obter_usuario_google] = lambda: {"email": "user2@helpusbr.com", "name": "User 2"}
-        payload["mensagem"] = "Pergunta diferente do usuario B"
-        res2 = client.post("/chat", json=payload)
+        payload2 = {
+            "mensagem": "Pergunta do usuario B",
+            "session_id": session_id_u2,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+        res2 = client.post("/chat", json=payload2)
         self.assertEqual(res2.status_code, 200)
 
     def test_chat_ssrf_rejects_arbitrary_urls(self):
@@ -171,7 +177,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         app.dependency_overrides[obter_usuario_google] = lambda: {"email": "owner@empresa.com", "name": "Owner"}
 
         # Mock para simular que no banco a sessao pertence exclusivamente ao owner
-        with patch.object(banco, "verificar_propriedade_sessao", new=AsyncMock(side_effect=lambda s, email: email == "owner@empresa.com")):
+        with patch.object(banco, "verificar_propriedade_sessao", new=AsyncMock(side_effect=lambda s, email, proj=None: email == "owner@empresa.com")):
             # Owner consegue acessar
             res1 = client.post("/chat", json={"mensagem": "Mensagem do dono", "session_id": session_id})
             self.assertEqual(res1.status_code, 200)
@@ -185,6 +191,51 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             # Invasor tenta no stream
             res3 = client.post("/chat/stream", json={"mensagem": "Invasao stream", "session_id": session_id})
             self.assertEqual(res3.status_code, 403)
+
+    def test_session_verification_fail_closed_on_db_error(self):
+        # Comprova que se o banco estiver configurado e falhar, o comportamento e FAIL-CLOSED (503 ou 403, nunca 200 desautorizado)
+        session_id = f"sess_err_{uuid.uuid4().hex[:8]}"
+        with patch.object(banco, "database_url", "postgresql://user:pass@localhost:5432/helpus"), \
+             patch.object(banco, "verificar_propriedade_sessao", new=AsyncMock(side_effect=RuntimeError("Falha de conexao com PostgreSQL"))):
+            res = client.post("/chat", json={"mensagem": "Mensagem sob falha de banco", "session_id": session_id})
+            self.assertEqual(res.status_code, 503)
+            self.assertIn("indisponivel", res.text.lower())
+
+    def test_retry_preserves_idempotency_cache(self):
+        # Requisicoes com is_retry=True quando a resposta ja foi concluida devem retornar o cache em vez de re-executar
+        req_id = f"req_cached_retry_{uuid.uuid4().hex[:8]}"
+        session_id = f"sess_cached_retry_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta para teste de cache em retry",
+            "session_id": session_id,
+            "client_request_id": req_id,
+        }
+        res1 = client.post("/chat", json=payload)
+        self.assertEqual(res1.status_code, 200)
+        data1 = res1.json()
+
+        payload["is_retry"] = True
+        res2 = client.post("/chat", json=payload)
+        self.assertEqual(res2.status_code, 200)
+        data2 = res2.json()
+        self.assertEqual(data1["resposta"], data2["resposta"])
+
+    def test_retry_resumes_interrupted_in_progress(self):
+        # Se um turno anterior ficou preso in_progress e o cliente envia retry=True, assume execucao sem 409
+        fake_key = f"anon:sess_stale_retry:req_stale:hash999"
+        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": 9999999999}
+        try:
+            with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
+                payload = {
+                    "mensagem": "Pergunta retry pos interrupcao",
+                    "session_id": "sess_stale_retry",
+                    "client_request_id": "req_stale",
+                    "is_retry": True,
+                }
+                res = client.post("/chat", json=payload)
+                self.assertEqual(res.status_code, 200)
+        finally:
+            _idempotency_cache.pop(fake_key, None)
 
 if __name__ == "__main__":
     unittest.main()

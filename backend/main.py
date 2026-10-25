@@ -434,11 +434,12 @@ def _gerar_chave_idempotencia(user_email: Optional[str], session_id: str, client
     msg_hash = hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()[:16]
     return f"{user_email or 'anon'}:{session_id}:{client_request_id}:{msg_hash}"
 
-def claim_or_get_idempotent_request(idempotency_key: Optional[str]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+def claim_or_get_idempotent_request(idempotency_key: Optional[str], is_retry: bool = False) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """Reivindica a execucao atomica ou retorna a resposta em cache.
-    Se uma requisicao identica ja estiver em progresso, lanca HTTP 409 Conflict.
-    Se ja concluida, retorna (False, cached_response).
-    Se for nova, marca in_progress e retorna (True, None)."""
+    - Se uma resposta concluida existir, retorna (False, cached_response), inclusive em retries.
+    - Se uma requisicao identica ja estiver in_progress e nao for retry, lanca HTTP 409 Conflict.
+    - Se for explicitamente um retry (is_retry=True), assume a execucao liberando o lock anterior.
+    - Se for nova, marca in_progress e retorna (True, None)."""
     if not idempotency_key:
         return True, None
     now = time.time()
@@ -450,10 +451,13 @@ def claim_or_get_idempotent_request(idempotency_key: Optional[str]) -> Tuple[boo
         if entry.get("status") == "completed":
             return False, entry.get("response")
         if entry.get("status") == "in_progress":
-            raise HTTPException(
-                status_code=409,
-                detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
-            )
+            if is_retry:
+                _idempotency_cache.pop(idempotency_key, None)
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
+                )
 
     _idempotency_cache[idempotency_key] = {
         "status": "in_progress",
@@ -782,19 +786,23 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     project_id = (request.project_id or 'general')[:80]
     user_email = usuario["email"] if usuario else None
 
-    # Validacao de propriedade de sessao
+    # Validacao estrita de propriedade de sessao (FAIL-CLOSED)
     if banco and session_id:
         try:
-            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email)
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email, project_id)
             if not eh_dono:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Acesso negado: a sessao '{session_id}' pertence a outra conta."
+                    detail="Acesso negado: sessao pertence a outra conta ou autorizacao nao pode ser confirmada."
                 )
         except HTTPException:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            if getattr(banco, "database_url", None):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Servico de validacao de sessao temporariamente indisponivel."
+                )
 
     validar_modelo(request.model)
     if request.model:
@@ -805,8 +813,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
     is_claimed = False
-    if idempotency_key and not request.is_retry:
-        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key)
+    if idempotency_key:
+        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
         if not should_run and cached_resp:
             return MensagemResponse(**cached_resp)
         is_claimed = should_run
@@ -1059,19 +1067,23 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"
 
-    # Validacao de propriedade de sessao
+    # Validacao estrita de propriedade de sessao (FAIL-CLOSED)
     if banco and session_id:
         try:
-            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email)
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email, project_id)
             if not eh_dono:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Acesso negado: a sessao '{session_id}' pertence a outra conta."
+                    detail="Acesso negado: sessao pertence a outra conta ou autorizacao nao pode ser confirmada."
                 )
         except HTTPException:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            if getattr(banco, "database_url", None):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Servico de validacao de sessao temporariamente indisponivel."
+                )
 
     validar_modelo(request.model)
     if request.model:
@@ -1082,8 +1094,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
     is_stream_claimed = False
-    if idempotency_key and not request.is_retry:
-        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key)
+    if idempotency_key:
+        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
         if not should_run and cached_resp:
             async def replay_cached_stream():
                 text_content = cached_resp.get("resposta", "")
@@ -1132,11 +1144,10 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 image_url=request.image_url,
             ):
                 full_chunks.append(chunk)
-                last_model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
-                last_model_eff = getattr(c, "nome_modelo", last_model_req)
-                last_prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
-                last_fb_reason = getattr(c, "last_fallback_reason", None)
-                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': last_model_req, 'model_used': last_model_eff, 'provider_used': last_prov_used, 'fallback_reason': last_fb_reason}, ensure_ascii=False)}\n\n"
+                # Metadados imutaveis isolados por requisicao (sem leitura mutavel de CerebroIA)
+                req_model = get_request_model() or request.model or "gemini-2.5-flash"
+                req_prov = resolver_provedor_modelo(req_model)
+                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': req_model, 'model_used': req_model, 'provider_used': req_prov, 'fallback_reason': None}, ensure_ascii=False)}\n\n"
             stream_completed_ok = True
         except Exception as err:
             err_msg = f"Erro durante streaming: {str(err)}"
