@@ -99,5 +99,21 @@ class Migration003ReconciliationTests(unittest.TestCase):
             self.assertIn("Migracoes nominais obrigatorias ausentes no banco persistente", str(ctx.exception))
             self.assertIn("003_sessoes_schema_and_diagnostic", str(ctx.exception))
 
+    def test_migration_004_turn_idempotency_ledger_sql_structure(self):
+        """Verifica a integridade do DDL da Migration 004 (Turn Idempotency Ledger)."""
+        sql_path = Path(__file__).resolve().parents[1] / "migrations" / "004_turn_idempotency_ledger.sql"
+        self.assertTrue(sql_path.exists(), "Arquivo SQL 004 deve existir")
+        sql_content = sql_path.read_text(encoding="utf-8")
+        
+        self.assertIn("CREATE TABLE IF NOT EXISTS turn_idempotency_ledger", sql_content)
+        self.assertIn("idempotency_key VARCHAR(160) PRIMARY KEY", sql_content)
+        self.assertIn("owner_token VARCHAR(80) NOT NULL", sql_content)
+        self.assertIn("status VARCHAR(30) NOT NULL DEFAULT 'in_progress'", sql_content)
+        self.assertIn("response_payload JSONB", sql_content)
+        self.assertIn("INSERT INTO schema_migrations (version, description)", sql_content)
+        self.assertIn("'004_turn_idempotency_ledger'", sql_content)
+        # Rollback presente
+        self.assertIn("DROP TABLE IF EXISTS turn_idempotency_ledger CASCADE", sql_content)
+
 if __name__ == "__main__":
     unittest.main()

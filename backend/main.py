@@ -71,7 +71,7 @@ def get_cerebro() -> Optional[CerebroIA]:
             cerebro = CerebroIA()
         except Exception as e:
             if DEBUG:
-                print(f"[WARN] Erro ao instanciar CerebroIA on-demand: {e}")
+                print(f"[WARN] Erro ao instanciar CerebroIA on-demand (tipo={type(e).__name__})")
             cerebro = None
     return cerebro
 
@@ -89,14 +89,16 @@ async def lifespan(app: FastAPI):
     """Inicializa e finaliza os servicos"""
     global cerebro, buscador
 
-    # P0 CONCORRENCIA (Ciclo 021): Verificacao efetiva das condicoes operacionais no startup
-    workers_env = int(os.getenv("WEB_CONCURRENCY", os.getenv("WORKERS", "1")))
-    has_db = bool(getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"))
-    if workers_env > 1 and not has_db:
+    # P0 MULTIWORKER (Ciclo 022): Rejeita estritamente mais de 1 worker / replica enquanto o fencing distribuido
+    # nao estiver formalmente ativado e homologado, mesmo com DATABASE_URL configurada.
+    workers_env = int(os.getenv("WEB_CONCURRENCY", os.getenv("WORKERS", os.getenv("SERVER_REPLICAS", "1"))))
+    distributed_fencing_active = os.getenv("DISTRIBUTED_FENCING_ENABLED", "false").lower() in ("1", "true", "yes")
+    if workers_env > 1 and not distributed_fencing_active:
         raise RuntimeError(
-            f"Incompatibilidade operacional critica: foram solicitados {workers_env} workers, "
-            "mas DATABASE_URL nao esta configurada. Em memoria local, multiplos workers violam o isolamento "
-            "e nao garantem exactly-once. Restrinja a WORKERS=1 ou forneca DATABASE_URL com suporte a advisory locks."
+            f"Incompatibilidade operacional critica: foram solicitados {workers_env} workers/replicas, "
+            "mas o mecanismo de idempotencia e turn lock opera em memoria local de processo. "
+            "A presenca de DATABASE_URL isolada nao garante fencing distribuido. "
+            "Ajuste WORKERS=1 e SERVER_REPLICAS=1 ate a ativacao e homologacao de ledger distribuido."
         )
 
     print("=" * 60)
@@ -110,7 +112,7 @@ async def lifespan(app: FastAPI):
         await banco.criar_tabelas()
         print("[OK] Banco de dados pronto")
     except Exception as e:
-        print(f"[WARN] Banco de dados nao disponivel: {e}")
+        print(f"[WARN] Banco de dados nao disponivel (tipo={type(e).__name__})")
         print("   Rodando sem banco de dados...")
 
     # 2. Carregar modelo IA se ainda nao carregado

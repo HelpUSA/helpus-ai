@@ -1,3 +1,8 @@
+def _log_db_error(action: str, exc: Exception):
+    """Sanitiza logs de excecao do banco eliminando credenciais, strings de conexao e queries."""
+    error_kind = type(exc).__name__
+    print(f"[ERROR] [{action.upper()}_FAILED] kind={error_kind}")
+
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -75,7 +80,7 @@ class BancoDados:
             await asyncio.wait_for(self.pool.open(), timeout=12.0)
             print("[OK] Pool do PostgreSQL conectado com sucesso!")
         except Exception as e:
-            print(f"[WARN] Falha ao conectar banco PostgreSQL: {e}")
+            _log_db_error("conectar_db", e)
             self.pool = None
 
     async def fechar(self):
@@ -562,7 +567,7 @@ class BancoDados:
                     await conn.commit()
             return True
         except Exception as e:
-            print(f"[ERROR] Falha no commit da persistencia de mensagem: {e}")
+            _log_db_error("salvar_mensagem", e)
             raise
 
     async def carregar_mensagens(
@@ -610,7 +615,7 @@ class BancoDados:
                     rows = await cur.fetchall()
                     return [{"role": r[0], "content": r[1]} for r in rows]
         except Exception as e:
-            print(f"[WARN] Erro ao carregar mensagens: {e}")
+            _log_db_error("carregar_mensagens", e)
             return []
 
     async def listar_conversas_usuario(self, user_email: str, limite: int = 50, project_id: Optional[str] = None) -> List[Dict]:
@@ -677,7 +682,7 @@ class BancoDados:
                         for r in rows
                     ]
         except Exception as e:
-            print(f"[WARN] Erro ao listar conversas: {e}")
+            _log_db_error("listar_conversas", e)
             return []
 
     async def renomear_conversa(self, session_id: str, novo_titulo: str, user_email: Optional[str] = None):
@@ -699,7 +704,7 @@ class BancoDados:
                         )
                     await conn.commit()
         except Exception as e:
-            print(f"[WARN] Erro ao renomear conversa: {e}")
+            _log_db_error("renomear_conversa", e)
 
     async def mover_conversa_projeto(self, session_id: str, project_id: str, user_email: Optional[str] = None):
         if not await self._garantir_pool():
@@ -728,7 +733,7 @@ class BancoDados:
                         )
                     await conn.commit()
         except Exception as e:
-            print(f"[WARN] Erro ao mover conversa: {e}")
+            _log_db_error("mover_conversa", e)
 
     async def listar_projetos(self, user_email: Optional[str] = None) -> List[Dict]:
         padrao = [{"project_id": "general", "nome": "Geral", "descricao": "Conversas gerais do HelpUS", "instrucoes": ""}]
@@ -765,7 +770,7 @@ class BancoDados:
                         itens.insert(0, padrao[0])
                     return itens
         except Exception as e:
-            print(f"[WARN] Erro ao listar projetos: {e}")
+            _log_db_error("listar_projetos", e)
             return padrao
 
     async def criar_projeto(
@@ -808,7 +813,7 @@ class BancoDados:
                         "created_at": r[4].isoformat() if r[4] else None,
                     }
         except Exception as e:
-            print(f"[WARN] Erro ao criar projeto: {e}")
+            _log_db_error("criar_projeto", e)
             return fallback
 
     async def apagar_conversa(self, session_id: str, user_email: Optional[str] = None):
@@ -831,7 +836,7 @@ class BancoDados:
                         )
                     await conn.commit()
         except Exception as e:
-            print(f"[WARN] Erro ao apagar conversa: {e}")
+            _log_db_error("apagar_conversa", e)
 
     async def listar_memorias_projeto(
         self,
@@ -923,7 +928,7 @@ class BancoDados:
                         "updated_at": r[8].isoformat() if r[8] else None,
                     }
         except Exception as e:
-            print(f"[WARN] Erro ao criar memoria: {e}")
+            _log_db_error("criar_memoria", e)
             return None
 
     async def atualizar_memoria_projeto(
@@ -982,7 +987,7 @@ class BancoDados:
                         "updated_at": r[8].isoformat() if r[8] else None,
                     }
         except Exception as e:
-            print(f"[WARN] Erro ao atualizar memoria: {e}")
+            _log_db_error("atualizar_memoria", e)
             return None
 
     async def indexar_pagina(self, url: str, titulo: str, conteudo: str):
@@ -1006,7 +1011,7 @@ class BancoDados:
                     )
                     await conn.commit()
         except Exception as e:
-            print(f"[WARN] Erro ao indexar pagina: {e}")
+            _log_db_error("indexar_pagina", e)
 
     async def buscar_paginas(self, consulta: str, limite: int = 5) -> List[Dict]:
         if not await self._garantir_pool():
@@ -1027,7 +1032,7 @@ class BancoDados:
                     rows = await cur.fetchall()
                     return [{"url": r[0], "titulo": r[1], "snippet": r[2]} for r in rows]
         except Exception as e:
-            print(f"[WARN] Erro ao buscar paginas: {e}")
+            _log_db_error("buscar_paginas", e)
             return []
 
     async def contar_paginas(self) -> int:
@@ -1041,5 +1046,5 @@ class BancoDados:
                     row = await cur.fetchone()
                     return int(row[0]) if row else 0
         except Exception as e:
-            print(f"[WARN] Erro ao contar paginas: {e}")
+            _log_db_error("contar_paginas", e)
             return 0

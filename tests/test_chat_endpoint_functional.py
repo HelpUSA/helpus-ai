@@ -879,5 +879,30 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             self.assertIn("Incompatibilidade operacional critica", str(ctx.exception))
             self.assertIn("WORKERS=1", str(ctx.exception))
 
+    def test_operational_concurrency_guard_rejects_multi_worker_even_with_database_url(self):
+        # Valida que mesmo com DATABASE_URL configurada, ter mais de 1 worker/replica lanca RuntimeError
+        # se DISTRIBUTED_FENCING_ENABLED nao estiver ativado (P0 - Ciclo 022)
+        import asyncio
+        from backend.main import lifespan
+        with patch.dict(os.environ, {"WEB_CONCURRENCY": "2", "DATABASE_URL": "postgresql://mock:mock@localhost:5432/db", "DISTRIBUTED_FENCING_ENABLED": "false"}):
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(lifespan(app).__aenter__())
+            self.assertIn("Incompatibilidade operacional critica", str(ctx.exception))
+            self.assertIn("DATABASE_URL isolada nao garante fencing distribuido", str(ctx.exception))
+
+    def test_log_db_error_sanitizes_credentials_and_sql_messages(self):
+        # Valida que _log_db_error sanitiza o output eliminando credenciais e queries internas (P0 - Ciclo 022)
+        import io
+        from contextlib import redirect_stdout
+        from backend.banco import _log_db_error
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _log_db_error("salvar_mensagem", RuntimeError("FATAL: password authentication failed for user 'admin' at postgresql://admin:secret123@host:5432/prod"))
+        out = buf.getvalue().strip()
+        self.assertIn("[ERROR] [SALVAR_MENSAGEM_FAILED] kind=RuntimeError", out)
+        self.assertNotIn("secret123", out)
+        self.assertNotIn("password", out)
+
 if __name__ == "__main__":
     unittest.main()
