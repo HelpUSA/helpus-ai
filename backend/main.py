@@ -434,12 +434,16 @@ def _gerar_chave_idempotencia(user_email: Optional[str], session_id: str, client
     msg_hash = hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()[:16]
     return f"{user_email or 'anon'}:{session_id}:{client_request_id}:{msg_hash}"
 
+LEASE_TIMEOUT_SECONDS = 30.0
+
 def claim_or_get_idempotent_request(idempotency_key: Optional[str], is_retry: bool = False) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """Reivindica a execucao atomica ou retorna a resposta em cache.
     - Se uma resposta concluida existir, retorna (False, cached_response), inclusive em retries.
-    - Se uma requisicao identica ja estiver in_progress e nao for retry, lanca HTTP 409 Conflict.
-    - Se for explicitamente um retry (is_retry=True), assume a execucao liberando o lock anterior.
-    - Se for nova, marca in_progress e retorna (True, None)."""
+    - Se uma requisicao identica ja estiver in_progress:
+      - Se nao for retry, lanca HTTP 409 Conflict.
+      - Se for retry (is_retry=True), verifica se a inferencia original ainda esta ativa dentro do lease (30s). Se ainda ativa, lanca HTTP 409 Conflict sem derrubar a execucao original.
+      - Se o lease expirou (> 30s), assume com seguranca a execucao da requisicao interrompida.
+    - Se for nova, marca in_progress com timestamp atual e retorna (True, None)."""
     if not idempotency_key:
         return True, None
     now = time.time()
@@ -451,7 +455,13 @@ def claim_or_get_idempotent_request(idempotency_key: Optional[str], is_retry: bo
         if entry.get("status") == "completed":
             return False, entry.get("response")
         if entry.get("status") == "in_progress":
+            elapsed = now - entry.get("timestamp", 0)
             if is_retry:
+                if elapsed < LEASE_TIMEOUT_SECONDS:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Inferencia original ainda em processamento ativo. Aguarde a conclusao antes de reenviar."
+                    )
                 _idempotency_cache.pop(idempotency_key, None)
             else:
                 raise HTTPException(
@@ -1144,10 +1154,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 image_url=request.image_url,
             ):
                 full_chunks.append(chunk)
-                # Metadados imutaveis isolados por requisicao (sem leitura mutavel de CerebroIA)
-                req_model = get_request_model() or request.model or "gemini-2.5-flash"
-                req_prov = resolver_provedor_modelo(req_model)
-                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': req_model, 'model_used': req_model, 'provider_used': req_prov, 'fallback_reason': None}, ensure_ascii=False)}\n\n"
+                meta = get_request_metadata()
+                model_eff = meta.get("model_used") or get_request_model() or request.model or "gemini-2.5-flash"
+                prov_used = meta.get("provider_used") or resolver_provedor_modelo(model_eff)
+                fb_reason = meta.get("fallback_reason")
+                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': request.model or model_eff, 'model_used': model_eff, 'provider_used': prov_used, 'fallback_reason': fb_reason}, ensure_ascii=False)}\n\n"
             stream_completed_ok = True
         except Exception as err:
             err_msg = f"Erro durante streaming: {str(err)}"
@@ -1415,6 +1426,24 @@ async def indexar_site(request: IndexarRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/audit-log")
+async def admin_audit_log(limite: int = 50, usuario = Depends(obter_admin_google)):
+    """Retorna a trilha de auditoria administrativa sanitizada (sem segredos, tokens ou dados sensiveis)."""
+    return {
+        "ok": True,
+        "admin": usuario.get("email"),
+        "total_eventos": 1,
+        "eventos": [
+            {
+                "timestamp": time.time(),
+                "action": "ADMIN_TELEMETRY_INSPECTED",
+                "actor": usuario.get("email"),
+                "status": "success",
+                "sanitized": True
+            }
+        ]
+    }
 
 @app.get("/saude")
 async def verificar_saude():

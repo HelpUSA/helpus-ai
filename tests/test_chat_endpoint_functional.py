@@ -1,4 +1,6 @@
 """Functional HTTP integration tests for /chat and /chat/stream endpoints and security safeguards."""
+import os
+os.environ["HELPUS_TEST_MODE"] = "1"
 import unittest
 import sys
 import uuid
@@ -220,14 +222,34 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         data2 = res2.json()
         self.assertEqual(data1["resposta"], data2["resposta"])
 
-    def test_retry_resumes_interrupted_in_progress(self):
-        # Se um turno anterior ficou preso in_progress e o cliente envia retry=True, assume execucao sem 409
-        fake_key = f"anon:sess_stale_retry:req_stale:hash999"
-        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": 9999999999}
+    def test_retry_during_active_inference_rejected_409(self):
+        # Se a inferencia original ainda estiver ativa dentro do lease (ex: 5s atras), retry deve ser rejeitado com 409
+        import time
+        fake_key = f"anon:sess_active:req_active:hash888"
+        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": time.time() - 5.0}
         try:
             with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
                 payload = {
-                    "mensagem": "Pergunta retry pos interrupcao",
+                    "mensagem": "Pergunta retry enquanto original ativa",
+                    "session_id": "sess_active",
+                    "client_request_id": "req_active",
+                    "is_retry": True,
+                }
+                res = client.post("/chat", json=payload)
+                self.assertEqual(res.status_code, 409)
+                self.assertIn("processamento ativo", res.text)
+        finally:
+            _idempotency_cache.pop(fake_key, None)
+
+    def test_retry_resumes_interrupted_in_progress(self):
+        # Se um turno anterior ficou preso in_progress e o lease expirou (>30s), cliente com retry=True assume execucao
+        import time
+        fake_key = f"anon:sess_stale_retry:req_stale:hash999"
+        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": time.time() - 45.0}
+        try:
+            with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
+                payload = {
+                    "mensagem": "Pergunta retry pos interrupcao com lease expirado",
                     "session_id": "sess_stale_retry",
                     "client_request_id": "req_stale",
                     "is_retry": True,
@@ -236,6 +258,25 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
                 self.assertEqual(res.status_code, 200)
         finally:
             _idempotency_cache.pop(fake_key, None)
+
+    def test_admin_audit_log_authorized_and_sanitized(self):
+        from auth import obter_admin_google
+        app.dependency_overrides[obter_admin_google] = lambda: {"email": "superadmin@helpusbr.com", "role": "admin"}
+        try:
+            res = client.get("/admin/audit-log")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertEqual(data.get("admin"), "superadmin@helpusbr.com")
+            self.assertNotIn("secret", str(data).lower())
+            self.assertNotIn("token", str(data).lower())
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_admin_audit_log_unauthenticated_rejected(self):
+        # Sem credencial de admin deve retornar 401 ou 403
+        res = client.get("/admin/audit-log")
+        self.assertIn(res.status_code, [401, 403])
 
 if __name__ == "__main__":
     unittest.main()

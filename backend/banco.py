@@ -170,6 +170,16 @@ class BancoDados:
                     ON sessoes(user_email)
                 """)
 
+                # Migracao controlada de sessoes legadas para nova tabela autoritativa
+                await cur.execute("""
+                    INSERT INTO sessoes (session_id, user_email, project_id, created_at)
+                    SELECT session_id, LOWER(user_email), COALESCE(project_id, 'general'), MIN(created_at)
+                    FROM conversas
+                    WHERE session_id IS NOT NULL AND session_id != ''
+                    GROUP BY session_id, LOWER(user_email), COALESCE(project_id, 'general')
+                    ON CONFLICT (session_id) DO NOTHING
+                """)
+
                 await conn.commit()
 
     _sessoes_memoria: Dict[str, Optional[str]] = {}
@@ -191,17 +201,18 @@ class BancoDados:
         
         Garantias:
         1. Atomicidade: INSERT ... ON CONFLICT (session_id) DO NOTHING impede condicoes de corrida.
-        2. FAIL-CLOSED: Se o banco estiver configurado e ocorrer falha, NUNCA autoriza (retorna False).
-        3. Isolamento multi-tenant: Impede acesso cruzado entre contas ou poluição de sessoes.
+        2. FAIL-CLOSED: Em qualquer ambiente com banco configurado (inclusive localhost), falha de conexao nega acesso.
+        3. Modo de teste explicito: Execucao em memoria apenas com HELPUS_TEST_MODE=1.
+        4. Isolamento multi-tenant: Impede acesso cruzado entre contas ou poluição de sessoes.
         """
-        # Se o pool estiver ativo e conectado, realiza a checagem atomica no PostgreSQL
+        # 1. Se o pool estiver ativo e conectado, realiza a checagem atomica no PostgreSQL
         if self.pool is not None:
             email_norm = user_email.strip().lower() if user_email else None
             proj_norm = (project_id or "general")[:80]
             try:
                 async with self.pool.connection() as conn:
                     async with conn.cursor() as cur:
-                        # 1. Registro atomico de sessao se for nova
+                        # Registro atomico de sessao se for nova
                         await cur.execute(
                             """
                             INSERT INTO sessoes (session_id, user_email, project_id)
@@ -212,7 +223,7 @@ class BancoDados:
                         )
                         await conn.commit()
 
-                        # 2. Leitura da sessao registrada
+                        # Leitura da sessao registrada
                         await cur.execute(
                             "SELECT user_email, project_id FROM sessoes WHERE session_id = %s LIMIT 1",
                             (session_id,)
@@ -226,15 +237,16 @@ class BancoDados:
                 # FAIL-CLOSED: NUNCA conceder autorizacao em caso de erro na consulta
                 return False
 
-        # Se o banco remoto estiver configurado em variavel de ambiente real mas o pool falhou
-        real_db = os.getenv("DATABASE_URL")
-        if real_db and ("localhost" not in real_db and "127.0.0.1" not in real_db):
-            # FAIL-CLOSED estrito para ambiente remoto com falha de conexao
+        # 2. Modo de teste explicito e isolado
+        if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
+            return self._verificar_propriedade_memoria(session_id, user_email)
+
+        # 3. Se houver banco configurado mas o pool falhou em qualquer ambiente, APLICA FAIL-CLOSED
+        if getattr(self, "database_url", None) or os.getenv("DATABASE_URL"):
             return False
 
-        # Ambiente de desenvolvimento / teste sem banco relacional:
-        # Mantem registro atomico em memoria para isolar sessoes entre contas
-        return self._verificar_propriedade_memoria(session_id, user_email)
+        # Sem banco configurado e sem teste explicito: fail-closed estrito
+        return False
 
     async def salvar_mensagem(
         self,
