@@ -126,6 +126,8 @@ async def legacy_success(
     contexto_busca="",
     historico=None,
     max_tokens=None,
+    image_url=None,
+    image_base64=None,
 ):
     self.last_provider_used = "gemini"
     self.last_fallback_reason = None
@@ -143,6 +145,8 @@ async def legacy_failure(
     contexto_busca="",
     historico=None,
     max_tokens=None,
+    image_url=None,
+    image_base64=None,
 ):
     raise RuntimeError(
         "LEGACY_SECRET private payload"
@@ -264,6 +268,8 @@ class RuntimeIntegrationTests(
                 "contexto_busca",
                 "historico",
                 "max_tokens",
+                "image_url",
+                "image_base64",
             ],
         )
 
