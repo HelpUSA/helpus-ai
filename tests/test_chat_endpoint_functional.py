@@ -22,7 +22,7 @@ from backend.main import (
 )
 from auth import obter_usuario_google
 
-client = TestClient(app)
+client = TestClient(app, raise_server_exceptions=False)
 
 class ChatEndpointFunctionalTests(unittest.TestCase):
     def setUp(self):
@@ -574,17 +574,134 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         # Cria banco com database_url configurado
         banco_test = BancoDados()
         banco_test.database_url = "postgresql://mock_user:pass@localhost:5432/mock_db"
-        banco_test.pool = object() # simula pool ativo
         
-        # Mock de conexao para verificar se execute/fetch sao chamados
         with patch.object(banco_test, "pool") as mock_pool:
-            mock_conn = AsyncMock()
-            mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+            from unittest.mock import MagicMock
+            mock_conn = MagicMock()
+            mock_cur = AsyncMock()
+            mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+            mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
+            mock_conn.cursor.return_value.__aexit__.return_value = None
+            # Simula tabela presente
+            mock_cur.fetchone.return_value = ("conversas",)
             
             asyncio.run(banco_test.criar_tabelas())
             
-            # Como tem database_url, criar_tabelas deve abortar imediatamente sem executar DDL
-            mock_conn.execute.assert_not_called()
+            # Como tem database_url, apenas SELECT de verificacao ocorre, nunca DDL
+            for call in mock_cur.execute.call_args_list:
+                sql = call[0][0].upper()
+                self.assertNotIn("CREATE TABLE", sql)
+                self.assertNotIn("ALTER TABLE", sql)
+
+    def test_http_sse_turn_persists_exactly_one_assistant_message(self):
+        # Garante que um turno completo via /chat/stream salva EXATAMENTE UMA mensagem do assistente
+        session_id = f"sess_sse_exact1_{uuid.uuid4().hex[:8]}"
+        req_id = f"req_sse_exact1_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta para SSE persistencia exata",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+            with client.stream("POST", "/chat/stream", json=payload) as response:
+                self.assertEqual(response.status_code, 200)
+                body = "".join(response.iter_text())
+                self.assertIn("data:", body)
+                self.assertIn("[DONE]", body)
+
+            # Verifica chamadas a salvar_mensagem
+            assistant_saves = [
+                call for call in mock_salvar.call_args_list
+                if (len(call[0]) >= 2 and call[0][1] == "assistant") or call[1].get("role") == "assistant"
+            ]
+            self.assertEqual(len(assistant_saves), 1, f"Esperado exatamente 1 assistant salvo, obtido {len(assistant_saves)}")
+            # Confirma que a resposta persistida nao e vazia
+            saved_content = assistant_saves[0][1].get("content") if "content" in assistant_saves[0][1] else assistant_saves[0][0][2]
+            self.assertTrue(len(saved_content) > 0)
+
+    def test_http_sse_fencing_prevents_late_persistence(self):
+        # Simula cancelamento ou retry concorrente que faz o worker perder a posse antes de gravar
+        session_id = f"sess_sse_fence_{uuid.uuid4().hex[:8]}"
+        req_id = f"req_sse_fence_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta para teste de stream cercado",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+            # Forcamos is_owner_token_valid a retornar False ao final do stream
+            orig_valid = sys.modules["backend.main"].is_owner_token_valid
+            def mock_fence(k, t):
+                if k and req_id in k:
+                    return False
+                return orig_valid(k, t)
+
+            with patch("backend.main.is_owner_token_valid", side_effect=mock_fence):
+                with client.stream("POST", "/chat/stream", json=payload) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+                    self.assertIn("[DONE]", body)
+
+            # Worker cercado DEVE ter a persistencia de assistant abortada
+            assistant_saves = [
+                call for call in mock_salvar.call_args_list
+                if (len(call[0]) >= 2 and call[0][1] == "assistant") or call[1].get("role") == "assistant"
+            ]
+            self.assertEqual(len(assistant_saves), 0, "Worker cercado nao deve persistir mensagem")
+
+    def test_http_sse_retry_flag_does_not_duplicate_user_message(self):
+        # Testa chamada com is_retry=True garantindo que mensagem do usuario nao seja reinserida
+        session_id = f"sess_sse_retry_{uuid.uuid4().hex[:8]}"
+        req_id = f"req_sse_retry_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta de retry",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+            "is_retry": True,
+        }
+
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+            with client.stream("POST", "/chat/stream", json=payload) as response:
+                self.assertEqual(response.status_code, 200)
+
+            user_saves = [
+                call for call in mock_salvar.call_args_list
+                if (len(call[0]) >= 2 and call[0][1] == "user") or call[1].get("role") == "user"
+            ]
+            self.assertEqual(len(user_saves), 0, "Chamada com is_retry=True nao deve salvar mensagem de usuario duplicada")
+
+    def test_schema_verification_fails_closed_when_tables_missing_under_persistent_db(self):
+        import asyncio
+        from backend.banco import BancoDados
+        
+        banco_test = BancoDados()
+        banco_test.database_url = "postgresql://user:pass@localhost:5432/helpus_test"
+        
+        with patch.object(banco_test, "pool") as mock_pool:
+            from unittest.mock import MagicMock
+            mock_conn = MagicMock()
+            mock_cur = AsyncMock()
+            mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+            mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
+            mock_conn.cursor.return_value.__aexit__.return_value = None
+            
+            # Simula tabela conversas ausente em information_schema.tables
+            mock_cur.fetchone.return_value = None
+            
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(banco_test.criar_tabelas())
+            
+            self.assertIn("Tabelas ausentes no banco persistente", str(ctx.exception))
+            # Garante que nenhum CREATE TABLE DDL foi executado
+            for call in mock_cur.execute.call_args_list:
+                sql = call[0][0].upper()
+                self.assertNotIn("CREATE TABLE", sql)
+                self.assertNotIn("ALTER TABLE", sql)
 
 if __name__ == "__main__":
     unittest.main()

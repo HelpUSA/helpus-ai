@@ -1,3 +1,47 @@
+import threading
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+class MockSSEHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
+        # Chunk 1 (t = 0s)
+        self.wfile.write(b'data: {"content": "Ola! Resposta temporal fragmentada ", "done": false}\n\n')
+        self.wfile.flush()
+        time.sleep(0.35)
+
+        # Chunk 2 (t = 0.35s)
+        self.wfile.write(b'data: {"content": "comprovando progressividade no tempo. ", "done": false}\n\n')
+        self.wfile.flush()
+        time.sleep(0.35)
+
+        # Chunk 3 (t = 0.70s)
+        self.wfile.write(b'data: {"content": "Finalizando stream.", "done": false}\n\n')
+        self.wfile.flush()
+        time.sleep(0.2)
+
+        # Sinal done e DONE final
+        self.wfile.write(b'data: {"done": true, "session_id": "sess_playwright_temporal_sse"}\n\n')
+        self.wfile.write(b'data: [DONE]\n\n')
+        self.wfile.flush()
+        self.close_connection = True
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
 """Real browser Playwright end-to-end tests across 360px, 768px, and 1280px viewports."""
 import unittest
 import subprocess
@@ -35,10 +79,16 @@ class PlaywrightViewportTests(unittest.TestCase):
             cls.proc.terminate()
             raise RuntimeError("Next.js frontend server failed to start within timeout.")
         cls.playwright = sync_playwright().start()
+        cls.mock_sse_port = 3099
+        cls.sse_server = ThreadingHTTPServer(("127.0.0.1", cls.mock_sse_port), MockSSEHandler)
+        cls.sse_thread = threading.Thread(target=cls.sse_server.serve_forever, daemon=True)
+        cls.sse_thread.start()
         cls.browser = cls.playwright.chromium.launch(headless=True)
 
     @classmethod
     def tearDownClass(cls):
+        if hasattr(cls, "sse_server"):
+            cls.sse_server.shutdown()
         if hasattr(cls, "browser"):
             cls.browser.close()
         if hasattr(cls, "playwright"):
@@ -192,6 +242,41 @@ class PlaywrightViewportTests(unittest.TestCase):
         self.assertIn("Streaming mock validado com sucesso.", content)
 
         shot_path = SCREENSHOTS_DIR / "viewport_sse_mocked_streaming.png"
+        page.screenshot(path=str(shot_path))
+        self.assertTrue(shot_path.exists())
+        page.close()
+
+    def test_playwright_temporal_sse_streaming_and_cancellation(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+        """)
+
+        # Redireciona /chat/stream para o servidor de streaming real fragmentado no tempo
+        page.route("**/chat/stream", lambda route: route.continue_(url=f"http://127.0.0.1:{self.mock_sse_port}/chat/stream"))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+
+        textarea.fill("Pergunta para teste de SSE temporal e cancelamento")
+        btn_enviar = page.locator("button[title='Enviar']").first
+        if btn_enviar.is_visible():
+            btn_enviar.click()
+        else:
+            page.keyboard.press("Enter")
+
+        # 1. Verifica primeiro chunk fragmentado chegando
+        page.wait_for_selector("text=Ola! Resposta temporal fragmentada", timeout=6000)
+
+        # 2. Aguarda conclusao total do stream e [DONE]
+        page.wait_for_selector("text=Finalizando stream.", timeout=8000)
+
+        # 3. Verifica presenca do botao 'Tentar novamente' na resposta concluida
+        page.wait_for_selector("text=Tentar novamente", timeout=6000)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_sse_temporal_streaming.png"
         page.screenshot(path=str(shot_path))
         self.assertTrue(shot_path.exists())
         page.close()

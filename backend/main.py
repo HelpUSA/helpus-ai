@@ -1,3 +1,4 @@
+import re
 import asyncio
 import socket
 import hashlib
@@ -505,6 +506,23 @@ def heartbeat_idempotent_request(idempotency_key: Optional[str], owner_token: Op
         entry["last_heartbeat"] = time.time()
         return True
     return False
+
+def _mask_key(key: Optional[str]) -> str:
+    """Mascara chaves de idempotencia em logs para proteger dados de usuario, emails e session IDs."""
+    if not key:
+        return "none"
+    parts = key.split(":")
+    if len(parts) >= 4:
+        return f"***:***:***:{parts[-1][:8]}"
+    return f"***_{hashlib.sha256(key.encode()).hexdigest()[:8]}"
+
+def _sanitize_log_message(msg: Any) -> str:
+    """Sanitiza mensagens de log impedindo vazamento de credenciais, URLs internas de banco ou tokens."""
+    s = str(msg)
+    s = re.sub(r'postgres(ql)?://[^@\s]+@', 'postgresql://***:***@', s)
+    s = re.sub(r'(bearer\s+)[a-zA-Z0-9_\-\.]+', r'\1***', s, flags=re.IGNORECASE)
+    s = re.sub(r'(key|token|secret|password|senha)\s*[:=]\s*[^\s,]+', r'\1=***', s, flags=re.IGNORECASE)
+    return s
 
 def is_owner_token_valid(idempotency_key: Optional[str], owner_token: Optional[str]) -> bool:
     """Valida se o owner_token ainda e o detentor ativo e legitimo da execucao in_progress."""
@@ -1104,7 +1122,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         # P0 Concorrencia: aborta persistencia se o worker foi cercado (fenced por retry/timeout)
         is_fenced = bool(is_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
         if is_fenced:
-            print(f"[WARN] Worker cercado (fenced): abortando persistencia para chave {idempotency_key}")
+            print(f"[WARN] Worker cercado (fenced): abortando persistencia para chave {_mask_key(idempotency_key)}")
             cached_now = get_idempotent_response(idempotency_key)
             if cached_now:
                 return MensagemResponse(**cached_now)
@@ -1317,37 +1335,41 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             record_provider_health(upstream_prov, success=stream_completed_ok and (last_fb_reason is None))
             record_provider_health(last_prov_used, success=stream_completed_ok and (last_fb_reason is None))
 
-            if is_stream_claimed:
-                if stream_completed_ok:
-                    complete_idempotent_request(idempotency_key, {
-                        "resposta": "".join(full_chunks),
-                        "session_id": session_id,
-                        "project_id": project_id,
-                        "model_requested": last_model_req,
-                        "model_used": last_model_eff,
-                        "provider_used": last_prov_used,
-                        "fallback_reason": last_fb_reason,
-                    }, owner_token=owner_token)
-                else:
+            # 1. P0 FENCING & STREAMING PERSISTENCIA:
+            resposta_completa = "".join(full_chunks)
+            is_stream_fenced = bool(is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
+            if is_stream_fenced:
+                print(f"[WARN] Stream cercado (fenced): abortando persistencia de resposta tardia no banco para chave {_mask_key(idempotency_key)}")
+                if idempotency_key and owner_token:
                     release_idempotent_request(idempotency_key, owner_token=owner_token)
+            else:
+                if banco and resposta_completa and stream_completed_ok:
+                    try:
+                        await banco.salvar_mensagem(
+                            session_id=session_id,
+                            role="assistant",
+                            content=resposta_completa,
+                            user_email=user_email,
+                            project_id=project_id,
+                        )
+                    except Exception as e:
+                        if DEBUG:
+                            print(f"[WARN] Erro ao salvar resposta do assistente em stream: {_sanitize_log_message(e)}")
 
-        # Salva resposta final gerada pelo assistente apenas se o executor ainda for legitimo (nao cercado)
-        resposta_completa = "".join(full_chunks)
-        is_stream_fenced = bool(is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
-        if is_stream_fenced:
-            print(f"[WARN] Stream cercado (fenced): abortando persistencia de resposta tardia no banco")
-        elif banco and resposta_completa and stream_completed_ok:
-            try:
-                await banco.salvar_mensagem(
-                    session_id=session_id,
-                    role="assistant",
-                    content=resposta_completa,
-                    user_email=user_email,
-                    project_id=project_id,
-                )
-            except Exception as e:
-                if DEBUG:
-                    print(f"[WARN] Erro ao salvar resposta do assistente em stream: {e}")
+                # 2. P0 IDEMPOTENCIA: Conclui CAS apenas apos persistencia efetiva
+                if is_stream_claimed and idempotency_key and owner_token:
+                    if stream_completed_ok:
+                        complete_idempotent_request(idempotency_key, {
+                            "resposta": resposta_completa,
+                            "session_id": session_id,
+                            "project_id": project_id,
+                            "model_requested": last_model_req,
+                            "model_used": last_model_eff,
+                            "provider_used": last_prov_used,
+                            "fallback_reason": last_fb_reason,
+                        }, owner_token=owner_token)
+                    else:
+                        release_idempotent_request(idempotency_key, owner_token=owner_token)
 
         yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
@@ -1615,8 +1637,8 @@ async def admin_audit_log(
             "eventos": eventos
         }
     except Exception as err:
-        print(f"[ERROR] Falha ao processar trilha de auditoria administrativa: {err}")
-        raise HTTPException(status_code=503, detail="Servico de auditoria temporariamente indisponivel.")
+        print(f"[ERROR] Falha ao processar trilha de auditoria administrativa: {_sanitize_log_message(err)}")
+        raise HTTPException(status_code=503, detail="Servico de auditoria temporariamente indisponivel.") from None
 
 @app.get("/saude")
 async def verificar_saude():

@@ -674,9 +674,10 @@ export default function HelpUSGeminiApp() {
         const decoder = new TextDecoder('utf-8')
         let respostaAcumulada = ''
         let buffer = ''
+        let isStreamDone = false
 
         try {
-          while (true) {
+          while (!isStreamDone) {
             const { done, value } = await reader.read()
             if (done) break
             buffer += decoder.decode(value, { stream: true })
@@ -688,7 +689,10 @@ export default function HelpUSGeminiApp() {
               if (!trimmed.startsWith('data:')) continue
               const dataStr = trimmed.slice(5).trim()
               if (!dataStr) continue
-              if (dataStr === '[DONE]') break
+              if (dataStr === '[DONE]') {
+                isStreamDone = true
+                break
+              }
 
               try {
                 const parsed = JSON.parse(dataStr)

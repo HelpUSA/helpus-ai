@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(ROOT / "backend") not in sys.path:
+    sys.path.insert(0, str(ROOT / "backend"))
 """Regression checks for public-surface HelpUS security invariants.
 
 These static checks intentionally run without live provider credentials, a database,

@@ -96,6 +96,21 @@ class BancoDados:
             # Em qualquer ambiente com banco persistente (staging, producao ou postgres configurado),
             # alteracoes DDL automaticas no startup sao estritamente desativadas.
             # O schema e governado exclusivamente pelas migrations versionadas formais (schema_migrations).
+            # Executa apenas checagem read-only para verificar presenca das tabelas requeridas sem DDL.
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("""
+                        SELECT table_name 
+                        FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                          AND table_name = 'conversas';
+                    """)
+                    row = await cur.fetchone()
+                    if not row:
+                        raise RuntimeError(
+                            "Tabelas ausentes no banco persistente. Alteracoes DDL automaticas estao bloqueadas. "
+                            "Execute as migrations pendentes (schema_migrations) antes de inicializar o servico."
+                        )
             return
 
         async with self.pool.connection() as conn:
