@@ -526,6 +526,14 @@ export default function HelpUSGeminiApp() {
     return groups.filter((g) => g.items.length > 0)
   })()
 
+  // Tentar novamente última mensagem enviada
+  const tentarNovamente = () => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    if (lastUserMsg) {
+      enviarMensagem(lastUserMsg.content)
+    }
+  }
+
   // Enviar mensagem para a IA
   const enviarMensagem = async (texto = input) => {
     const textoLimpo = texto.trim()
@@ -601,7 +609,7 @@ export default function HelpUSGeminiApp() {
       {
         role: 'assistant',
         content: '',
-        provider_used: activeModel.name,
+        provider_used: undefined,
       },
     ])
 
@@ -708,7 +716,8 @@ export default function HelpUSGeminiApp() {
             role: 'assistant',
             content: data.resposta || 'Sem resposta gerada.',
             fontes: data.fontes || [],
-            provider_used: data.provider_used || activeModel.name,
+            provider_used: data.provider_used && data.provider_used !== 'fallback' ? data.provider_used : undefined,
+            fallback_reason: data.fallback_reason || (data.provider_used === 'fallback' ? 'Contingência institucional' : null),
           }
           return copia
         })
@@ -1472,15 +1481,30 @@ export default function HelpUSGeminiApp() {
                         </button>
 
                         {/* Botão de Envio ↑ */}
-                        {(input.trim() || selectedImageBase64 || attachedFile) && (
+                        {loading ? (
                           <button
                             type="button"
-                            onClick={() => enviarMensagem()}
-                            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3] transition shadow-md"
-                            title="Enviar"
+                            onClick={() => {
+                              abortControllerRef.current?.abort()
+                              setLoading(false)
+                            }}
+                            className="flex h-9 items-center gap-1.5 rounded-full bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-500 transition shadow-md"
+                            title="Interromper geração"
                           >
-                            ↑
+                            <span className="h-2 w-2 rounded-xs bg-white" />
+                            <span>Parar</span>
                           </button>
+                        ) : (
+                          (input.trim() || selectedImageBase64 || attachedFile) && (
+                            <button
+                              type="button"
+                              onClick={() => enviarMensagem()}
+                              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3] transition shadow-md"
+                              title="Enviar"
+                            >
+                              ↑
+                            </button>
+                          )
                         )}
                       </div>
                     </div>
@@ -1535,14 +1559,28 @@ export default function HelpUSGeminiApp() {
                           )}
 
                           {/* Barra de Ferramentas da Resposta */}
-                          <div className="flex items-center gap-1 pt-1 text-[#8e918f]">
+                          <div className="flex flex-wrap items-center gap-2 pt-1 text-[#8e918f]">
+                            {/* Badge do Provedor Verificado pelo Servidor */}
+                            {msg.provider_used && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-[#282a2c] px-2 py-0.5 text-[10px] font-medium text-[#7fcfff]">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                {msg.provider_used}
+                              </span>
+                            )}
+                            {msg.fallback_reason && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                Contingência
+                              </span>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => copiarTexto(msg.content, idx)}
                               className="flex items-center gap-1 rounded-full p-1.5 text-xs hover:bg-[#282a2c] hover:text-white transition"
                               title="Copiar texto"
                             >
-                              <span>{copiedIndex === idx ? '✓ Copiado' : '⧉ Copiar'}</span>
+                              <span>{copiedIndex === idx ? '✓ Copiado' : '❐ Copiar'}</span>
                             </button>
                             <button
                               type="button"
@@ -1552,6 +1590,21 @@ export default function HelpUSGeminiApp() {
                             >
                               <span>🔊 Ouvir</span>
                             </button>
+
+                            {/* Botão Tentar Novamente na última resposta do assistente */}
+                            {idx === messages.length - 1 && !loading && (
+                              <button
+                                type="button"
+                                onClick={tentarNovamente}
+                                className="flex items-center gap-1 rounded-full p-1.5 text-xs text-[#7fcfff] hover:bg-[#282a2c] transition"
+                                title="Tentar gerar a resposta novamente"
+                              >
+                                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                <span>Tentar novamente</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1658,14 +1711,30 @@ export default function HelpUSGeminiApp() {
                       >
                         🎙️
                       </button>
-                      {(input.trim() || selectedImageBase64 || attachedFile) && (
+                      {loading ? (
                         <button
                           type="button"
-                          onClick={() => enviarMensagem()}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3]"
+                          onClick={() => {
+                            abortControllerRef.current?.abort()
+                            setLoading(false)
+                          }}
+                          className="flex h-8 items-center gap-1 rounded-full bg-rose-600 px-2.5 text-xs font-semibold text-white hover:bg-rose-500 transition shadow"
+                          title="Interromper geração"
                         >
-                          ↑
+                          <span className="h-2 w-2 rounded-xs bg-white" />
+                          <span>Parar</span>
                         </button>
+                      ) : (
+                        (input.trim() || selectedImageBase64 || attachedFile) && (
+                          <button
+                            type="button"
+                            onClick={() => enviarMensagem()}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3]"
+                            title="Enviar"
+                          >
+                            ↑
+                          </button>
+                        )
                       )}
                     </div>
                   </div>
