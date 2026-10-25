@@ -782,6 +782,20 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     project_id = (request.project_id or 'general')[:80]
     user_email = usuario["email"] if usuario else None
 
+    # Validacao de propriedade de sessao
+    if banco and session_id:
+        try:
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email)
+            if not eh_dono:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Acesso negado: a sessao '{session_id}' pertence a outra conta."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
     validar_modelo(request.model)
     if request.model:
         set_request_model(request.model.strip().lower())
@@ -790,14 +804,17 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     validar_url_remota(request.image_url)
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
+    is_claimed = False
     if idempotency_key and not request.is_retry:
         should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key)
         if not should_run and cached_resp:
             return MensagemResponse(**cached_resp)
+        is_claimed = should_run
     # Agentes internos controlados por HELPUS_INTERNAL_AGENTS_ENABLED.
     agent_trace = [
         {"label": "Analisando pedido", "status": "done"}
     ]
+    completed_successfully = False
 
     try:
         # Carrega historico
@@ -1001,6 +1018,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         upstream_prov = resolver_provedor_modelo(model_eff)
         record_provider_health(upstream_prov, success=(fb_reason is None))
         record_provider_health(prov_used, success=(fb_reason is None))
+        completed_successfully = True
         return resp_obj
 
 
@@ -1020,6 +1038,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             latency_ms=None,
             agent_trace=agent_trace,
         )
+    finally:
+        if is_claimed and not completed_successfully and idempotency_key:
+            release_idempotent_request(idempotency_key)
 
 
 @app.post("/chat/stream")
@@ -1034,15 +1055,43 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     import json
 
+    session_id = request.session_id or str(uuid.uuid4())
+    user_email = usuario["email"] if usuario else None
+    project_id = request.project_id or "general"
+
+    # Validacao de propriedade de sessao
+    if banco and session_id:
+        try:
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email)
+            if not eh_dono:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Acesso negado: a sessao '{session_id}' pertence a outra conta."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
     validar_modelo(request.model)
     if request.model:
         set_request_model(request.model.strip().lower())
     effective_image_b64 = request.image_base64 or request.imagem_base64
     validar_anexo(effective_image_b64, request.file_name)
     validar_url_remota(request.image_url)
-    session_id = request.session_id or str(uuid.uuid4())
-    user_email = usuario["email"] if usuario else None
-    project_id = request.project_id or "general"
+
+    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
+    is_stream_claimed = False
+    if idempotency_key and not request.is_retry:
+        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key)
+        if not should_run and cached_resp:
+            async def replay_cached_stream():
+                text_content = cached_resp.get("resposta", "")
+                yield f"data: {json.dumps({'content': text_content, 'text': text_content, 'session_id': session_id, 'model_requested': cached_resp.get('model_requested'), 'model_used': cached_resp.get('model_used'), 'provider_used': cached_resp.get('provider_used'), 'fallback_reason': cached_resp.get('fallback_reason'), 'cached': True}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(replay_cached_stream(), media_type="text/event-stream")
+        is_stream_claimed = should_run
 
     # Salva mensagem do usuario imediatamente (se nao for retry)
     if banco and not request.is_retry:
@@ -1072,6 +1121,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     async def event_generator():
         full_chunks = []
+        stream_completed_ok = False
+        last_model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
+        last_model_eff = getattr(c, "nome_modelo", last_model_req)
+        last_prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
+        last_fb_reason = getattr(c, "last_fallback_reason", None)
         try:
             async for chunk in c.pensar_stream(
                 pergunta=pergunta_stream,
@@ -1079,21 +1133,37 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 image_url=request.image_url,
             ):
                 full_chunks.append(chunk)
-                model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
-                model_eff = getattr(c, "nome_modelo", model_req)
-                prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
-                fb_reason = getattr(c, "last_fallback_reason", None)
-                upstream_prov = resolver_provedor_modelo(model_eff)
-                record_provider_health(upstream_prov, success=(fb_reason is None))
-                record_provider_health(prov_used, success=(fb_reason is None))
-                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': model_req, 'model_used': model_eff, 'provider_used': prov_used, 'fallback_reason': fb_reason}, ensure_ascii=False)}\n\n"
+                last_model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
+                last_model_eff = getattr(c, "nome_modelo", last_model_req)
+                last_prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
+                last_fb_reason = getattr(c, "last_fallback_reason", None)
+                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': last_model_req, 'model_used': last_model_eff, 'provider_used': last_prov_used, 'fallback_reason': last_fb_reason}, ensure_ascii=False)}\n\n"
+            stream_completed_ok = True
         except Exception as err:
             err_msg = f"Erro durante streaming: {str(err)}"
             yield f"data: {json.dumps({'error': err_msg, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        finally:
+            upstream_prov = resolver_provedor_modelo(last_model_eff)
+            record_provider_health(upstream_prov, success=stream_completed_ok and (last_fb_reason is None))
+            record_provider_health(last_prov_used, success=stream_completed_ok and (last_fb_reason is None))
+
+            if is_stream_claimed:
+                if stream_completed_ok:
+                    complete_idempotent_request(idempotency_key, {
+                        "resposta": "".join(full_chunks),
+                        "session_id": session_id,
+                        "project_id": project_id,
+                        "model_requested": last_model_req,
+                        "model_used": last_model_eff,
+                        "provider_used": last_prov_used,
+                        "fallback_reason": last_fb_reason,
+                    })
+                else:
+                    release_idempotent_request(idempotency_key)
 
         # Salva resposta final gerada pelo assistente
         resposta_completa = "".join(full_chunks)
-        if banco and resposta_completa:
+        if banco and resposta_completa and stream_completed_ok:
             try:
                 await banco.salvar_mensagem(
                     session_id=session_id,

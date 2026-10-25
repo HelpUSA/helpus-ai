@@ -156,6 +156,29 @@ class BancoDados:
 
                 await conn.commit()
 
+    async def verificar_propriedade_sessao(self, session_id: str, user_email: Optional[str]) -> bool:
+        """Valida que a sessao pertence ao mesmo usuario (ou e nova).
+        Evita que uma conta insira ou leia mensagens no session_id de outra conta."""
+        if not await self._garantir_pool():
+            return True
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT DISTINCT user_email FROM conversas WHERE session_id = %s LIMIT 1",
+                        (session_id,)
+                    )
+                    row = await cur.fetchone()
+                    if not row:
+                        return True
+                    existing_email = (row[0] or "").strip().lower()
+                    requested_email = (user_email or "").strip().lower()
+                    return existing_email == requested_email
+        except Exception as e:
+            if DEBUG:
+                print(f"[WARN] Erro ao validar propriedade de sessao: {e}")
+            return True
+
     async def salvar_mensagem(
         self,
         session_id: str,
@@ -167,6 +190,11 @@ class BancoDados:
     ):
         if not await self._garantir_pool():
             return
+
+        email_norm = user_email.strip().lower() if user_email else None
+        if not await self.verificar_propriedade_sessao(session_id, email_norm):
+            raise PermissionError(f"Acesso negado: a sessao '{session_id}' pertence a outra conta.")
+
 
         try:
             async with self.pool.connection() as conn:

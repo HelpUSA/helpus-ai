@@ -1,20 +1,30 @@
-"""Functional HTTP integration tests for /chat endpoint and security safeguards."""
+"""Functional HTTP integration tests for /chat and /chat/stream endpoints and security safeguards."""
 import unittest
 import sys
 import uuid
 from pathlib import Path
+from unittest.mock import patch, AsyncMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "backend"))
 
 from fastapi.testclient import TestClient
-from backend.main import app
+from backend.main import (
+    app,
+    banco,
+    claim_or_get_idempotent_request,
+    release_idempotent_request,
+    _idempotency_cache,
+)
 from auth import obter_usuario_google
 
 client = TestClient(app)
 
 class ChatEndpointFunctionalTests(unittest.TestCase):
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
     def test_chat_unbound_local_session_id_fixed(self):
         # Envia requisicao sem session_id para comprovar que nao ocorre UnboundLocalError
         payload = {
@@ -70,8 +80,6 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         res2 = client.post("/chat", json=payload)
         self.assertEqual(res2.status_code, 200)
 
-        app.dependency_overrides.clear()
-
     def test_chat_ssrf_rejects_arbitrary_urls(self):
         payload = {
             "mensagem": "Analise esta imagem remota",
@@ -99,6 +107,84 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         }
         response = client.post("/chat", json=payload)
         self.assertEqual(response.status_code, 200)
+
+    def test_chat_stream_idempotency_and_cached_replay(self):
+        req_id = f"req_stream_{uuid.uuid4().hex[:8]}"
+        session_id = f"sess_stream_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta via streaming",
+            "session_id": session_id,
+            "client_request_id": req_id,
+        }
+        res1 = client.post("/chat/stream", json=payload)
+        self.assertEqual(res1.status_code, 200)
+        body1 = res1.text
+        self.assertIn("data:", body1)
+        self.assertIn("[DONE]", body1)
+
+        # Segunda chamada para o stream deve responder com o cache (replay)
+        res2 = client.post("/chat/stream", json=payload)
+        self.assertEqual(res2.status_code, 200)
+        body2 = res2.text
+        self.assertIn("data:", body2)
+        self.assertIn('"cached": true', body2.lower())
+
+    def test_chat_stream_concurrency_conflict_409(self):
+        # Simula uma requisicao stream que ja esta in_progress
+        fake_key = f"anon:sess_conflict:req_conflict:hash1234"
+        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": 9999999999}
+        try:
+            with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
+                payload = {
+                    "mensagem": "Pergunta concorrente",
+                    "session_id": "sess_conflict",
+                    "client_request_id": "req_conflict",
+                }
+                res = client.post("/chat/stream", json=payload)
+                self.assertEqual(res.status_code, 409)
+                self.assertIn("concorrencia bloqueada", res.text.lower())
+        finally:
+            _idempotency_cache.pop(fake_key, None)
+
+    def test_chat_in_progress_released_on_error_allowing_retry(self):
+        # Comprova que se houver falha, o finally libera o lock in_progress
+        session_id = f"sess_fail_{uuid.uuid4().hex[:8]}"
+        client_req_id = f"req_fail_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta que vai simular erro no cerebro",
+            "session_id": session_id,
+            "client_request_id": client_req_id,
+        }
+        with patch("backend.main.get_cerebro") as mock_c:
+            mock_inst = mock_c.return_value
+            mock_inst.pensar = AsyncMock(side_effect=RuntimeError("Simulacao de falha de timeout"))
+            res1 = client.post("/chat", json=payload)
+            self.assertEqual(res1.status_code, 200)  # Cai no fallback gracefully
+
+        # O lock in_progress DEVE ter sido liberado no finally, permitindo nova tentativa sem 409
+        res2 = client.post("/chat", json=payload)
+        self.assertEqual(res2.status_code, 200)
+
+    def test_session_ownership_cross_account_forbidden(self):
+        # Usuario 1 cria a sessao
+        session_id = f"sess_priv_{uuid.uuid4().hex[:8]}"
+        app.dependency_overrides[obter_usuario_google] = lambda: {"email": "owner@empresa.com", "name": "Owner"}
+
+        # Mock para simular que no banco a sessao pertence exclusivamente ao owner
+        with patch.object(banco, "verificar_propriedade_sessao", new=AsyncMock(side_effect=lambda s, email: email == "owner@empresa.com")):
+            # Owner consegue acessar
+            res1 = client.post("/chat", json={"mensagem": "Mensagem do dono", "session_id": session_id})
+            self.assertEqual(res1.status_code, 200)
+
+            # Invasor tenta postar na mesma sessao
+            app.dependency_overrides[obter_usuario_google] = lambda: {"email": "attacker@alheio.com", "name": "Attacker"}
+            res2 = client.post("/chat", json={"mensagem": "Invasao de sessao", "session_id": session_id})
+            self.assertEqual(res2.status_code, 403)
+            self.assertIn("pertence a outra conta", res2.text)
+
+            # Invasor tenta no stream
+            res3 = client.post("/chat/stream", json={"mensagem": "Invasao stream", "session_id": session_id})
+            self.assertEqual(res3.status_code, 403)
 
 if __name__ == "__main__":
     unittest.main()
