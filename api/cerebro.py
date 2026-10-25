@@ -169,18 +169,19 @@ class CerebroIA:
                             from google import genai
                             client_gemini = genai.Client(api_key=GEMINI_API_KEY)
                             self.client = client_gemini
+                        effective_gemini_model = getattr(self, "active_model", None) or GEMINI_MODEL
                         resposta = await asyncio.wait_for(
                             asyncio.to_thread(
                                 client_gemini.models.generate_content,
-                                model=GEMINI_MODEL,
+                                model=effective_gemini_model,
                                 contents=prompt,
                             ),
-                            timeout=2.0,
-
+                            timeout=15.0,
                         )
 
                         texto = (getattr(resposta, "text", "") or "").strip()
                         self.last_provider_used = "gemini"
+                        self.nome_modelo = effective_gemini_model
                         self.last_fallback_reason = None
                         tempo = round(time.time() - inicio, 2)
                         return texto, 0, tempo
@@ -355,10 +356,19 @@ class CerebroIA:
                 )
                 self.multi_ai_provider = provider
 
+            requested_model = getattr(self, "active_model", None)
+            from multi_ai_provider import resolve_model_alias
+            effective_alias = resolve_model_alias(requested_model, config.default_alias)
+            gen_kwargs = {}
+            import inspect
+            if "alias" in inspect.signature(provider.generate).parameters:
+                gen_kwargs["alias"] = effective_alias
+
             result = await provider.generate(
                 prompt=prompt,
                 max_tokens=effective_max_tokens,
                 temperature=MODEL_CONFIG["temperature"],
+                **gen_kwargs
             )
 
             self.last_provider_used = "multi_ai"

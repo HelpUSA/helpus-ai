@@ -153,6 +153,8 @@ class MensagemResponse(BaseModel):
     fallback_reason: Optional[str] = None
     provider_configured: str = ""
     model: str = ""
+    model_requested: Optional[str] = None
+    model_used: Optional[str] = None
     latency_ms: Optional[float] = None
     agent_trace: List[Dict[str, str]] = []
 
@@ -260,6 +262,61 @@ async def raiz():
         "mensagem": "HelpUS - Seu Assistente Inteligente",
         "versao": "1.0.0",
         "docs": "/docs"
+    }
+
+
+@app.get("/modelos")
+async def listar_modelos():
+    """Retorna o catalogo oficial de modelos homologados e disponiveis no servidor"""
+    return {
+        "modelos": [
+            {
+                "id": "gemini-2.5-flash-lite",
+                "name": "Flash-Lite",
+                "provider": "google",
+                "alias": "helpus-fast",
+                "desc": "Rapido e eficiente",
+                "capabilities": ["text", "code", "fast"],
+                "available": True,
+            },
+            {
+                "id": "gemini-2.5-flash",
+                "name": "Flash",
+                "provider": "google",
+                "alias": "helpus-general",
+                "desc": "Equilibrio ideal de inteligencia",
+                "capabilities": ["text", "code", "vision", "reasoning"],
+                "available": True,
+            },
+            {
+                "id": "gemini-2.5-pro",
+                "name": "Pro",
+                "provider": "google",
+                "alias": "helpus-reasoner",
+                "desc": "Raciocinio profundo e analise",
+                "capabilities": ["text", "code", "vision", "deep_thinking"],
+                "available": True,
+            },
+            {
+                "id": "deepseek-chat",
+                "name": "DeepSeek Chat",
+                "provider": "deepseek",
+                "alias": "helpus-code",
+                "desc": "Especialista em codigo e arquitetura",
+                "capabilities": ["text", "code"],
+                "available": True,
+            },
+            {
+                "id": "deepseek-reasoner",
+                "name": "DeepSeek R1",
+                "provider": "deepseek",
+                "alias": "helpus-reasoner",
+                "desc": "Raciocinio logico avancado",
+                "capabilities": ["text", "code", "deep_reasoning"],
+                "available": True,
+            },
+        ],
+        "default_model": "gemini-2.5-flash",
     }
 
 @app.get("/status", response_model=StatusResponse)
@@ -479,6 +536,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
 
     validar_modelo(request.model)
+    if c and request.model:
+        c.active_model = request.model.strip().lower()
     user_email = usuario["email"] if usuario else None
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
@@ -672,7 +731,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             provider_used=getattr(c, "last_provider_used", getattr(c, "provider", "")),
             fallback_reason=getattr(c, "last_fallback_reason", None),
             provider_configured=getattr(app_config, "AI_PROVIDER", ""),
-            model=getattr(c, "nome_modelo", ""),
+            model=getattr(c, "nome_modelo", request.model or ""),
+            model_requested=request.model or getattr(c, "nome_modelo", ""),
+            model_used=getattr(c, "nome_modelo", request.model or ""),
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
@@ -709,6 +770,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     import json
 
     validar_modelo(request.model)
+    if c and request.model:
+        c.active_model = request.model.strip().lower()
     session_id = request.session_id or str(uuid.uuid4())
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"
@@ -747,7 +810,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 image_url=request.image_url,
             ):
                 full_chunks.append(chunk)
-                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
+                model_eff = getattr(c, "nome_modelo", model_req)
+                prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
+                fb_reason = getattr(c, "last_fallback_reason", None)
+                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': model_req, 'model_used': model_eff, 'provider_used': prov_used, 'fallback_reason': fb_reason}, ensure_ascii=False)}\n\n"
         except Exception as err:
             err_msg = f"Erro durante streaming: {str(err)}"
             yield f"data: {json.dumps({'error': err_msg, 'session_id': session_id}, ensure_ascii=False)}\n\n"
