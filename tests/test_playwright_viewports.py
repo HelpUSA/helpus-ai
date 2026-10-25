@@ -92,5 +92,37 @@ class PlaywrightViewportTests(unittest.TestCase):
         self.assertTrue(shot_path.exists())
         page.close()
 
+    def test_playwright_chat_interaction_typing(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+
+        prompt_text = "Teste de envio e interacao para AI HelpUS Ciclo 015"
+        textarea.fill(prompt_text)
+        val = textarea.input_value()
+        self.assertEqual(val, prompt_text)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_typing_desktop.png"
+        page.screenshot(path=str(shot_path))
+        self.assertTrue(shot_path.exists())
+        page.close()
+
+    def test_playwright_mobile_drawer_toggle(self):
+        page = self.browser.new_page(viewport={"width": 360, "height": 640})
+        page.goto(self.base_url, wait_until="networkidle")
+
+        # Localiza o botao de menu
+        btn = page.locator("button[title*='menu']").first
+        if btn.count() > 0:
+            btn.click()
+            page.wait_for_timeout(400) # aguarda transicao CSS
+
+        shot_path = SCREENSHOTS_DIR / "viewport_mobile_drawer_toggled.png"
+        page.screenshot(path=str(shot_path))
+        self.assertTrue(shot_path.exists())
+        page.close()
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,7 @@ import urllib.parse
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
 """
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
@@ -435,17 +435,34 @@ def _gerar_chave_idempotencia(user_email: Optional[str], session_id: str, client
     return f"{user_email or 'anon'}:{session_id}:{client_request_id}:{msg_hash}"
 
 LEASE_TIMEOUT_SECONDS = 30.0
+HEARTBEAT_TIMEOUT_SECONDS = 15.0
 
-def claim_or_get_idempotent_request(idempotency_key: Optional[str], is_retry: bool = False) -> Tuple[bool, Optional[Dict[str, Any]]]:
-    """Reivindica a execucao atomica ou retorna a resposta em cache.
-    - Se uma resposta concluida existir, retorna (False, cached_response), inclusive em retries.
+def claim_or_get_idempotent_request(
+    idempotency_key: Optional[str],
+    is_retry: bool = False
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+    """Reivindica a execucao atomica com token de posse (fencing token) ou retorna a resposta em cache.
+
+    Garantias e Comportamento:
+    - Retorna tupla: (should_run: bool, cached_response: Optional[dict], owner_token: Optional[str]).
+    - Se uma resposta concluida existir, retorna (False, cached_response, None).
     - Se uma requisicao identica ja estiver in_progress:
-      - Se nao for retry, lanca HTTP 409 Conflict.
-      - Se for retry (is_retry=True), verifica se a inferencia original ainda esta ativa dentro do lease (30s). Se ainda ativa, lanca HTTP 409 Conflict sem derrubar a execucao original.
-      - Se o lease expirou (> 30s), assume com seguranca a execucao da requisicao interrompida.
-    - Se for nova, marca in_progress com timestamp atual e retorna (True, None)."""
+      - Verifica o heartbeat da inferencia original:
+        - Se heartbeat recente (< HEARTBEAT_TIMEOUT_SECONDS, 15s), a inferencia esta ATIVA independentemente
+          do tempo decorrido total (mesmo > 30s). Rejeita com HTTP 409 Conflict.
+        - Se o heartbeat expirou (>= 15s sem atualizacao) E is_retry=True: o processo anterior falhou/travou.
+          Assume o lease com um NOVO owner_token seguro (fencing token).
+        - Se nao for retry: rejeita com HTTP 409 Conflict (concorrencia bloqueada).
+    - Se for nova requisicao: gera owner_token unico (UUID4), armazena timestamps e retorna (True, None, owner_token).
+
+    Limitacao Multi-Worker:
+    - Este mecanismo em memoria opera por processo de worker. Em arquiteturas com multiplos workers
+      independentes sem afinidade de conexao, a sincronizacao atomica requer armazenamento distribuido
+      (Redis com SET NX PX e redlock ou PostgreSQL Advisory Lock pg_try_advisory_xact_lock).
+    """
     if not idempotency_key:
-        return True, None
+        return True, None, None
+
     now = time.time()
     for k in [k for k, v in _idempotency_cache.items() if now - v.get("timestamp", 0) > IDEMPOTENCY_TTL_SECONDS]:
         _idempotency_cache.pop(k, None)
@@ -453,14 +470,15 @@ def claim_or_get_idempotent_request(idempotency_key: Optional[str], is_retry: bo
     entry = _idempotency_cache.get(idempotency_key)
     if entry:
         if entry.get("status") == "completed":
-            return False, entry.get("response")
+            return False, entry.get("response"), None
         if entry.get("status") == "in_progress":
-            elapsed = now - entry.get("timestamp", 0)
+            last_hb = entry.get("last_heartbeat", entry.get("timestamp", 0))
+            hb_elapsed = now - last_hb
             if is_retry:
-                if elapsed < LEASE_TIMEOUT_SECONDS:
+                if hb_elapsed < HEARTBEAT_TIMEOUT_SECONDS:
                     raise HTTPException(
                         status_code=409,
-                        detail="Inferencia original ainda em processamento ativo. Aguarde a conclusao antes de reenviar."
+                        detail="Inferencia original ainda em processamento ativo (heartbeat ativo). Aguarde a conclusao antes de reenviar."
                     )
                 _idempotency_cache.pop(idempotency_key, None)
             else:
@@ -469,32 +487,63 @@ def claim_or_get_idempotent_request(idempotency_key: Optional[str], is_retry: bo
                     detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
                 )
 
+    owner_token = str(uuid.uuid4())
     _idempotency_cache[idempotency_key] = {
         "status": "in_progress",
         "timestamp": now,
+        "last_heartbeat": now,
+        "owner_token": owner_token,
     }
-    return True, None
+    return True, None, owner_token
 
-def complete_idempotent_request(idempotency_key: Optional[str], response_data: Dict[str, Any]):
-    if idempotency_key:
-        _idempotency_cache[idempotency_key] = {
-            "status": "completed",
-            "response": response_data,
-            "timestamp": time.time(),
-        }
+def heartbeat_idempotent_request(idempotency_key: Optional[str], owner_token: Optional[str]) -> bool:
+    """Atualiza o batimento cardiaco da requisicao em progresso pelo detentor valido do token."""
+    if not idempotency_key or not owner_token:
+        return False
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry and entry.get("status") == "in_progress" and entry.get("owner_token") == owner_token:
+        entry["last_heartbeat"] = time.time()
+        return True
+    return False
 
-def release_idempotent_request(idempotency_key: Optional[str]):
-    if idempotency_key:
-        entry = _idempotency_cache.get(idempotency_key)
-        if entry and entry.get("status") == "in_progress":
+def complete_idempotent_request(
+    idempotency_key: Optional[str],
+    response_data: Dict[str, Any],
+    owner_token: Optional[str] = None
+) -> bool:
+    """Finaliza a requisicao atomica com a resposta calculada.
+    Valida owner_token se fornecido (impede que um worker tardio sobrescreva uma retomada de lease)."""
+    if not idempotency_key:
+        return False
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry and entry.get("status") == "in_progress":
+        if owner_token is not None and entry.get("owner_token") != owner_token:
+            return False
+    _idempotency_cache[idempotency_key] = {
+        "status": "completed",
+        "response": response_data,
+        "timestamp": time.time(),
+        "owner_token": owner_token,
+    }
+    return True
+
+def release_idempotent_request(idempotency_key: Optional[str], owner_token: Optional[str] = None) -> bool:
+    """Libera a trava in_progress se a requisicao falhar antes da conclusao."""
+    if not idempotency_key:
+        return False
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry and entry.get("status") == "in_progress":
+        if owner_token is None or entry.get("owner_token") == owner_token:
             _idempotency_cache.pop(idempotency_key, None)
+            return True
+    return False
 
 def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
-    should_run, cached = claim_or_get_idempotent_request(idempotency_key)
+    should_run, cached, _ = claim_or_get_idempotent_request(idempotency_key)
     return cached if not should_run else None
 
-def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any]):
-    complete_idempotent_request(idempotency_key, response_data)
+def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any], owner_token: Optional[str] = None):
+    complete_idempotent_request(idempotency_key, response_data, owner_token=owner_token)
 
 @app.get("/modelos")
 async def listar_modelos():
@@ -823,8 +872,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
     is_claimed = False
+    owner_token = None
     if idempotency_key:
-        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
+        should_run, cached_resp, owner_token = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
         if not should_run and cached_resp:
             return MensagemResponse(**cached_resp)
         is_claimed = should_run
@@ -1032,7 +1082,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             agent_trace=agent_trace,
         )
         if idempotency_key:
-            save_idempotent_response(idempotency_key, resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict())
+            save_idempotent_response(idempotency_key, resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict(), owner_token=owner_token)
         upstream_prov = resolver_provedor_modelo(model_eff)
         record_provider_health(upstream_prov, success=(fb_reason is None))
         record_provider_health(prov_used, success=(fb_reason is None))
@@ -1058,7 +1108,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         )
     finally:
         if is_claimed and not completed_successfully and idempotency_key:
-            release_idempotent_request(idempotency_key)
+            release_idempotent_request(idempotency_key, owner_token=owner_token)
 
 
 @app.post("/chat/stream")
@@ -1104,8 +1154,9 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
     is_stream_claimed = False
+    owner_token = None
     if idempotency_key:
-        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
+        should_run, cached_resp, owner_token = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
         if not should_run and cached_resp:
             async def replay_cached_stream():
                 text_content = cached_resp.get("resposta", "")
@@ -1140,7 +1191,12 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     # Public chat must never trigger local device operations.
     pergunta_stream = request.mensagem
 
+    captured_model = get_request_model() or request.model or "gemini-2.5-flash"
+    captured_metadata = dict(get_request_metadata())
+
     async def event_generator():
+        set_request_model(captured_model)
+        set_request_metadata(captured_metadata)
         full_chunks = []
         stream_completed_ok = False
         last_model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
@@ -1153,6 +1209,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 image_base64=request.image_base64,
                 image_url=request.image_url,
             ):
+                heartbeat_idempotent_request(idempotency_key, owner_token)
                 full_chunks.append(chunk)
                 meta = get_request_metadata()
                 model_eff = meta.get("model_used") or get_request_model() or request.model or "gemini-2.5-flash"
@@ -1179,9 +1236,9 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                         "model_used": last_model_eff,
                         "provider_used": last_prov_used,
                         "fallback_reason": last_fb_reason,
-                    })
+                    }, owner_token=owner_token)
                 else:
-                    release_idempotent_request(idempotency_key)
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
 
         # Salva resposta final gerada pelo assistente
         resposta_completa = "".join(full_chunks)
@@ -1236,6 +1293,10 @@ async def listar_memorias(
     """Lista memorias ativas do projeto para o usuario autenticado."""
     if not usuario:
         raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+    user_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    if project_id and project_id != "general":
+        if not await banco.verificar_propriedade_projeto(project_id, user_email):
+            raise HTTPException(status_code=403, detail="Acesso negado: projeto pertence a outra conta.")
 
     try:
         return {
@@ -1272,9 +1333,15 @@ async def criar_memoria(
     if len(content) > 4000:
         raise HTTPException(status_code=400, detail="Conteudo da memoria deve ter ate 4000 caracteres.")
 
+    user_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    target_project = (request.project_id or "general")[:80]
+    if target_project and target_project != "general":
+        if not await banco.verificar_propriedade_projeto(target_project, user_email):
+            raise HTTPException(status_code=403, detail="Acesso negado: projeto pertence a outra conta.")
+
     try:
         memoria = await banco.criar_memoria_projeto(
-            project_id=(request.project_id or "general")[:80],
+            project_id=target_project,
             title=title,
             content=content,
             tags=(request.tags or "")[:300],
@@ -1428,21 +1495,27 @@ async def indexar_site(request: IndexarRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/audit-log")
-async def admin_audit_log(limite: int = 50, usuario = Depends(obter_admin_google)):
-    """Retorna a trilha de auditoria administrativa sanitizada (sem segredos, tokens ou dados sensiveis)."""
+async def admin_audit_log(
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    usuario = Depends(obter_admin_google)
+):
+    """Retorna a trilha de auditoria administrativa real e persistida (sem segredos, tokens ou dados sensiveis)."""
+    admin_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    eventos, total = await banco.listar_eventos_auditoria(limite=limite, offset=offset)
+    await banco.registrar_evento_auditoria(
+        action="ADMIN_AUDIT_LOG_VIEWED",
+        actor=admin_email,
+        details={"limite": limite, "offset": offset, "returned_count": len(eventos)},
+        correlation_id=str(uuid.uuid4())
+    )
     return {
         "ok": True,
-        "admin": usuario.get("email"),
-        "total_eventos": 1,
-        "eventos": [
-            {
-                "timestamp": time.time(),
-                "action": "ADMIN_TELEMETRY_INSPECTED",
-                "actor": usuario.get("email"),
-                "status": "success",
-                "sanitized": True
-            }
-        ]
+        "admin": admin_email,
+        "total_eventos": total,
+        "limite": limite,
+        "offset": offset,
+        "eventos": eventos
     }
 
 @app.get("/saude")

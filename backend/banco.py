@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import asyncio
+import time
 from typing import List, Dict, Optional
 try:
     from psycopg_pool import AsyncConnectionPool
@@ -160,29 +161,38 @@ class BancoDados:
                         session_id VARCHAR(120) PRIMARY KEY,
                         user_email VARCHAR(255),
                         project_id VARCHAR(100) DEFAULT 'general',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
 
                 await cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_sessoes_user_email
-                    ON sessoes(user_email)
+                    ON sessoes(LOWER(user_email))
                 """)
 
-                # Migracao controlada de sessoes legadas para nova tabela autoritativa
                 await cur.execute("""
-                    INSERT INTO sessoes (session_id, user_email, project_id, created_at)
-                    SELECT session_id, LOWER(user_email), COALESCE(project_id, 'general'), MIN(created_at)
-                    FROM conversas
-                    WHERE session_id IS NOT NULL AND session_id != ''
-                    GROUP BY session_id, LOWER(user_email), COALESCE(project_id, 'general')
-                    ON CONFLICT (session_id) DO NOTHING
+                    CREATE TABLE IF NOT EXISTS admin_audit_events (
+                        id BIGSERIAL PRIMARY KEY,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        action VARCHAR(100) NOT NULL,
+                        actor VARCHAR(255) NOT NULL,
+                        correlation_id VARCHAR(120),
+                        status VARCHAR(50) DEFAULT 'success',
+                        details JSONB
+                    )
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_admin_audit_events_created
+                    ON admin_audit_events (created_at DESC)
                 """)
 
                 await conn.commit()
 
     _sessoes_memoria: Dict[str, Optional[str]] = {}
+    _projetos_memoria: Dict[str, Optional[str]] = {}
+    _audit_log_memoria: List[Dict] = []
 
     def _verificar_propriedade_memoria(self, session_id: str, user_email: Optional[str]) -> bool:
         email_norm = user_email.strip().lower() if user_email else None
@@ -191,28 +201,46 @@ class BancoDados:
             return True
         return self._sessoes_memoria[session_id] == email_norm
 
+    def _verificar_propriedade_projeto_memoria(self, project_id: str, user_email: Optional[str]) -> bool:
+        if not project_id or project_id == "general":
+            return True
+        email_norm = user_email.strip().lower() if user_email else None
+        if project_id not in self._projetos_memoria:
+            self._projetos_memoria[project_id] = email_norm
+            return True
+        return self._projetos_memoria[project_id] == email_norm
+
     async def verificar_propriedade_sessao(
         self,
         session_id: str,
         user_email: Optional[str],
         project_id: Optional[str] = None
     ) -> bool:
-        """Valida e registra atomicamente a propriedade da sessao no banco (FAIL-CLOSED).
+        """Valida e registra atomicamente a propriedade da sessao no banco (FAIL-CLOSED estrito).
         
         Garantias:
         1. Atomicidade: INSERT ... ON CONFLICT (session_id) DO NOTHING impede condicoes de corrida.
-        2. FAIL-CLOSED: Em qualquer ambiente com banco configurado (inclusive localhost), falha de conexao nega acesso.
-        3. Modo de teste explicito: Execucao em memoria apenas com HELPUS_TEST_MODE=1.
-        4. Isolamento multi-tenant: Impede acesso cruzado entre contas ou poluição de sessoes.
+        2. FAIL-CLOSED: Em qualquer ambiente onde haja banco configurado, se o pool estiver
+           indisponivel ou a consulta falhar, nega acesso sumariamente (return False).
+        3. Seguranca de Ambiente: Ambientes de producao (ENVIRONMENT=production ou NODE_ENV=production)
+           JAMAIS utilizam fallback em memoria sob hipotese alguma.
+        4. Modo de Teste: Autorizacao em memoria apenas se HELPUS_TEST_MODE=1 e SEM banco configurado.
+        5. Isolamento Multi-Tenant: Impede cross-account session hijacking.
         """
-        # 1. Se o pool estiver ativo e conectado, realiza a checagem atomica no PostgreSQL
+        is_prod = (
+            os.getenv("ENVIRONMENT") == "production"
+            or os.getenv("NODE_ENV") == "production"
+            or os.getenv("VERCEL_ENV") == "production"
+        )
+        has_configured_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
+
+        # 1. Se o pool estiver ativo e conectado, realiza checagem atomica no PostgreSQL
         if self.pool is not None:
             email_norm = user_email.strip().lower() if user_email else None
             proj_norm = (project_id or "general")[:80]
             try:
                 async with self.pool.connection() as conn:
                     async with conn.cursor() as cur:
-                        # Registro atomico de sessao se for nova
                         await cur.execute(
                             """
                             INSERT INTO sessoes (session_id, user_email, project_id)
@@ -223,7 +251,6 @@ class BancoDados:
                         )
                         await conn.commit()
 
-                        # Leitura da sessao registrada
                         await cur.execute(
                             "SELECT user_email, project_id FROM sessoes WHERE session_id = %s LIMIT 1",
                             (session_id,)
@@ -237,16 +264,154 @@ class BancoDados:
                 # FAIL-CLOSED: NUNCA conceder autorizacao em caso de erro na consulta
                 return False
 
-        # 2. Modo de teste explicito e isolado
+        # 2. FAIL-CLOSED: Se houver banco configurado mas o pool falhou/indisponivel, nega acesso
+        if has_configured_db:
+            return False
+
+        # 3. FAIL-CLOSED: Producao sem banco nega acesso (memoria proibida em producao)
+        if is_prod:
+            return False
+
+        # 4. Modo de teste isolado e explicito (sem banco configurado e fora de producao)
         if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
             return self._verificar_propriedade_memoria(session_id, user_email)
 
-        # 3. Se houver banco configurado mas o pool falhou em qualquer ambiente, APLICA FAIL-CLOSED
-        if getattr(self, "database_url", None) or os.getenv("DATABASE_URL"):
-            return False
-
         # Sem banco configurado e sem teste explicito: fail-closed estrito
         return False
+
+    async def verificar_propriedade_projeto(
+        self,
+        project_id: str,
+        user_email: Optional[str]
+    ) -> bool:
+        """Valida se o projeto pertence ao usuario especificado (FAIL-CLOSED estrito).
+        O projeto 'general' e compartilhado e acessivel por qualquer usuario autenticado."""
+        if not project_id or project_id == "general":
+            return True
+
+        is_prod = (
+            os.getenv("ENVIRONMENT") == "production"
+            or os.getenv("NODE_ENV") == "production"
+            or os.getenv("VERCEL_ENV") == "production"
+        )
+        has_configured_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
+
+        if self.pool is not None:
+            email_norm = user_email.strip().lower() if user_email else None
+            try:
+                async with self.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            "SELECT 1 FROM projetos WHERE project_id = %s AND LOWER(user_email) = %s LIMIT 1",
+                            (project_id, email_norm)
+                        )
+                        row = await cur.fetchone()
+                        return row is not None
+            except Exception:
+                return False
+
+        if has_configured_db or is_prod:
+            return False
+
+        if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
+            return self._verificar_propriedade_projeto_memoria(project_id, user_email)
+
+        return False
+
+    async def registrar_evento_auditoria(
+        self,
+        action: str,
+        actor: str,
+        details: Optional[Dict] = None,
+        correlation_id: Optional[str] = None,
+        status: str = "success"
+    ) -> Optional[Dict]:
+        """Registra um evento de auditoria persistido de forma sanitizada."""
+        event = {
+            "timestamp": time.time(),
+            "action": action,
+            "actor": actor,
+            "correlation_id": correlation_id,
+            "status": status,
+            "details": details or {},
+            "sanitized": True
+        }
+        if self.pool is not None:
+            try:
+                import json
+                async with self.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            """
+                            INSERT INTO admin_audit_events (action, actor, correlation_id, status, details)
+                            VALUES (%s, %s, %s, %s, %s)
+                            RETURNING id, created_at
+                            """,
+                            (action, actor, correlation_id, status, json.dumps(details or {}))
+                        )
+                        r = await cur.fetchone()
+                        await conn.commit()
+                        if r:
+                            event["id"] = r[0]
+                            event["created_at"] = r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1])
+                            return event
+            except Exception as e:
+                print(f"[WARN] Erro ao persistir evento de auditoria no PostgreSQL: {e}")
+
+        self._audit_log_memoria.append(event)
+        return event
+
+    async def listar_eventos_auditoria(
+        self,
+        limite: int = 50,
+        offset: int = 0
+    ) -> Tuple[List[Dict], int]:
+        """Lista eventos de auditoria reais persistidos, com paginacao."""
+        if self.pool is not None:
+            try:
+                import json
+                async with self.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute("SELECT COUNT(*) FROM admin_audit_events")
+                        total_row = await cur.fetchone()
+                        total = total_row[0] if total_row else 0
+
+                        await cur.execute(
+                            """
+                            SELECT id, created_at, action, actor, correlation_id, status, details
+                            FROM admin_audit_events
+                            ORDER BY created_at DESC
+                            LIMIT %s OFFSET %s
+                            """,
+                            (limite, offset)
+                        )
+                        rows = await cur.fetchall()
+                        eventos = []
+                        for r in rows:
+                            det = r[6]
+                            if isinstance(det, str):
+                                try:
+                                    det = json.loads(det)
+                                except:
+                                    pass
+                            eventos.append({
+                                "id": r[0],
+                                "timestamp": r[1].timestamp() if hasattr(r[1], "timestamp") else time.time(),
+                                "created_at": r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1]),
+                                "action": r[2],
+                                "actor": r[3],
+                                "correlation_id": r[4],
+                                "status": r[5],
+                                "details": det or {},
+                                "sanitized": True
+                            })
+                        return eventos, total
+            except Exception as e:
+                print(f"[WARN] Erro ao listar eventos de auditoria do PostgreSQL: {e}")
+
+        total = len(self._audit_log_memoria)
+        itens = list(reversed(self._audit_log_memoria))[offset:offset + limite]
+        return itens, total
 
     async def salvar_mensagem(
         self,
@@ -428,9 +593,17 @@ class BancoDados:
                             "UPDATE conversas SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
                             (project_id or "general", session_id, email_norm)
                         )
+                        await cur.execute(
+                            "UPDATE sessoes SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
+                            (project_id or "general", session_id, email_norm)
+                        )
                     else:
                         await cur.execute(
                             "UPDATE conversas SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
+                            (project_id or "general", session_id)
+                        )
+                        await cur.execute(
+                            "UPDATE sessoes SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
                             (project_id or "general", session_id)
                         )
                     await conn.commit()

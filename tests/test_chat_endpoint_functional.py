@@ -4,6 +4,7 @@ os.environ["HELPUS_TEST_MODE"] = "1"
 import unittest
 import sys
 import uuid
+import time
 from pathlib import Path
 from unittest.mock import patch, AsyncMock
 
@@ -24,8 +25,18 @@ from auth import obter_usuario_google
 client = TestClient(app)
 
 class ChatEndpointFunctionalTests(unittest.TestCase):
+    def setUp(self):
+        self.orig_db_url = os.environ.pop('DATABASE_URL', None)
+        self.orig_banco_url = getattr(banco, 'database_url', None)
+        banco.database_url = None
+
     def tearDown(self):
         app.dependency_overrides.clear()
+        if self.orig_db_url is not None:
+            os.environ['DATABASE_URL'] = self.orig_db_url
+        else:
+            os.environ.pop('DATABASE_URL', None)
+        banco.database_url = self.orig_banco_url
 
     def test_chat_unbound_local_session_id_fixed(self):
         # Envia requisicao sem session_id para comprovar que nao ocorre UnboundLocalError
@@ -277,6 +288,115 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         # Sem credencial de admin deve retornar 401 ou 403
         res = client.get("/admin/audit-log")
         self.assertIn(res.status_code, [401, 403])
+
+    def test_idempotency_heartbeat_keeps_long_inference_alive(self):
+        # Inferencia com mais de 35s de duracao mas com heartbeat ativo (<15s) rejeita retries com 409
+        fake_key = f"anon:sess_long_hb:req_long_hb:hash123"
+        now = time.time()
+        _idempotency_cache[fake_key] = {
+            "status": "in_progress",
+            "timestamp": now - 45.0, # inicio ha 45s (>30s)
+            "last_heartbeat": now - 3.0, # ultimo chunk emitido ha apenas 3s
+            "owner_token": "token_original_alive"
+        }
+        try:
+            with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
+                payload = {
+                    "mensagem": "Pergunta retry enquanto inferencia longa ainda esta ativa",
+                    "session_id": "sess_long_hb",
+                    "client_request_id": "req_long_hb",
+                    "is_retry": True,
+                }
+                res = client.post("/chat", json=payload)
+                self.assertEqual(res.status_code, 409)
+                self.assertIn("heartbeat ativo", res.text)
+        finally:
+            _idempotency_cache.pop(fake_key, None)
+
+    def test_idempotency_fencing_token_rejects_late_worker(self):
+        from backend.main import claim_or_get_idempotent_request, complete_idempotent_request
+        test_key = "test_fencing_key"
+        now = time.time()
+        # 1. Worker 1 reivindica
+        should_run1, _, token1 = claim_or_get_idempotent_request(test_key)
+        self.assertTrue(should_run1)
+        self.assertIsNotNone(token1)
+
+        # 2. Worker 1 simula travamento de heartbeat (> 15s sem heartbeat)
+        _idempotency_cache[test_key]["last_heartbeat"] = now - 20.0
+
+        # 3. Worker 2 chega como retry e assume com sucesso com NOVO token
+        should_run2, _, token2 = claim_or_get_idempotent_request(test_key, is_retry=True)
+        self.assertTrue(should_run2)
+        self.assertNotEqual(token1, token2)
+
+        # 4. Worker 1 acorda tardiamente e tenta finalizar com o token antigo
+        ok_late = complete_idempotent_request(test_key, {"resposta": "late"}, owner_token=token1)
+        self.assertFalse(ok_late, "Worker tardio cercado (fenced) DEVE ser rejeitado e nao sobrescrever")
+
+        # 5. Worker 2 finaliza com o token correto
+        ok_valid = complete_idempotent_request(test_key, {"resposta": "valid"}, owner_token=token2)
+        self.assertTrue(ok_valid)
+        self.assertEqual(_idempotency_cache[test_key]["response"]["resposta"], "valid")
+        _idempotency_cache.pop(test_key, None)
+
+    def test_fail_closed_in_production_environment(self):
+        import asyncio
+        # Em producao, mesmo com HELPUS_TEST_MODE=1, se o banco falhar, nega acesso (FAIL-CLOSED)
+        with patch.dict(os.environ, {"ENVIRONMENT": "production", "HELPUS_TEST_MODE": "1"}),              patch.object(banco, "pool", None):
+            allowed = asyncio.run(banco.verificar_propriedade_sessao("sess_prod_fail", "user@helpusbr.com"))
+            self.assertFalse(allowed, "Producao DEVE ser fail-closed estrito sem memoria")
+
+    def test_fail_closed_when_database_url_configured_and_pool_is_none(self):
+        import asyncio
+        # Se DATABASE_URL estiver configurada mas o pool for None (banco caiu), nega acesso mesmo em test mode
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost:5432/helpus", "HELPUS_TEST_MODE": "1"}),              patch.object(banco, "pool", None):
+            allowed = asyncio.run(banco.verificar_propriedade_sessao("sess_down_fail", "user@helpusbr.com"))
+            self.assertFalse(allowed, "Se banco estiver configurado e pool indisponivel, DEVE ser fail-closed")
+
+    def test_admin_audit_log_empty_when_no_events_and_paginates(self):
+        from auth import obter_admin_google
+        app.dependency_overrides[obter_admin_google] = lambda: {"email": "superadmin@helpusbr.com", "role": "admin"}
+        try:
+            banco._audit_log_memoria.clear()
+            # 1. Sem eventos previos, deve retornar lista vazia
+            res = client.get("/admin/audit-log?limite=10&offset=0")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["total_eventos"], 0)
+            self.assertEqual(data["eventos"], [])
+            self.assertEqual(data["admin"], "superadmin@helpusbr.com")
+
+            # 2. Segunda chamada: o evento da primeira chamada (ADMIN_AUDIT_LOG_VIEWED) foi persistido!
+            res2 = client.get("/admin/audit-log?limite=10&offset=0")
+            self.assertEqual(res2.status_code, 200)
+            data2 = res2.json()
+            self.assertGreaterEqual(data2["total_eventos"], 1)
+            self.assertEqual(data2["eventos"][0]["action"], "ADMIN_AUDIT_LOG_VIEWED")
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_tenant_project_memories_forbidden_for_other_users(self):
+        from auth import obter_usuario_google
+        # Simula usuario Alice sendo dono do projeto 'proj_alice'
+        banco._projetos_memoria["proj_alice"] = "alice@helpusbr.com"
+
+        # Bob tenta acessar as memorias de Alice
+        app.dependency_overrides[obter_usuario_google] = lambda: {"email": "bob@helpusbr.com", "name": "Bob"}
+        try:
+            res_get = client.get("/memorias?project_id=proj_alice")
+            self.assertEqual(res_get.status_code, 403)
+            self.assertIn("Acesso negado", res_get.text)
+
+            res_post = client.post("/memorias", json={
+                "project_id": "proj_alice",
+                "title": "Invadir memoria",
+                "content": "Conteudo nao autorizado"
+            })
+            self.assertEqual(res_post.status_code, 403)
+            self.assertIn("Acesso negado", res_post.text)
+        finally:
+            app.dependency_overrides.clear()
 
 if __name__ == "__main__":
     unittest.main()

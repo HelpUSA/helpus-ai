@@ -135,7 +135,7 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
     def test_idempotency_atomic_concurrent_blocking(self):
         key = _gerar_chave_idempotencia("user_conc@helpusbr.com", "sess_conc", "req_conc_1", "Pergunta concorrente")
         # Primeiro claim deve ter sucesso
-        should_run, cached = claim_or_get_idempotent_request(key)
+        should_run, cached, token = claim_or_get_idempotent_request(key)
         self.assertTrue(should_run)
         self.assertIsNone(cached)
 
@@ -143,6 +143,17 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             claim_or_get_idempotent_request(key)
         self.assertEqual(ctx.exception.status_code, 409)
+
+    def test_sse_contextvar_generator_propagation(self):
+        from cerebro import get_request_model, set_request_model, get_request_metadata, set_request_metadata
+        set_request_model("gemini-2.5-flash-lite")
+        set_request_metadata({"model_used": "gemini-2.5-flash-lite", "provider_used": "google", "fallback_reason": None})
+        
+        self.assertEqual(get_request_model(), "gemini-2.5-flash-lite")
+        meta = get_request_metadata()
+        self.assertEqual(meta.get("provider_used"), "google")
+        self.assertEqual(meta.get("model_used"), "gemini-2.5-flash-lite")
+        self.assertIsNone(meta.get("fallback_reason"))
 
 if __name__ == "__main__":
     unittest.main()
