@@ -86,14 +86,16 @@ class BancoDados:
         if not self.pool:
             return
 
-        is_prod = (
-            os.getenv("ENVIRONMENT") == "production"
-            or os.getenv("NODE_ENV") == "production"
-            or os.getenv("VERCEL_ENV") == "production"
+        has_persistent_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
+        is_managed_env = (
+            os.getenv("ENVIRONMENT") in ("production", "staging")
+            or os.getenv("NODE_ENV") in ("production", "staging")
+            or os.getenv("VERCEL_ENV") in ("production", "preview")
         )
-        if is_prod:
-            # Em producao, alteracoes DDL automaticas no startup sao proibidas.
-            # O schema e gerenciado exclusivamente pelo processo formal de migrations (schema_migrations).
+        if has_persistent_db or is_managed_env:
+            # Em qualquer ambiente com banco persistente (staging, producao ou postgres configurado),
+            # alteracoes DDL automaticas no startup sao estritamente desativadas.
+            # O schema e governado exclusivamente pelas migrations versionadas formais (schema_migrations).
             return
 
         async with self.pool.connection() as conn:

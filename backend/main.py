@@ -506,18 +506,27 @@ def heartbeat_idempotent_request(idempotency_key: Optional[str], owner_token: Op
         return True
     return False
 
+def is_owner_token_valid(idempotency_key: Optional[str], owner_token: Optional[str]) -> bool:
+    """Valida se o owner_token ainda e o detentor ativo e legitimo da execucao in_progress."""
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
+        return False
+    entry = _idempotency_cache.get(idempotency_key)
+    if not entry or entry.get("status") != "in_progress":
+        return False
+    return entry.get("owner_token") == owner_token
+
 def complete_idempotent_request(
     idempotency_key: Optional[str],
     response_data: Dict[str, Any],
-    owner_token: Optional[str] = None
+    owner_token: str
 ) -> bool:
     """Finaliza a requisicao atomica com a resposta calculada (CAS com fencing token estrito).
     
-    Invariantes Estritas (P0):
-    1. EXIGE owner_token valido e nao-vazio.
+    Invariantes Estritas (P0 - Ciclo 017):
+    1. EXIGE owner_token valido e nao-vazio do executor legitimo.
     2. Rejeita se a chave nao existir no cache.
-    3. Rejeita se o status atual nao for 'in_progress' (ex: ja concluida ou cancelada).
-    4. Rejeita se o owner_token nao corresponder exatamente ao executor atual (fenced/cercado).
+    3. Rejeita se o status atual nao for 'in_progress' (ja concluida ou cancelada).
+    4. Rejeita se o owner_token nao corresponder exatamente ao executor atual (fenced).
     5. Transicao atomica para status 'completed' com carimbo temporal.
     """
     if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
@@ -539,10 +548,10 @@ def complete_idempotent_request(
     entry["timestamp"] = time.time()
     return True
 
-def release_idempotent_request(idempotency_key: Optional[str], owner_token: Optional[str] = None) -> bool:
+def release_idempotent_request(idempotency_key: Optional[str], owner_token: str) -> bool:
     """Libera a trava in_progress se a requisicao falhar antes da conclusao.
     
-    Invariantes Estritas (P0):
+    Invariantes Estritas (P0 - Ciclo 017):
     1. EXIGE owner_token valido e nao-vazio; impede release desautorizado ou sem token.
     2. Rejeita se chave inexistente ou se status nao for 'in_progress'.
     3. Rejeita se owner_token pertencer a outro executor.
@@ -594,20 +603,20 @@ class IdempotencyHeartbeatSession:
                 pass
 
 def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
-    should_run, cached, _ = claim_or_get_idempotent_request(idempotency_key)
-    return cached if not should_run else None
-
-def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any], owner_token: Optional[str] = None):
+    """Helper de leitura PURA: consulta resposta concluida em cache sem qualquer side effect ou criacao de claim."""
     if not idempotency_key:
-        return
-    token = owner_token
-    if not token:
-        entry = _idempotency_cache.get(idempotency_key)
-        if entry and entry.get('status') == 'in_progress' and entry.get('owner_token'):
-            token = entry.get('owner_token')
-        else:
-            _, _, token = claim_or_get_idempotent_request(idempotency_key)
-    complete_idempotent_request(idempotency_key, response_data, owner_token=token)
+        return None
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry and entry.get("status") == "completed":
+        return entry.get("response")
+    return None
+
+def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any], owner_token: str) -> bool:
+    """Salva a resposta idempotente concluida. EXIGE owner_token explicito e valido do executor legitimo.
+    Sem recuperacao automatica ou fallback para impedir side effects ou bypass de fencing."""
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
+        return False
+    return complete_idempotent_request(idempotency_key, response_data, owner_token=owner_token)
 
 @app.get("/modelos")
 async def listar_modelos():
@@ -1092,6 +1101,15 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         agent_trace[-1] = {"label": "Chamando modelo de IA", "status": "done"}
 
+        # P0 Concorrencia: aborta persistencia se o worker foi cercado (fenced por retry/timeout)
+        is_fenced = bool(is_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
+        if is_fenced:
+            print(f"[WARN] Worker cercado (fenced): abortando persistencia para chave {idempotency_key}")
+            cached_now = get_idempotent_response(idempotency_key)
+            if cached_now:
+                return MensagemResponse(**cached_now)
+            raise HTTPException(status_code=409, detail="Requisicao cancelada ou substituida por concorrencia (fenced).")
+
         # Salva resposta
         try:
             await banco.salvar_mensagem(
@@ -1157,6 +1175,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         return resp_obj
 
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ERROR] Erro no chat: {e}")
         return MensagemResponse(
@@ -1311,9 +1331,12 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 else:
                     release_idempotent_request(idempotency_key, owner_token=owner_token)
 
-        # Salva resposta final gerada pelo assistente
+        # Salva resposta final gerada pelo assistente apenas se o executor ainda for legitimo (nao cercado)
         resposta_completa = "".join(full_chunks)
-        if banco and resposta_completa and stream_completed_ok:
+        is_stream_fenced = bool(is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
+        if is_stream_fenced:
+            print(f"[WARN] Stream cercado (fenced): abortando persistencia de resposta tardia no banco")
+        elif banco and resposta_completa and stream_completed_ok:
             try:
                 await banco.salvar_mensagem(
                     session_id=session_id,
@@ -1581,16 +1604,19 @@ async def admin_audit_log(
             details={"limite": limite, "offset": offset, "returned_count": len(eventos)},
             correlation_id=str(uuid.uuid4())
         )
+        corr_id = str(uuid.uuid4())
         return {
             "ok": True,
             "admin": admin_email,
             "total_eventos": total,
             "limite": limite,
             "offset": offset,
+            "correlation_id": corr_id,
             "eventos": eventos
         }
-    except RuntimeError as re:
-        raise HTTPException(status_code=503, detail=f"Servico de auditoria indisponivel: {str(re)}")
+    except Exception as err:
+        print(f"[ERROR] Falha ao processar trilha de auditoria administrativa: {err}")
+        raise HTTPException(status_code=503, detail="Servico de auditoria temporariamente indisponivel.")
 
 @app.get("/saude")
 async def verificar_saude():

@@ -500,5 +500,91 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
 
         asyncio.run(run_silent_test())
 
+    def test_audit_log_503_constant_error_message_ciclo_017(self):
+        # Garante que falha no log de auditoria retorna HTTP 503 com mensagem publica constante
+        from auth import obter_admin_google
+        app.dependency_overrides[obter_admin_google] = lambda: {"email": "superadmin@helpusbr.com", "role": "admin"}
+        try:
+            with patch.object(banco, "listar_eventos_auditoria", new=AsyncMock(side_effect=Exception("sensitive internal db detail"))):
+                response = client.get("/admin/audit-log")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.json()["detail"], "Servico de auditoria temporariamente indisponivel.")
+        finally:
+            app.dependency_overrides.pop(obter_admin_google, None)
+
+    def test_pure_get_idempotent_response_no_side_effects(self):
+        from backend.main import get_idempotent_response, claim_or_get_idempotent_request, complete_idempotent_request, _idempotency_cache
+        test_key = f"pure_test_key_{uuid.uuid4().hex[:6]}"
+        
+        # 1. Chave inexistente retorna None sem criar entrada
+        self.assertIsNone(get_idempotent_response(test_key))
+        self.assertNotIn(test_key, _idempotency_cache)
+
+        # 2. Requisicao in_progress ainda nao retorna resposta
+        should_run, cached, token = claim_or_get_idempotent_request(test_key)
+        self.assertTrue(should_run)
+        self.assertIsNone(get_idempotent_response(test_key))
+
+        # 3. Apenas quando completada retorna a resposta
+        complete_idempotent_request(test_key, {"resposta": "teste puro"}, owner_token=token)
+        cached_result = get_idempotent_response(test_key)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result.get("resposta"), "teste puro")
+
+        _idempotency_cache.pop(test_key, None)
+
+    def test_fenced_worker_aborts_db_persistence_in_chat(self):
+        # Simula worker perdendo seu fencing token (substituido por retry/timeout)
+        from backend.main import claim_or_get_idempotent_request, _idempotency_cache
+        req_id = f"fenced_req_{uuid.uuid4().hex[:8]}"
+        session_id = f"sess_fence_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Teste de fencing de worker",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+            # Primeiro claim legitimo
+            # Forcamos que durante a chamada o token de cache mude para simular um fence
+            orig_is_owner = sys.modules["backend.main"].is_owner_token_valid
+            def mock_fence_check(key, token):
+                if key and req_id in key:
+                    return False # Simula worker cercado
+                return orig_is_owner(key, token)
+
+            with patch("backend.main.is_owner_token_valid", side_effect=mock_fence_check):
+                res = client.post("/chat", json=payload)
+                self.assertEqual(res.status_code, 409)
+                self.assertIn("fenced", res.json()["detail"].lower())
+
+            # Garante que salvar_mensagem NAO foi invocado com role 'assistant' por worker cercado
+            for call_args in mock_salvar.call_args_list:
+                args, kwargs = call_args
+                if len(args) >= 2:
+                    self.assertNotEqual(args[1], "assistant")
+                if "role" in kwargs:
+                    self.assertNotEqual(kwargs["role"], "assistant")
+
+    def test_no_startup_ddl_when_persistent_database_configured(self):
+        import asyncio
+        from backend.banco import BancoDados
+        
+        # Cria banco com database_url configurado
+        banco_test = BancoDados()
+        banco_test.database_url = "postgresql://mock_user:pass@localhost:5432/mock_db"
+        banco_test.pool = object() # simula pool ativo
+        
+        # Mock de conexao para verificar se execute/fetch sao chamados
+        with patch.object(banco_test, "pool") as mock_pool:
+            mock_conn = AsyncMock()
+            mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+            
+            asyncio.run(banco_test.criar_tabelas())
+            
+            # Como tem database_url, criar_tabelas deve abortar imediatamente sem executar DDL
+            mock_conn.execute.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

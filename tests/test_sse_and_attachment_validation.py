@@ -125,7 +125,9 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
         key_user2 = _gerar_chave_idempotencia("user2@helpusbr.com", "sess_1", "req_999", "Minha pergunta")
         
         self.assertNotEqual(key_user1, key_user2)
-        save_idempotent_response(key_user1, {"resposta": "resp_user1", "session_id": "sess_1"})
+        should_run, _, token = claim_or_get_idempotent_request(key_user1)
+        self.assertTrue(should_run)
+        save_idempotent_response(key_user1, {"resposta": "resp_user1", "session_id": "sess_1"}, owner_token=token)
         
         self.assertIsNotNone(get_idempotent_response(key_user1))
         self.assertEqual(get_idempotent_response(key_user1)["resposta"], "resp_user1")

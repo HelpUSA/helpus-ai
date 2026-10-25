@@ -144,5 +144,57 @@ class PlaywrightViewportTests(unittest.TestCase):
         self.assertTrue(shot_path.exists())
         page.close()
 
+
+    def test_playwright_sse_streaming_mock(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+
+        # Injeta token de sessao autenticada para permitir envio direto de mensagens
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+        """)
+
+        # Intercepta rota de streaming SSE com chunks mockados
+        def handle_sse(route):
+            chunks = [
+                'data: {"content": "Ola HelpUS! ", "done": false}\n\n',
+                'data: {"content": "Streaming mock validado com sucesso.", "done": false}\n\n',
+                'data: {"done": true, "session_id": "sess_playwright_sse_mock"}\n\n',
+                'data: [DONE]\n\n',
+            ]
+            route.fulfill(
+                status=200,
+                headers={
+                    "Content-Type": "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+                body="".join(chunks),
+            )
+
+        page.route("**/chat/stream", handle_sse)
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+
+        textarea.fill("Pergunta de teste para SSE streaming Playwright")
+        # Aciona envio atraves do botao Enviar ou Enter
+        btn_enviar = page.locator("button[title='Enviar']").first
+        if btn_enviar.is_visible():
+            btn_enviar.click()
+        else:
+            page.keyboard.press("Enter")
+
+        # Aguarda renderizacao incremental no DOM
+        page.wait_for_selector("text=Streaming mock validado com sucesso.", timeout=8000)
+        content = page.content()
+        self.assertIn("Streaming mock validado com sucesso.", content)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_sse_mocked_streaming.png"
+        page.screenshot(path=str(shot_path))
+        self.assertTrue(shot_path.exists())
+        page.close()
+
 if __name__ == "__main__":
     unittest.main()
