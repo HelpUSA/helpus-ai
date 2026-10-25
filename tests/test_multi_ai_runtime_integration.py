@@ -330,7 +330,7 @@ class RuntimeIntegrationTests(
                     brain.multi_ai_provider
                 )
 
-    def test_disabled_mode_preserves_missing_key_failure(self):
+    async def test_disabled_mode_preserves_missing_key_failure(self):
         cerebro.AI_PROVIDER = "gemini"
         cerebro.GEMINI_API_KEY = ""
 
@@ -342,7 +342,7 @@ class RuntimeIntegrationTests(
             RuntimeError,
             "GEMINI_API_KEY nao configurada",
         ):
-            cerebro.CerebroIA()
+            await cerebro.CerebroIA().pensar("teste sem chave")
 
     async def test_disabled_flag_never_calls_router(self):
         cerebro.app_config.HELPUS_MULTI_AI_ENABLED = (
@@ -432,11 +432,8 @@ class RuntimeIntegrationTests(
 
         for marker in (
             "Voce e o HelpUS",
-            "[AI_LOCAL]",
-            "[AI_LOCAL_RUN]",
-            "inter_agent_message",
-            "gateway-brain-supervisor",
-            "result_is_final=1",
+            "INTEGRACAO COM COMPUTADOR LOCAL (HELPUSDEV)",
+            "autorizacao por escopo",
             "contexto consolidado",
             "historico consolidado",
             "pergunta atual",
