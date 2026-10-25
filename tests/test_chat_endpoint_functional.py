@@ -135,18 +135,19 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             "session_id": session_id,
             "client_request_id": req_id,
         }
-        res1 = client.post("/chat/stream", json=payload)
-        self.assertEqual(res1.status_code, 200)
-        body1 = res1.text
-        self.assertIn("data:", body1)
-        self.assertIn("[DONE]", body1)
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)):
+            res1 = client.post("/chat/stream", json=payload)
+            self.assertEqual(res1.status_code, 200)
+            body1 = res1.text
+            self.assertIn("data:", body1)
+            self.assertIn("[DONE]", body1)
 
-        # Segunda chamada para o stream deve responder com o cache (replay)
-        res2 = client.post("/chat/stream", json=payload)
-        self.assertEqual(res2.status_code, 200)
-        body2 = res2.text
-        self.assertIn("data:", body2)
-        self.assertIn('"cached": true', body2.lower())
+            # Segunda chamada para o stream deve responder com o cache (replay)
+            res2 = client.post("/chat/stream", json=payload)
+            self.assertEqual(res2.status_code, 200)
+            body2 = res2.text
+            self.assertIn("data:", body2)
+            self.assertIn('"cached": true', body2.lower())
 
     def test_chat_stream_concurrency_conflict_409(self):
         # Simula uma requisicao stream que ja esta in_progress
@@ -796,6 +797,87 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         self.assertIn("masked_key", data["details"])
         self.assertNotIn("forbidden_secret", data["details"])
         self.assertNotIn("raw_password", data["details"])
+
+    def test_sse_persistence_failed_triggers_visible_error_and_allows_retry_even_with_done_terminator(self):
+        # Valida que em falha de persistencia o stream emite erro PERSISTENCE_FAILED sem done:true,
+        # e subsequente retry com mesmo client_request_id funciona sem duplicacao de mensagens.
+        session_id = f"sess_p_fail_{uuid.uuid4().hex[:8]}"
+        req_id = f"req_p_fail_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta com falha de persistencia no assistant",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+
+        # 1. Primeira chamada: salvar_mensagem falha no assistant
+        async def mock_salvar_assistant_fail(*args, **kwargs):
+            if kwargs.get("role") == "assistant" or (len(args) >= 2 and args[1] == "assistant"):
+                raise RuntimeError("Postgres connection dropped during assistant save")
+            return True
+
+        with patch.object(banco, "salvar_mensagem", side_effect=mock_salvar_assistant_fail):
+            with client.stream("POST", "/chat/stream", json=payload) as response:
+                self.assertEqual(response.status_code, 200)
+                body = "".join(response.iter_text())
+                self.assertNotIn('"done": true', body.lower(), "done:true NAO pode ser emitido em falha de persistencia")
+                self.assertIn("PERSISTENCE_FAILED", body, "Deve emitir codigo estavel PERSISTENCE_FAILED")
+                self.assertIn("[DONE]", body, "Terminador de transporte [DONE] deve estar presente para encerrar conexao")
+
+        # 2. Retry com mesmo client_request_id e is_retry=True: agora o banco esta saudavel
+        payload["is_retry"] = True
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)) as mock_salvar_healthy:
+            with client.stream("POST", "/chat/stream", json=payload) as response2:
+                self.assertEqual(response2.status_code, 200)
+                body2 = "".join(response2.iter_text())
+                self.assertIn('"done": true', body2.lower(), "Retry saudavel deve concluir com done:true")
+                self.assertIn("[DONE]", body2)
+
+            # Verifica que a mensagem de usuario nao foi inserida de novo
+            user_saves = [
+                call for call in mock_salvar_healthy.call_args_list
+                if (len(call[0]) >= 2 and call[0][1] == "user") or call[1].get("role") == "user"
+            ]
+            self.assertEqual(len(user_saves), 0, "Retry nao deve salvar mensagem de usuario duplicada")
+
+    def test_connection_drop_after_commit_allows_replay_without_duplication(self):
+        # Valida cenario onde conexao cai apos gravacao duravel: replay a partir do cache sem reinsercao
+        session_id = f"sess_drop_{uuid.uuid4().hex[:8]}"
+        req_id = f"req_drop_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta de teste replay idempotente",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+
+        # Primeira execucao com sucesso
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)):
+            with client.stream("POST", "/chat/stream", json=payload) as response1:
+                self.assertEqual(response1.status_code, 200)
+                body1 = "".join(response1.iter_text())
+                self.assertIn('"done": true', body1.lower())
+
+        # Cliente tenta novamente com a mesma requisicao (simulando timeout ou perda de conexao antes do ACK)
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)) as mock_salvar_replay:
+            with client.stream("POST", "/chat/stream", json=payload) as response2:
+                self.assertEqual(response2.status_code, 200)
+                body2 = "".join(response2.iter_text())
+                self.assertIn('"cached": true', body2.lower())
+                self.assertIn("[DONE]", body2)
+
+            # ZERO chamadas adicionais de persistencia durante replay do cache
+            self.assertEqual(len(mock_salvar_replay.call_args_list), 0, "Replay de resposta em cache nao deve invocar salvar_mensagem")
+
+    def test_operational_concurrency_guard_rejects_multi_worker_without_database_url(self):
+        # Valida que startup lanca RuntimeError se multiplos workers forem solicitados sem DATABASE_URL
+        import asyncio
+        from backend.main import lifespan
+        with patch.dict(os.environ, {"WEB_CONCURRENCY": "4", "DATABASE_URL": ""}), patch.object(banco, "database_url", None):
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(lifespan(app).__aenter__())
+            self.assertIn("Incompatibilidade operacional critica", str(ctx.exception))
+            self.assertIn("WORKERS=1", str(ctx.exception))
 
 if __name__ == "__main__":
     unittest.main()

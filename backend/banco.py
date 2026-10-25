@@ -263,11 +263,7 @@ class BancoDados:
                     )
                 """)
 
-                await cur.execute("""
-                    INSERT INTO schema_migrations (version, description)
-                    VALUES ('003_sessoes_schema_and_diagnostic', 'Authoritative sessoes table, admin audit log, and strict non-ambiguous reconciliation')
-                    ON CONFLICT (version) DO NOTHING
-                """)
+
 
                 await cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_admin_audit_events_created
@@ -537,12 +533,17 @@ class BancoDados:
         user_email: Optional[str] = None,
         title: Optional[str] = None,
         project_id: Optional[str] = None,
-    ):
-        has_configured_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
-        if not await self._garantir_pool():
-            if has_configured_db:
-                raise RuntimeError("Conexao com banco de dados indisponivel para persistencia.")
-            return
+    ) -> bool:
+        """Contrato de Persistencia Confirmada Duravel (P0 - Ciclo 021).
+        
+        Garantias Estritas:
+        - Exige conexao duravel e commit bem-sucedido no PostgreSQL.
+        - Se nenhum banco estiver disponivel ou a conexao falhar, NUNCA retorna sucesso silencioso.
+        - Levanta RuntimeError se pool_ok for False ou pool for None.
+        """
+        pool_ok = await self._garantir_pool()
+        if not pool_ok or self.pool is None:
+            raise RuntimeError("Persistencia duravel indisponivel: conexao com banco ausente ou inacessivel.")
 
         email_norm = user_email.strip().lower() if user_email else None
         if not await self.verificar_propriedade_sessao(session_id, email_norm):
@@ -551,7 +552,6 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    email_norm = user_email.strip().lower() if user_email else None
                     await cur.execute(
                         """
                         INSERT INTO conversas (session_id, role, content, user_email, title, project_id)
@@ -560,8 +560,9 @@ class BancoDados:
                         (session_id, role, content, email_norm, title, project_id or "general")
                     )
                     await conn.commit()
+            return True
         except Exception as e:
-            print(f"[WARN] Erro ao salvar mensagem no banco: {e}")
+            print(f"[ERROR] Falha no commit da persistencia de mensagem: {e}")
             raise
 
     async def carregar_mensagens(

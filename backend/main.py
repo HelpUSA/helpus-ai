@@ -89,6 +89,16 @@ async def lifespan(app: FastAPI):
     """Inicializa e finaliza os servicos"""
     global cerebro, buscador
 
+    # P0 CONCORRENCIA (Ciclo 021): Verificacao efetiva das condicoes operacionais no startup
+    workers_env = int(os.getenv("WEB_CONCURRENCY", os.getenv("WORKERS", "1")))
+    has_db = bool(getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"))
+    if workers_env > 1 and not has_db:
+        raise RuntimeError(
+            f"Incompatibilidade operacional critica: foram solicitados {workers_env} workers, "
+            "mas DATABASE_URL nao esta configurada. Em memoria local, multiplos workers violam o isolamento "
+            "e nao garantem exactly-once. Restrinja a WORKERS=1 ou forneca DATABASE_URL com suporte a advisory locks."
+        )
+
     print("=" * 60)
     print("[INFO] INICIANDO HelpUS")
     print("=" * 60)
@@ -563,23 +573,33 @@ async def get_turn_lock(idempotency_key: Optional[str]):
 ALLOWED_DETAIL_KEYS = {
     "masked_key", "error_kind", "model_eff", "model_req", "provider", "duration_ms", "status_code", "retryable"
 }
+SAFE_CORR_ID_RE = re.compile(r'^[a-zA-Z0-9\-_]{8,64}$')
+SAFE_EVENT_RE = re.compile(r'^[a-zA-Z0-9_]{3,64}$')
 
 def log_structured(level: str, event: str, correlation_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
-    """Emite log estruturado padronizado em JSON com allowlist estrita e correlation_id opaco, sem secrets."""
+    """Emite log estruturado padronizado em JSON com allowlist estrita e correlation_id opaco, sem secrets (P1 - Ciclo 021)."""
     safe_details = {}
     if details and isinstance(details, dict):
         for k, v in details.items():
             if k in ALLOWED_DETAIL_KEYS:
                 safe_details[k] = _sanitize_log_message(str(v)) if isinstance(v, str) else v
 
-    safe_corr_id = "none"
+    safe_corr_id = "opaque_none"
     if correlation_id and isinstance(correlation_id, str):
-        safe_corr_id = correlation_id[:64]
+        c_str = correlation_id.strip()
+        if SAFE_CORR_ID_RE.match(c_str):
+            safe_corr_id = c_str[:64]
+
+    safe_event = "unknown_event"
+    if event and isinstance(event, str):
+        e_str = event.strip()
+        if SAFE_EVENT_RE.match(e_str):
+            safe_event = e_str[:64]
 
     entry = {
         "timestamp": round(time.time(), 3),
         "level": str(level).upper() if level else "INFO",
-        "event": str(event)[:80] if event else "unknown",
+        "event": safe_event,
         "correlation_id": safe_corr_id,
         "details": safe_details,
     }
@@ -1411,14 +1431,14 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
                 if banco and resposta_completa and stream_completed_ok:
                     try:
-                        await banco.salvar_mensagem(
+                        res_save = await banco.salvar_mensagem(
                             session_id=session_id,
                             role="assistant",
                             content=resposta_completa,
                             user_email=user_email,
                             project_id=project_id,
                         )
-                        persisted_ok = True
+                        persisted_ok = bool(res_save is True)
                     except Exception as e:
                         persisted_ok = False
                         log_structured("ERROR", "stream_assistant_persistence_failed", correlation_id=stream_corr_id, details={"error_kind": type(e).__name__})
