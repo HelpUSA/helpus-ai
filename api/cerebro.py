@@ -3,7 +3,17 @@ import asyncio
 import json
 import time
 import httpx
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
+from contextvars import ContextVar
+
+request_model_ctx: ContextVar[Optional[str]] = ContextVar("request_model_ctx", default=None)
+
+def set_request_model(model: Optional[str]):
+    return request_model_ctx.set(model)
+
+def get_request_model() -> Optional[str]:
+    return request_model_ctx.get()
+
 
 import config as app_config
 from config import (
@@ -169,7 +179,7 @@ class CerebroIA:
                             from google import genai
                             client_gemini = genai.Client(api_key=GEMINI_API_KEY)
                             self.client = client_gemini
-                        effective_gemini_model = getattr(self, "active_model", None) or GEMINI_MODEL
+                        effective_gemini_model = get_request_model() or getattr(self, "active_model", None) or GEMINI_MODEL
                         resposta = await asyncio.wait_for(
                             asyncio.to_thread(
                                 client_gemini.models.generate_content,
@@ -356,7 +366,7 @@ class CerebroIA:
                 )
                 self.multi_ai_provider = provider
 
-            requested_model = getattr(self, "active_model", None)
+            requested_model = get_request_model() or getattr(self, "active_model", None)
             from multi_ai_provider import resolve_model_alias
             effective_alias = resolve_model_alias(requested_model, config.default_alias)
             gen_kwargs = {}

@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 import config as app_config
 from config import DEBUG, CORS_ORIGINS
 from banco import BancoDados
-from cerebro import CerebroIA
+from cerebro import CerebroIA, set_request_model, get_request_model
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
 from admin_telemetry import summarize_events
@@ -265,9 +265,20 @@ async def raiz():
     }
 
 
+def _is_provider_available(provider: str) -> bool:
+    if provider == "google":
+        return bool(getattr(app_config, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY"))
+    if provider == "deepseek":
+        return bool(getattr(app_config, "DEEPSEEK_API_KEY", None) or os.getenv("DEEPSEEK_API_KEY"))
+    if provider == "openai":
+        return bool(getattr(app_config, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY"))
+    return False
+
 @app.get("/modelos")
 async def listar_modelos():
-    """Retorna o catalogo oficial de modelos homologados e disponiveis no servidor"""
+    """Retorna o catalogo oficial de modelos homologados e sua disponibilidade real no servidor"""
+    google_available = _is_provider_available("google")
+    deepseek_available = _is_provider_available("deepseek")
     return {
         "modelos": [
             {
@@ -277,7 +288,7 @@ async def listar_modelos():
                 "alias": "helpus-fast",
                 "desc": "Rapido e eficiente",
                 "capabilities": ["text", "code", "fast"],
-                "available": True,
+                "available": google_available,
             },
             {
                 "id": "gemini-2.5-flash",
@@ -286,7 +297,7 @@ async def listar_modelos():
                 "alias": "helpus-general",
                 "desc": "Equilibrio ideal de inteligencia",
                 "capabilities": ["text", "code", "vision", "reasoning"],
-                "available": True,
+                "available": google_available,
             },
             {
                 "id": "gemini-2.5-pro",
@@ -295,7 +306,7 @@ async def listar_modelos():
                 "alias": "helpus-reasoner",
                 "desc": "Raciocinio profundo e analise",
                 "capabilities": ["text", "code", "vision", "deep_thinking"],
-                "available": True,
+                "available": google_available,
             },
             {
                 "id": "deepseek-chat",
@@ -304,7 +315,7 @@ async def listar_modelos():
                 "alias": "helpus-code",
                 "desc": "Especialista em codigo e arquitetura",
                 "capabilities": ["text", "code"],
-                "available": True,
+                "available": deepseek_available,
             },
             {
                 "id": "deepseek-reasoner",
@@ -313,7 +324,7 @@ async def listar_modelos():
                 "alias": "helpus-reasoner",
                 "desc": "Raciocinio logico avancado",
                 "capabilities": ["text", "code", "deep_reasoning"],
-                "available": True,
+                "available": deepseek_available,
             },
         ],
         "default_model": "gemini-2.5-flash",
@@ -536,8 +547,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
 
     validar_modelo(request.model)
-    if c and request.model:
-        c.active_model = request.model.strip().lower()
+    if request.model:
+        set_request_model(request.model.strip().lower())
     user_email = usuario["email"] if usuario else None
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
@@ -770,8 +781,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     import json
 
     validar_modelo(request.model)
-    if c and request.model:
-        c.active_model = request.model.strip().lower()
+    if request.model:
+        set_request_model(request.model.strip().lower())
     session_id = request.session_id or str(uuid.uuid4())
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"

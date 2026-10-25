@@ -26,5 +26,27 @@ class ModelConcurrencyGuards(unittest.TestCase):
                 self.assertNotIn('"available": True', catalog,
                     "Availability must be derived from actual configured state.")
 
+    def test_concurrent_request_model_isolation(self):
+        import asyncio
+        import sys
+        sys.path.insert(0, str(ROOT / "backend"))
+        from cerebro import set_request_model, get_request_model
+
+        async def _simulate_request(model_name: str, delay: float):
+            set_request_model(model_name)
+            await asyncio.sleep(delay)
+            return get_request_model()
+
+        async def runner():
+            tasks = [
+                _simulate_request("gemini-2.5-pro", 0.02),
+                _simulate_request("gemini-2.5-flash-lite", 0.01),
+                _simulate_request("deepseek-chat", 0.015),
+            ]
+            results = await asyncio.gather(*tasks)
+            self.assertEqual(results, ["gemini-2.5-pro", "gemini-2.5-flash-lite", "deepseek-chat"])
+
+        asyncio.run(runner())
+
 if __name__ == "__main__":
     unittest.main()
