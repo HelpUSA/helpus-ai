@@ -691,20 +691,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
         except:
             pass
 
-    # Execução transparente no computador local via HelpUSDev
-    contexto_local = ""
-    acao_local = detectar_intencao_local(request.mensagem, historico=historico_recente)
-    if acao_local:
-        action, params = acao_local
-        res_local = await executar_no_computador_local(action, params)
-        if res_local.get("status") == "success":
-            saida = res_local.get("output", "")
-            contexto_local = f"\n\n[DADOS OBTIDOS DIRETAMENTE DO COMPUTADOR LOCAL VIA HELPUSDEV]:\nAção: {action}\nResultado:\n{saida}\n[FIM DOS DADOS LOCAIS]\nInstrução: Responda ao usuário com base nesses dados reais do computador dele de forma prestativa e transparente."
-        else:
-            aviso = res_local.get("output", "Falha de conexão.")
-            contexto_local = f"\n\n[AVISO HELPUSDEV LOCAL]: {aviso}\nInstrução: Informe educadamente que você tentou acessar o computador local, mas a aplicação HelpUSDev precisa estar aberta e rodando na máquina."
-
-    pergunta_stream = request.mensagem + (contexto_local if contexto_local else "")
+    # Public chat must never trigger local device operations.
+    pergunta_stream = request.mensagem
 
     async def event_generator():
         full_chunks = []
