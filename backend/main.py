@@ -12,6 +12,7 @@ from typing import List, Optional, Dict
 import time
 import uuid
 import os
+import hmac
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -300,20 +301,34 @@ except ModuleNotFoundError:
         executar_no_computador_local,
     )
 
+def require_bridge_token(authorization: Optional[str] = Header(default=None)) -> None:
+    """Fail closed unless a dedicated bridge credential matches.
+
+    Configure HELPUS_BRIDGE_API_TOKEN on both the server and the trusted
+    HelpUSDev client. Never reuse a Google user token or public API key.
+    """
+    configured = os.getenv("HELPUS_BRIDGE_API_TOKEN", "")
+    if not configured:
+        raise HTTPException(status_code=503, detail={"error": "bridge_not_configured"})
+    scheme, _, presented = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not presented or not hmac.compare_digest(presented, configured):
+        raise HTTPException(status_code=401, detail={"error": "bridge_unauthorized"})
+
+
 @app.get("/bridge/poll")
-async def bridge_poll():
+async def bridge_poll(_bridge_auth: None = Depends(require_bridge_token)):
     """Endpoint de long-polling para a aplicação HelpUSDev local receber tarefas"""
     cmd = await obter_proximo_comando(timeout=20.0)
     return {"command": cmd}
 
 @app.post("/bridge/result")
-async def bridge_result(res: BridgeResultRequest):
+async def bridge_result(res: BridgeResultRequest, _bridge_auth: None = Depends(require_bridge_token)):
     """Recebe o resultado da execução realizada pelo HelpUSDev local"""
     processar_resultado_comando(res.command_id, res.status, res.output or "")
     return {"ok": True}
 
 @app.get("/bridge/status")
-async def bridge_status():
+async def bridge_status(_bridge_auth: None = Depends(require_bridge_token)):
     """Retorna o status da conexão com a aplicação HelpUSDev local"""
     return {
         "online": is_helpusdev_online(),
