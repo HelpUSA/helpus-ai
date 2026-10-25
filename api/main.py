@@ -173,12 +173,12 @@ def validar_url_remota(url: Optional[str]):
     if not hostname or hostname in BLOCKED_HOSTS:
         raise HTTPException(status_code=400, detail="Host remoto nao permitido (protecao SSRF).")
 
-    # Restricao de dominios confiaveis para mitigar conexoes arbitrárias do servidor
-    dominio_permitido = any(hostname == d or hostname.endswith("." + d) for d in TRUSTED_IMAGE_DOMAINS)
+    # Bloqueio definitivo de URLs externas arbitrarias para mitigar qualquer risco de SSRF/Rebinding
+    dominio_permitido = hostname in ("ai.helpusbr.com", "helpusbr.com") or hostname.endswith(".helpusbr.com")
     if not dominio_permitido:
         raise HTTPException(
             status_code=400,
-            detail="URLs remotas arbitrarias estao desativadas por seguranca (protecao SSRF). Envie o anexo diretamente em formato base64."
+            detail="URLs externas arbitrarias estao desabilitadas por seguranca (protecao SSRF). Por favor, anexe a imagem diretamente via upload (base64)."
         )
 
     try:
@@ -434,21 +434,53 @@ def _gerar_chave_idempotencia(user_email: Optional[str], session_id: str, client
     msg_hash = hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()[:16]
     return f"{user_email or 'anon'}:{session_id}:{client_request_id}:{msg_hash}"
 
-def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
+def claim_or_get_idempotent_request(idempotency_key: Optional[str]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """Reivindica a execucao atomica ou retorna a resposta em cache.
+    Se uma requisicao identica ja estiver em progresso, lanca HTTP 409 Conflict.
+    Se ja concluida, retorna (False, cached_response).
+    Se for nova, marca in_progress e retorna (True, None)."""
     if not idempotency_key:
-        return None
+        return True, None
     now = time.time()
     for k in [k for k, v in _idempotency_cache.items() if now - v.get("timestamp", 0) > IDEMPOTENCY_TTL_SECONDS]:
         _idempotency_cache.pop(k, None)
-    cached = _idempotency_cache.get(idempotency_key)
-    return cached.get("response") if cached else None
 
-def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any]):
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry:
+        if entry.get("status") == "completed":
+            return False, entry.get("response")
+        if entry.get("status") == "in_progress":
+            raise HTTPException(
+                status_code=409,
+                detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
+            )
+
+    _idempotency_cache[idempotency_key] = {
+        "status": "in_progress",
+        "timestamp": now,
+    }
+    return True, None
+
+def complete_idempotent_request(idempotency_key: Optional[str], response_data: Dict[str, Any]):
     if idempotency_key:
         _idempotency_cache[idempotency_key] = {
+            "status": "completed",
             "response": response_data,
             "timestamp": time.time(),
         }
+
+def release_idempotent_request(idempotency_key: Optional[str]):
+    if idempotency_key:
+        entry = _idempotency_cache.get(idempotency_key)
+        if entry and entry.get("status") == "in_progress":
+            _idempotency_cache.pop(idempotency_key, None)
+
+def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
+    should_run, cached = claim_or_get_idempotent_request(idempotency_key)
+    return cached if not should_run else None
+
+def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any]):
+    complete_idempotent_request(idempotency_key, response_data)
 
 @app.get("/modelos")
 async def listar_modelos():
@@ -456,12 +488,12 @@ async def listar_modelos():
     google_configured = _is_provider_configured("google")
     google_health = _get_provider_health("google")
     google_healthy = (google_health == "healthy")
-    google_available = google_configured and (google_health in ("healthy", "unknown"))
+    google_available = google_configured and google_healthy
 
     deepseek_configured = _is_provider_configured("deepseek")
     deepseek_health = _get_provider_health("deepseek")
     deepseek_healthy = (deepseek_health == "healthy")
-    deepseek_available = deepseek_configured and (deepseek_health in ("healthy", "unknown"))
+    deepseek_available = deepseek_configured and deepseek_healthy
 
     return {
         "modelos": [
@@ -759,8 +791,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
     if idempotency_key and not request.is_retry:
-        cached_resp = get_idempotent_response(idempotency_key)
-        if cached_resp:
+        should_run, cached_resp = claim_or_get_idempotent_request(idempotency_key)
+        if not should_run and cached_resp:
             return MensagemResponse(**cached_resp)
     # Agentes internos controlados por HELPUS_INTERNAL_AGENTS_ENABLED.
     agent_trace = [

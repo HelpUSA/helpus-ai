@@ -2,7 +2,6 @@
 import unittest
 import sys
 import uuid
-import asyncio
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,7 +84,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
     def test_chat_ssrf_allows_trusted_url(self):
         payload = {
             "mensagem": "Analise imagem de dominio confiavel",
-            "image_url": "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119",
+            "image_url": "https://ai.helpusbr.com/assets/logo.png",
         }
         response = client.post("/chat", json=payload)
         self.assertEqual(response.status_code, 200)

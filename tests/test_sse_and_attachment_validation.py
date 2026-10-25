@@ -17,6 +17,7 @@ from backend.main import (
     save_idempotent_response,
     get_idempotent_response,
     _gerar_chave_idempotencia,
+    claim_or_get_idempotent_request,
 )
 from auth import obter_usuario_google
 
@@ -86,9 +87,9 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
                     validar_url_remota(bad_url)
                 self.assertEqual(ctx.exception.status_code, 400)
 
-    def test_ssrf_allows_public_https_url(self):
+    def test_ssrf_allows_trusted_internal_domain(self):
         # Should not raise
-        validar_url_remota("https://images.unsplash.com/photo-1579783900882-c0d3dad7b119")
+        validar_url_remota("https://ai.helpusbr.com/assets/logo.png")
 
     def test_catalog_differentiates_configured_and_healthy(self):
         response = client.get("/modelos")
@@ -103,6 +104,9 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
             self.assertIsInstance(modelo["healthy"], bool)
             self.assertIsInstance(modelo["health"], str)
             self.assertIsInstance(modelo["available"], bool)
+            # Semantica correta: available requer healthy comprovado
+            if modelo["health"] == "unknown":
+                self.assertFalse(modelo["available"])
 
     def test_request_model_supports_both_image_keys_and_retry(self):
         req = MensagemRequest(
@@ -127,6 +131,18 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
         self.assertEqual(get_idempotent_response(key_user1)["resposta"], "resp_user1")
         # User 2 cannot replay or view User 1's cached response
         self.assertIsNone(get_idempotent_response(key_user2))
+
+    def test_idempotency_atomic_concurrent_blocking(self):
+        key = _gerar_chave_idempotencia("user_conc@helpusbr.com", "sess_conc", "req_conc_1", "Pergunta concorrente")
+        # Primeiro claim deve ter sucesso
+        should_run, cached = claim_or_get_idempotent_request(key)
+        self.assertTrue(should_run)
+        self.assertIsNone(cached)
+
+        # Segundo claim com a mesma chave enquanto in_progress deve levantar HTTP 409
+        with self.assertRaises(HTTPException) as ctx:
+            claim_or_get_idempotent_request(key)
+        self.assertEqual(ctx.exception.status_code, 409)
 
 if __name__ == "__main__":
     unittest.main()

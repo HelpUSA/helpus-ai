@@ -44,5 +44,15 @@ class UIUXInvariantsTests(unittest.TestCase):
         self.assertIn("data.provider_used !== 'fallback'", self.page_source)
         self.assertIn("Contingência", self.page_source)
 
+    def test_responsive_viewport_invariants_360_768_1280(self):
+        # 360px Mobile
+        self.assertIn("lg:hidden", self.page_source)
+        self.assertIn("backdrop-blur-sm", self.page_source)
+        # 768px / Tablet / Mobile breakpoints
+        self.assertIn("sm:", self.page_source)
+        # 1280px Desktop & container constraints
+        self.assertIn("w-[280px]", self.page_source)
+        self.assertIn("max-w-3xl", self.page_source)
+
 if __name__ == "__main__":
     unittest.main()
