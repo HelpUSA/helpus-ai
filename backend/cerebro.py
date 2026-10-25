@@ -3,16 +3,27 @@ import asyncio
 import json
 import time
 import httpx
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 from contextvars import ContextVar
 
 request_model_ctx: ContextVar[Optional[str]] = ContextVar("request_model_ctx", default=None)
+request_meta_ctx: ContextVar[Dict[str, Any]] = ContextVar("request_meta_ctx", default={})
 
 def set_request_model(model: Optional[str]):
     return request_model_ctx.set(model)
 
 def get_request_model() -> Optional[str]:
     return request_model_ctx.get()
+
+def set_request_metadata(meta: Dict[str, Any]):
+    return request_meta_ctx.set(dict(meta))
+
+def get_request_metadata() -> Dict[str, Any]:
+    return request_meta_ctx.get()
+
+def reset_request_context():
+    request_model_ctx.set(None)
+    request_meta_ctx.set({})
 
 
 import config as app_config
@@ -193,6 +204,7 @@ class CerebroIA:
                         self.last_provider_used = "gemini"
                         self.nome_modelo = effective_gemini_model
                         self.last_fallback_reason = None
+                        set_request_metadata({"provider_used": "gemini", "fallback_reason": None, "model_used": effective_gemini_model})
                         tempo = round(time.time() - inicio, 2)
                         return texto, 0, tempo
 
@@ -392,6 +404,7 @@ class CerebroIA:
                 result.latency_ms
             )
             self.nome_modelo = result.alias
+            set_request_metadata({"provider_used": "multi_ai", "fallback_reason": None, "model_used": result.alias, "latency_ms": result.latency_ms})
 
             return (
                 result.text,

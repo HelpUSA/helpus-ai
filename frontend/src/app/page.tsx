@@ -530,11 +530,12 @@ export default function HelpUSGeminiApp() {
     return groups.filter((g) => g.items.length > 0)
   })()
 
-  // Tentar novamente última mensagem enviada
+  // Tentar novamente última mensagem enviada com semântica explícita de retry sem duplicação
   const tentarNovamente = () => {
+    if (loading) return
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
-    if (lastUserMsg) {
-      enviarMensagem(lastUserMsg.content)
+    if (lastUserMsg && lastUserMsg.content) {
+      enviarMensagem(lastUserMsg.content, true)
     }
   }
 
@@ -545,7 +546,7 @@ export default function HelpUSGeminiApp() {
   }
 
   // Enviar mensagem para a IA
-  const enviarMensagem = async (texto = input) => {
+  const enviarMensagem = async (texto = input, isRetry = false) => {
     const textoLimpo = texto.trim()
     if (!textoLimpo && !selectedImageBase64 && !attachedFile) return
     if (loading) return
@@ -598,30 +599,43 @@ export default function HelpUSGeminiApp() {
       return lista
     })
 
-    setInput('')
-    setSelectedImage(null)
-    setSelectedImageBase64(null)
-    setAttachedFile(null)
+    if (!isRetry) {
+      setInput('')
+      setSelectedImage(null)
+      setSelectedImageBase64(null)
+      setAttachedFile(null)
 
-    const novaMensagemUsuario: Message = {
-      role: 'user',
-      content: textoLimpo || (attachedFile ? `Analisar anexo: ${attachedFile.name}` : ''),
-      image_url: imagemPreviewUrl,
-      file_name: documentoNome,
+      const novaMensagemUsuario: Message = {
+        role: 'user',
+        content: textoLimpo || (attachedFile ? `Analisar anexo: ${attachedFile.name}` : ''),
+        image_url: imagemPreviewUrl,
+        file_name: documentoNome,
+      }
+      setMessages((prev) => [...prev, novaMensagemUsuario])
     }
 
-    setMessages((prev) => [...prev, novaMensagemUsuario])
     setLoading(true)
 
     // Mensagem temporária do assistente para streaming
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: 'assistant',
-        content: '',
-        provider_used: undefined,
-      },
-    ])
+    setMessages((prev) => {
+      const copia = [...prev]
+      if (isRetry && copia.length > 0 && copia[copia.length - 1].role === 'assistant') {
+        copia[copia.length - 1] = {
+          role: 'assistant',
+          content: '',
+          provider_used: undefined,
+        }
+        return copia
+      }
+      return [
+        ...copia,
+        {
+          role: 'assistant',
+          content: '',
+          provider_used: undefined,
+        },
+      ]
+    })
 
     try {
       abortControllerRef.current = new AbortController()
@@ -633,38 +647,54 @@ export default function HelpUSGeminiApp() {
         authHeaders['Authorization'] = `Bearer ${googleToken}`
       }
 
-      // Tenta rota SSE /chat/stream
+      const clientRequestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      const payloadEnvio = {
+        mensagem: textoFinal,
+        session_id: currentSessionId,
+        pesquisar_web: webSearchEnabled,
+        image_base64: imagemBase64ParaEnvio,
+        imagem_base64: imagemBase64ParaEnvio,
+        file_name: documentoNome,
+        model: activeModel.id,
+        project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
+        client_request_id: clientRequestId,
+        is_retry: isRetry,
+      }
+
+      // Tenta rota SSE /chat/stream com buffer incremental de eventos
       const resStream = await fetch(`${apiUrl}/chat/stream`, {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({
-          mensagem: textoFinal,
-          session_id: currentSessionId,
-          pesquisar_web: webSearchEnabled,
-          imagem_base64: imagemBase64ParaEnvio,
-          model: activeModel.id,
-          project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
-        }),
+        body: JSON.stringify(payloadEnvio),
         signal: abortControllerRef.current.signal,
       })
 
       if (resStream.ok && resStream.body) {
         const reader = resStream.body.getReader()
-        const decoder = new TextDecoder()
+        const decoder = new TextDecoder('utf-8')
         let respostaAcumulada = ''
+        let buffer = ''
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value, { stream: true })
-          const lines = chunk.split('\n')
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || '' // Mantém linha incompleta no buffer
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6).trim()
-              if (!dataStr || dataStr === '[DONE]') continue
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed.startsWith('data:')) continue
+              const dataStr = trimmed.slice(5).trim()
+              if (!dataStr) continue
+              if (dataStr === '[DONE]') break
+
               try {
                 const parsed = JSON.parse(dataStr)
+                if (parsed.error) {
+                  throw new Error(parsed.error)
+                }
                 const chunkText = parsed.content ?? parsed.text ?? parsed.chunk ?? ''
                 if (chunkText) {
                   respostaAcumulada += chunkText
@@ -676,6 +706,8 @@ export default function HelpUSGeminiApp() {
                         ...last,
                         content: respostaAcumulada,
                         fontes: parsed.fontes || last.fontes,
+                        provider_used: parsed.provider_used || last.provider_used,
+                        fallback_reason: parsed.fallback_reason || last.fallback_reason,
                       }
                     }
                     return copia
@@ -684,7 +716,10 @@ export default function HelpUSGeminiApp() {
                 if (parsed.session_id && !sessionId) {
                   setSessionId(parsed.session_id)
                 }
-              } catch {
+              } catch (e: any) {
+                if (e.message && !e.message.includes('JSON')) {
+                  throw e
+                }
                 respostaAcumulada += dataStr
                 setMessages((prev) => {
                   const copia = [...prev]
@@ -697,7 +732,10 @@ export default function HelpUSGeminiApp() {
               }
             }
           }
+        } finally {
+          reader.releaseLock()
         }
+
         if (respostaAcumulada.trim().length > 0) {
           carregarConversas(googleToken)
           return
@@ -708,14 +746,7 @@ export default function HelpUSGeminiApp() {
       const res = await fetch(`${apiUrl}/chat`, {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({
-          mensagem: textoFinal,
-          session_id: currentSessionId,
-          pesquisar_web: webSearchEnabled,
-          imagem_base64: imagemBase64ParaEnvio,
-          model: activeModel.id,
-          project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
-        }),
+        body: JSON.stringify(payloadEnvio),
       })
 
       if (res.ok) {

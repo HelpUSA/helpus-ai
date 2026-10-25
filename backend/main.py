@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 import config as app_config
 from config import DEBUG, CORS_ORIGINS
 from banco import BancoDados
-from cerebro import CerebroIA, set_request_model, get_request_model
+from cerebro import CerebroIA, set_request_model, get_request_model, get_request_metadata, set_request_metadata, reset_request_context
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
 from admin_telemetry import summarize_events
@@ -133,14 +133,48 @@ app.add_middleware(
 )
 
 # ===== MODELOS DE DADOS =====
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
+BLOCKED_EXTENSIONS = {".env", ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".dll", ".so", ".bin", ".py", ".js"}
+ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] = None):
+    if file_name:
+        fn_lower = file_name.strip().lower()
+        if fn_lower.startswith(".env") or any(fn_lower.endswith(ext) for ext in BLOCKED_EXTENSIONS):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Arquivo '{file_name}' nao permitido por questoes de seguranca."
+            )
+    if image_base64:
+        raw_b64 = image_base64
+        if image_base64.startswith("data:"):
+            header, _, data_part = image_base64.partition(",")
+            mime = header.split(";")[0].replace("data:", "").strip().lower()
+            if mime and mime not in ALLOWED_IMAGE_MIMES and mime != "application/pdf":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tipo MIME '{mime}' nao permitido. Permitidos: {sorted(list(ALLOWED_IMAGE_MIMES))}"
+                )
+            raw_b64 = data_part
+        est_bytes = (len(raw_b64) * 3) / 4
+        if est_bytes > MAX_IMAGE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Tamanho maximo do anexo excedido (limite de 10MB)."
+            )
+
 class MensagemRequest(BaseModel):
     mensagem: str
     session_id: Optional[str] = None
     pesquisar_web: bool = True
     project_id: Optional[str] = 'general'
     image_base64: Optional[str] = None
+    imagem_base64: Optional[str] = None
+    file_name: Optional[str] = None
     image_url: Optional[str] = None
     model: Optional[str] = None
+    client_request_id: Optional[str] = None
+    is_retry: bool = False
 
 class MensagemResponse(BaseModel):
     resposta: str
@@ -265,7 +299,7 @@ async def raiz():
     }
 
 
-def _is_provider_available(provider: str) -> bool:
+def _is_provider_configured(provider: str) -> bool:
     if provider == "google":
         return bool(getattr(app_config, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY"))
     if provider == "deepseek":
@@ -274,11 +308,24 @@ def _is_provider_available(provider: str) -> bool:
         return bool(getattr(app_config, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY"))
     return False
 
+def _is_provider_healthy(provider: str) -> bool:
+    # Provedor nao configurado nao e saudavel
+    return _is_provider_configured(provider)
+
+def _is_provider_available(provider: str) -> bool:
+    return _is_provider_configured(provider) and _is_provider_healthy(provider)
+
 @app.get("/modelos")
 async def listar_modelos():
     """Retorna o catalogo oficial de modelos homologados e sua disponibilidade real no servidor"""
-    google_available = _is_provider_available("google")
-    deepseek_available = _is_provider_available("deepseek")
+    google_configured = _is_provider_configured("google")
+    google_healthy = _is_provider_healthy("google")
+    google_available = google_configured and google_healthy
+
+    deepseek_configured = _is_provider_configured("deepseek")
+    deepseek_healthy = _is_provider_healthy("deepseek")
+    deepseek_available = deepseek_configured and deepseek_healthy
+
     return {
         "modelos": [
             {
@@ -288,6 +335,8 @@ async def listar_modelos():
                 "alias": "helpus-fast",
                 "desc": "Rapido e eficiente",
                 "capabilities": ["text", "code", "fast"],
+                "configured": google_configured,
+                "healthy": google_healthy,
                 "available": google_available,
             },
             {
@@ -297,6 +346,8 @@ async def listar_modelos():
                 "alias": "helpus-general",
                 "desc": "Equilibrio ideal de inteligencia",
                 "capabilities": ["text", "code", "vision", "reasoning"],
+                "configured": google_configured,
+                "healthy": google_healthy,
                 "available": google_available,
             },
             {
@@ -306,6 +357,8 @@ async def listar_modelos():
                 "alias": "helpus-reasoner",
                 "desc": "Raciocinio profundo e analise",
                 "capabilities": ["text", "code", "vision", "deep_thinking"],
+                "configured": google_configured,
+                "healthy": google_healthy,
                 "available": google_available,
             },
             {
@@ -315,6 +368,8 @@ async def listar_modelos():
                 "alias": "helpus-code",
                 "desc": "Especialista em codigo e arquitetura",
                 "capabilities": ["text", "code"],
+                "configured": deepseek_configured,
+                "healthy": deepseek_healthy,
                 "available": deepseek_available,
             },
             {
@@ -324,6 +379,8 @@ async def listar_modelos():
                 "alias": "helpus-reasoner",
                 "desc": "Raciocinio logico avancado",
                 "capabilities": ["text", "code", "deep_reasoning"],
+                "configured": deepseek_configured,
+                "healthy": deepseek_healthy,
                 "available": deepseek_available,
             },
         ],
@@ -549,6 +606,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     validar_modelo(request.model)
     if request.model:
         set_request_model(request.model.strip().lower())
+    effective_image_b64 = request.image_base64 or request.imagem_base64
+    validar_anexo(effective_image_b64, request.file_name)
     user_email = usuario["email"] if usuario else None
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
@@ -606,18 +665,19 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     print(f"[WARN] Erro ou timeout na busca: {e}")
 
 
-        # Salva pergunta
-        try:
-            await banco.salvar_mensagem(
-            session_id,
-            "user",
-            request.mensagem,
-            user_email=usuario["email"] if usuario else None,
-            project_id=project_id,
-            title=request.mensagem[:80],
-        )
-        except:
-            pass
+        # Salva pergunta (evita duplicacao se for retry explicito)
+        if not request.is_retry:
+            try:
+                await banco.salvar_mensagem(
+                    session_id,
+                    "user",
+                    request.mensagem,
+                    user_email=usuario["email"] if usuario else None,
+                    project_id=project_id,
+                    title=request.mensagem[:80],
+                )
+            except:
+                pass
 
         # Memoria interna recente/relevante, controlada por HELPUS_MEMORY_CONTEXT_ENABLED.
         contexto_memoria_interna = ""
@@ -673,7 +733,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             pergunta=pergunta_para_ia,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico,
-            image_base64=request.image_base64,
+            image_base64=effective_image_b64,
             image_url=request.image_url,
         )
         internal_agents_result = await run_internal_agents(
@@ -732,6 +792,12 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         tempo_total = round(time.time() - inicio_total, 2)
 
+        meta = get_request_metadata()
+        prov_used = meta.get("provider_used") or getattr(c, "last_provider_used", getattr(c, "provider", ""))
+        fb_reason = meta.get("fallback_reason") or getattr(c, "last_fallback_reason", None)
+        model_eff = meta.get("model_used") or get_request_model() or getattr(c, "nome_modelo", request.model or "")
+        model_req = request.model or model_eff
+
         return MensagemResponse(
             resposta=resposta,
             session_id=session_id,
@@ -739,12 +805,12 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             fontes=fontes,
             tempo_total=tempo_total,
             tokens_gerados=tokens,
-            provider_used=getattr(c, "last_provider_used", getattr(c, "provider", "")),
-            fallback_reason=getattr(c, "last_fallback_reason", None),
+            provider_used=prov_used,
+            fallback_reason=fb_reason,
             provider_configured=getattr(app_config, "AI_PROVIDER", ""),
-            model=getattr(c, "nome_modelo", request.model or ""),
-            model_requested=request.model or getattr(c, "nome_modelo", ""),
-            model_used=getattr(c, "nome_modelo", request.model or ""),
+            model=model_eff,
+            model_requested=model_req,
+            model_used=model_eff,
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
@@ -783,12 +849,14 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     validar_modelo(request.model)
     if request.model:
         set_request_model(request.model.strip().lower())
+    effective_image_b64 = request.image_base64 or request.imagem_base64
+    validar_anexo(effective_image_b64, request.file_name)
     session_id = request.session_id or str(uuid.uuid4())
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"
 
-    # Salva mensagem do usuario imediatamente
-    if banco:
+    # Salva mensagem do usuario imediatamente (se nao for retry)
+    if banco and not request.is_retry:
         try:
             await banco.salvar_mensagem(
                 session_id=session_id,
