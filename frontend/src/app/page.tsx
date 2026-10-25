@@ -100,6 +100,21 @@ export default function HelpUSGeminiApp() {
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Atalho de teclado Ctrl+B para alternar menu e Escape para fechar gaveta mobile
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        setSidebarOpen((prev) => !prev)
+      }
+      if (e.key === 'Escape' && sidebarOpen && typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setSidebarOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [sidebarOpen])
   const [activeModel, setActiveModel] = useState(MODEL_OPTIONS[0])
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -482,6 +497,35 @@ export default function HelpUSGeminiApp() {
     return c.project_id === selectedProjectId
   })
 
+  // Agrupamento temporal de conversas (Hoje, Ontem, Ultimos 7 dias, Mais antigas)
+  const gruposConversas = (() => {
+    const groups: { label: string; items: ConversaResumo[] }[] = [
+      { label: 'Hoje', items: [] },
+      { label: 'Ontem', items: [] },
+      { label: 'Últimos 7 dias', items: [] },
+      { label: 'Mais antigas', items: [] },
+    ]
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const yesterdayStart = todayStart - 86400000
+    const sevenDaysAgo = todayStart - 6 * 86400000
+
+    for (const c of conversasFiltradas) {
+      const rawDate = c.updated_at || c.created_at
+      const timestamp = rawDate ? new Date(rawDate).getTime() : 0
+      if (!timestamp || isNaN(timestamp) || timestamp >= todayStart) {
+        groups[0].items.push(c)
+      } else if (timestamp >= yesterdayStart) {
+        groups[1].items.push(c)
+      } else if (timestamp >= sevenDaysAgo) {
+        groups[2].items.push(c)
+      } else {
+        groups[3].items.push(c)
+      }
+    }
+    return groups.filter((g) => g.items.length > 0)
+  })()
+
   // Enviar mensagem para a IA
   const enviarMensagem = async (texto = input) => {
     const textoLimpo = texto.trim()
@@ -829,9 +873,17 @@ export default function HelpUSGeminiApp() {
 
       <div className="flex h-screen w-screen overflow-hidden bg-[#131314] text-[#e3e3e3] font-sans">
         {/* ================= BARRA LATERAL (SIDEBAR GEMINI) ================= */}
+        {/* Backdrop acessivel para drawer mobile */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden transition-opacity"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         <aside
           className={`${
-            sidebarOpen ? 'w-72' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
+            sidebarOpen ? 'w-[280px]' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
           } flex flex-col border-r border-[#242526] bg-[#1e1f20] transition-all duration-300 ease-in-out z-40 shrink-0 overflow-hidden`}
         >
           {/* Topo da Sidebar */}
@@ -974,15 +1026,19 @@ export default function HelpUSGeminiApp() {
 
               {/* Lista de Recentes estilo Gemini com Renomear e Excluir */}
               <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
-                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
-                  Recentes
-                </div>
                 {conversasFiltradas.length === 0 ? (
                   <div className="px-2 py-3 text-xs text-[#8e918f]">
                     Nenhuma conversa encontrada.
                   </div>
                 ) : (
-                  conversasFiltradas.map((conv) => {
+                  gruposConversas.map((grupo) => (
+                    <div key={grupo.label} className="mb-2">
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#8e918f]">
+                        {grupo.label}
+                      </div>
+                      <div className="space-y-0.5">
+                        {grupo.items.map((conv) => {
+
                     const ativa = sessionId === conv.session_id
                     const titulo = conv.titulo || `Conversa ${conv.session_id.slice(0, 8)}`
                     const isEditing = editingSessionId === conv.session_id
@@ -1056,7 +1112,10 @@ export default function HelpUSGeminiApp() {
                         </div>
                       </div>
                     )
-                  })
+                        })}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
