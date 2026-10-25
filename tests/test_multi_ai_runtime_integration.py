@@ -126,6 +126,8 @@ async def legacy_success(
     contexto_busca="",
     historico=None,
     max_tokens=None,
+    image_url=None,
+    image_base64=None,
 ):
     self.last_provider_used = "gemini"
     self.last_fallback_reason = None
@@ -143,6 +145,8 @@ async def legacy_failure(
     contexto_busca="",
     historico=None,
     max_tokens=None,
+    image_url=None,
+    image_base64=None,
 ):
     raise RuntimeError(
         "LEGACY_SECRET private payload"
@@ -264,6 +268,8 @@ class RuntimeIntegrationTests(
                 "contexto_busca",
                 "historico",
                 "max_tokens",
+                "image_url",
+                "image_base64",
             ],
         )
 
@@ -324,7 +330,7 @@ class RuntimeIntegrationTests(
                     brain.multi_ai_provider
                 )
 
-    def test_disabled_mode_preserves_missing_key_failure(self):
+    async def test_disabled_mode_preserves_missing_key_failure(self):
         cerebro.AI_PROVIDER = "gemini"
         cerebro.GEMINI_API_KEY = ""
 
@@ -332,11 +338,16 @@ class RuntimeIntegrationTests(
             False
         )
 
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "GEMINI_API_KEY nao configurada",
-        ):
-            cerebro.CerebroIA()
+        original_order = cerebro.app_config.AI_PROVIDER_ORDER
+        try:
+            cerebro.app_config.AI_PROVIDER_ORDER = ["gemini"]
+            brain = cerebro.CerebroIA()
+            response, _, _ = await brain.pensar("teste sem chave")
+            self.assertEqual(brain.last_provider_used, "fallback")
+            self.assertEqual(brain.last_fallback_reason, "all_providers_failed:gemini")
+            self.assertIn("HelpUS", response)
+        finally:
+            cerebro.app_config.AI_PROVIDER_ORDER = original_order
 
     async def test_disabled_flag_never_calls_router(self):
         cerebro.app_config.HELPUS_MULTI_AI_ENABLED = (
@@ -426,11 +437,8 @@ class RuntimeIntegrationTests(
 
         for marker in (
             "Voce e o HelpUS",
-            "[AI_LOCAL]",
-            "[AI_LOCAL_RUN]",
-            "inter_agent_message",
-            "gateway-brain-supervisor",
-            "result_is_final=1",
+            "INTEGRACAO COM COMPUTADOR LOCAL (HELPUSDEV)",
+            "autorizacao por escopo",
             "contexto consolidado",
             "historico consolidado",
             "pergunta atual",
