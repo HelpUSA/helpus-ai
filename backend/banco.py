@@ -195,14 +195,14 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    if user_email:
+                    if user_email and user_email.strip():
                         email_norm = user_email.strip().lower()
                         await cur.execute(
                             """
                             SELECT role, content FROM (
                                 SELECT role, content, created_at
                                 FROM conversas
-                                WHERE session_id = %s AND (LOWER(user_email) = %s OR user_email IS NULL)
+                                WHERE session_id = %s AND LOWER(user_email) = %s
                                 ORDER BY created_at DESC
                                 LIMIT %s
                             ) sub
@@ -216,7 +216,7 @@ class BancoDados:
                             SELECT role, content FROM (
                                 SELECT role, content, created_at
                                 FROM conversas
-                                WHERE session_id = %s
+                                WHERE session_id = %s AND user_email IS NULL
                                 ORDER BY created_at DESC
                                 LIMIT %s
                             ) sub
@@ -235,10 +235,13 @@ class BancoDados:
         if not await self._garantir_pool():
             return []
 
+        if not user_email or not user_email.strip():
+            return []
+
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    email_norm = user_email.strip().lower() if user_email else ""
+                    email_norm = user_email.strip().lower()
                     if project_id and project_id not in ("all", "*"):
                         query = """
                         SELECT
@@ -252,7 +255,7 @@ class BancoDados:
                             COUNT(*) AS total_mensagens,
                             COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
                         FROM conversas
-                        WHERE (LOWER(user_email) = %s OR user_email IS NULL)
+                        WHERE LOWER(user_email) = %s
                           AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
                         GROUP BY session_id
                         ORDER BY MAX(created_at) DESC
@@ -272,7 +275,7 @@ class BancoDados:
                             COUNT(*) AS total_mensagens,
                             COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
                         FROM conversas
-                        WHERE (LOWER(user_email) = %s OR user_email IS NULL)
+                        WHERE LOWER(user_email) = %s
                         GROUP BY session_id
                         ORDER BY MAX(created_at) DESC
                         LIMIT %s
@@ -301,15 +304,15 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    if user_email:
+                    if user_email and user_email.strip():
                         email_norm = user_email.strip().lower()
                         await cur.execute(
-                            "UPDATE conversas SET title = %s WHERE session_id = %s AND (LOWER(user_email) = %s OR user_email IS NULL)",
+                            "UPDATE conversas SET title = %s WHERE session_id = %s AND LOWER(user_email) = %s",
                             (novo_titulo, session_id, email_norm)
                         )
                     else:
                         await cur.execute(
-                            "UPDATE conversas SET title = %s WHERE session_id = %s",
+                            "UPDATE conversas SET title = %s WHERE session_id = %s AND user_email IS NULL",
                             (novo_titulo, session_id)
                         )
                     await conn.commit()
@@ -322,15 +325,15 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    if user_email:
+                    if user_email and user_email.strip():
                         email_norm = user_email.strip().lower()
                         await cur.execute(
-                            "UPDATE conversas SET project_id = %s WHERE session_id = %s AND (LOWER(user_email) = %s OR user_email IS NULL)",
+                            "UPDATE conversas SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
                             (project_id or "general", session_id, email_norm)
                         )
                     else:
                         await cur.execute(
-                            "UPDATE conversas SET project_id = %s WHERE session_id = %s",
+                            "UPDATE conversas SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
                             (project_id or "general", session_id)
                         )
                     await conn.commit()
@@ -344,25 +347,19 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    if user_email:
+                    if user_email and user_email.strip():
                         email_norm = user_email.strip().lower()
                         await cur.execute(
                             """
                             SELECT project_id, nome, descricao, instrucoes, created_at
                             FROM projetos
-                            WHERE LOWER(user_email) = %s OR user_email IS NULL
+                            WHERE LOWER(user_email) = %s
                             ORDER BY created_at ASC
                             """,
                             (email_norm,)
                         )
                     else:
-                        await cur.execute(
-                            """
-                            SELECT project_id, nome, descricao, instrucoes, created_at
-                            FROM projetos
-                            ORDER BY created_at ASC
-                            """
-                        )
+                        return padrao
                     rows = await cur.fetchall()
                     itens = [
                         {
@@ -395,7 +392,7 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    email_norm = user_email.strip().lower() if user_email else None
+                    email_norm = user_email.strip().lower() if user_email and user_email.strip() else None
                     await cur.execute(
                         """
                         INSERT INTO projetos (project_id, nome, descricao, instrucoes, user_email)
@@ -431,15 +428,15 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    if user_email:
+                    if user_email and user_email.strip():
                         email_norm = user_email.strip().lower()
                         await cur.execute(
-                            "DELETE FROM conversas WHERE session_id = %s AND (LOWER(user_email) = %s OR user_email IS NULL)",
+                            "DELETE FROM conversas WHERE session_id = %s AND LOWER(user_email) = %s",
                             (session_id, email_norm)
                         )
                     else:
                         await cur.execute(
-                            "DELETE FROM conversas WHERE session_id = %s",
+                            "DELETE FROM conversas WHERE session_id = %s AND user_email IS NULL",
                             (session_id,)
                         )
                     await conn.commit()

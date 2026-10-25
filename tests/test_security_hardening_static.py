@@ -33,5 +33,33 @@ class SecurityHardeningTests(unittest.TestCase):
         mirror = (ROOT / "backend" / "cerebro.py").read_text(encoding="utf-8")
         self.assertNotIn("Voce tem permissao total para acessar arquivos", mirror)
 
+    def test_tenant_isolation_queries_do_not_leak_anonymous_rows(self):
+        for path in [ROOT / "api" / "banco.py", ROOT / "backend" / "banco.py"]:
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("WHERE (LOWER(user_email) = %s OR user_email IS NULL)", source)
+            self.assertNotIn("AND (LOWER(user_email) = %s OR user_email IS NULL)", source)
+            self.assertIn("WHERE session_id = %s AND LOWER(user_email) = %s", source)
+            self.assertIn("WHERE LOWER(user_email) = %s", source)
+
+    def test_model_allowlist_validation(self):
+        from backend.main import ALLOWED_MODELS, validar_modelo
+        from fastapi import HTTPException
+
+        self.assertIn("gemini-2.5-flash", ALLOWED_MODELS)
+        self.assertIn("deepseek-chat", ALLOWED_MODELS)
+        self.assertEqual(validar_modelo("GEMINI-2.5-FLASH"), "gemini-2.5-flash")
+        self.assertIsNone(validar_modelo(None))
+        self.assertIsNone(validar_modelo(""))
+
+        with self.assertRaises(HTTPException) as ctx:
+            validar_modelo("untrusted-model-exploit-v1")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_chat_endpoints_enforce_tenant_scoped_history(self):
+        for path in [ROOT / "api" / "main.py", ROOT / "backend" / "main.py"]:
+            source = path.read_text(encoding="utf-8")
+            self.assertIn("carregar_mensagens(session_id, limite=10, user_email=user_email)", source)
+            self.assertIn("carregar_mensagens(session_id, limite=6, user_email=user_email)", source)
+
 if __name__ == "__main__":
     unittest.main()

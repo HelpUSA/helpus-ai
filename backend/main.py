@@ -139,6 +139,7 @@ class MensagemRequest(BaseModel):
     project_id: Optional[str] = 'general'
     image_base64: Optional[str] = None
     image_url: Optional[str] = None
+    model: Optional[str] = None
 
 class MensagemResponse(BaseModel):
     resposta: str
@@ -426,6 +427,31 @@ async def internal_smoke_chat(
     )
 
 
+
+ALLOWED_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "gpt-4o",
+    "gpt-4o-mini",
+}
+
+def validar_modelo(model: Optional[str]) -> Optional[str]:
+    if not model or not str(model).strip():
+        return None
+    m = str(model).strip().lower()
+    if m not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Modelo '{model}' invalido ou nao permitido. Modelos permitidos: {sorted(list(ALLOWED_MODELS))}"
+        )
+    return m
+
 @app.post("/chat", response_model=MensagemResponse)
 async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
     """Endpoint principal de conversa"""
@@ -437,6 +463,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         )
 
 
+    validar_modelo(request.model)
+    user_email = usuario["email"] if usuario else None
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
     project_id = (request.project_id or 'general')[:80]
@@ -449,7 +477,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         # Carrega historico
         historico = []
         try:
-            historico = await banco.carregar_mensagens(session_id, limite=10)
+            historico = await banco.carregar_mensagens(session_id, limite=10, user_email=user_email)
         except:
             pass
 
@@ -665,6 +693,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     import json
 
+    validar_modelo(request.model)
     session_id = request.session_id or str(uuid.uuid4())
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"
@@ -683,11 +712,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             if DEBUG:
                 print(f"[WARN] Erro ao salvar mensagem do usuario em stream: {e}")
 
-    # Carrega histórico recente para contexto conversacional
+    # Carrega historico recente para contexto conversacional
     historico_recente = []
     if banco:
         try:
-            historico_recente = await banco.carregar_mensagens(session_id, limite=6)
+            historico_recente = await banco.carregar_mensagens(session_id, limite=6, user_email=user_email)
         except:
             pass
 
