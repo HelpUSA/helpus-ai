@@ -511,39 +511,103 @@ def complete_idempotent_request(
     response_data: Dict[str, Any],
     owner_token: Optional[str] = None
 ) -> bool:
-    """Finaliza a requisicao atomica com a resposta calculada.
-    Valida owner_token se fornecido (impede que um worker tardio sobrescreva uma retomada de lease)."""
-    if not idempotency_key:
+    """Finaliza a requisicao atomica com a resposta calculada (CAS com fencing token estrito).
+    
+    Invariantes Estritas (P0):
+    1. EXIGE owner_token valido e nao-vazio.
+    2. Rejeita se a chave nao existir no cache.
+    3. Rejeita se o status atual nao for 'in_progress' (ex: ja concluida ou cancelada).
+    4. Rejeita se o owner_token nao corresponder exatamente ao executor atual (fenced/cercado).
+    5. Transicao atomica para status 'completed' com carimbo temporal.
+    """
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
         return False
+
     entry = _idempotency_cache.get(idempotency_key)
-    if entry and entry.get("status") == "in_progress":
-        if owner_token is not None and entry.get("owner_token") != owner_token:
-            return False
-    _idempotency_cache[idempotency_key] = {
-        "status": "completed",
-        "response": response_data,
-        "timestamp": time.time(),
-        "owner_token": owner_token,
-    }
+    if not entry:
+        return False
+
+    if entry.get("status") != "in_progress":
+        return False
+
+    if entry.get("owner_token") != owner_token:
+        return False
+
+    entry["status"] = "completed"
+    entry["response"] = response_data
+    entry["completed_at"] = time.time()
+    entry["timestamp"] = time.time()
     return True
 
 def release_idempotent_request(idempotency_key: Optional[str], owner_token: Optional[str] = None) -> bool:
-    """Libera a trava in_progress se a requisicao falhar antes da conclusao."""
-    if not idempotency_key:
+    """Libera a trava in_progress se a requisicao falhar antes da conclusao.
+    
+    Invariantes Estritas (P0):
+    1. EXIGE owner_token valido e nao-vazio; impede release desautorizado ou sem token.
+    2. Rejeita se chave inexistente ou se status nao for 'in_progress'.
+    3. Rejeita se owner_token pertencer a outro executor.
+    """
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
         return False
+
     entry = _idempotency_cache.get(idempotency_key)
-    if entry and entry.get("status") == "in_progress":
-        if owner_token is None or entry.get("owner_token") == owner_token:
-            _idempotency_cache.pop(idempotency_key, None)
-            return True
-    return False
+    if not entry or entry.get("status") != "in_progress":
+        return False
+
+    if entry.get("owner_token") != owner_token:
+        return False
+
+    _idempotency_cache.pop(idempotency_key, None)
+    return True
+
+class IdempotencyHeartbeatSession:
+    """Mantem renovacao independente e periodica de heartbeat em background durante inferencias silenciosas.
+    Garante que o lease seja renovado mesmo se o modelo demorar > 15s ou > 30s sem emitir chunks."""
+    def __init__(self, idempotency_key: Optional[str], owner_token: Optional[str], interval: float = 3.0):
+        self.idempotency_key = idempotency_key
+        self.owner_token = owner_token
+        self.interval = interval
+        self._stop_event = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self):
+        if not self.idempotency_key or not self.owner_token:
+            return
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def _run_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval)
+                break
+            except asyncio.TimeoutError:
+                ok = heartbeat_idempotent_request(self.idempotency_key, self.owner_token)
+                if not ok:
+                    break
+
+    async def stop(self):
+        self._stop_event.set()
+        if self._task and not self._task.done():
+            try:
+                await asyncio.wait_for(self._task, timeout=0.5)
+            except Exception:
+                pass
 
 def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
     should_run, cached, _ = claim_or_get_idempotent_request(idempotency_key)
     return cached if not should_run else None
 
 def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any], owner_token: Optional[str] = None):
-    complete_idempotent_request(idempotency_key, response_data, owner_token=owner_token)
+    if not idempotency_key:
+        return
+    token = owner_token
+    if not token:
+        entry = _idempotency_cache.get(idempotency_key)
+        if entry and entry.get('status') == 'in_progress' and entry.get('owner_token'):
+            token = entry.get('owner_token')
+        else:
+            _, _, token = claim_or_get_idempotent_request(idempotency_key)
+    complete_idempotent_request(idempotency_key, response_data, owner_token=token)
 
 @app.get("/modelos")
 async def listar_modelos():
@@ -878,6 +942,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         if not should_run and cached_resp:
             return MensagemResponse(**cached_resp)
         is_claimed = should_run
+
+    hb_session = IdempotencyHeartbeatSession(idempotency_key, owner_token, interval=3.0)
+    hb_session.start()
     # Agentes internos controlados por HELPUS_INTERNAL_AGENTS_ENABLED.
     agent_trace = [
         {"label": "Analisando pedido", "status": "done"}
@@ -1107,7 +1174,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             agent_trace=agent_trace,
         )
     finally:
-        if is_claimed and not completed_successfully and idempotency_key:
+        await hb_session.stop()
+        if is_claimed and not completed_successfully and idempotency_key and owner_token:
             release_idempotent_request(idempotency_key, owner_token=owner_token)
 
 
@@ -1193,6 +1261,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
 
     captured_model = get_request_model() or request.model or "gemini-2.5-flash"
     captured_metadata = dict(get_request_metadata())
+    stream_hb_session = IdempotencyHeartbeatSession(idempotency_key, owner_token, interval=3.0)
+    stream_hb_session.start()
 
     async def event_generator():
         set_request_model(captured_model)
@@ -1221,6 +1291,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             err_msg = f"Erro durante streaming: {str(err)}"
             yield f"data: {json.dumps({'error': err_msg, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         finally:
+            await stream_hb_session.stop()
             # Atualizacao de saude executada apenas UMA VEZ no encerramento do stream
             upstream_prov = resolver_provedor_modelo(last_model_eff)
             record_provider_health(upstream_prov, success=stream_completed_ok and (last_fb_reason is None))
@@ -1502,21 +1573,24 @@ async def admin_audit_log(
 ):
     """Retorna a trilha de auditoria administrativa real e persistida (sem segredos, tokens ou dados sensiveis)."""
     admin_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
-    eventos, total = await banco.listar_eventos_auditoria(limite=limite, offset=offset)
-    await banco.registrar_evento_auditoria(
-        action="ADMIN_AUDIT_LOG_VIEWED",
-        actor=admin_email,
-        details={"limite": limite, "offset": offset, "returned_count": len(eventos)},
-        correlation_id=str(uuid.uuid4())
-    )
-    return {
-        "ok": True,
-        "admin": admin_email,
-        "total_eventos": total,
-        "limite": limite,
-        "offset": offset,
-        "eventos": eventos
-    }
+    try:
+        eventos, total = await banco.listar_eventos_auditoria(limite=limite, offset=offset)
+        await banco.registrar_evento_auditoria(
+            action="ADMIN_AUDIT_LOG_VIEWED",
+            actor=admin_email,
+            details={"limite": limite, "offset": offset, "returned_count": len(eventos)},
+            correlation_id=str(uuid.uuid4())
+        )
+        return {
+            "ok": True,
+            "admin": admin_email,
+            "total_eventos": total,
+            "limite": limite,
+            "offset": offset,
+            "eventos": eventos
+        }
+    except RuntimeError as re:
+        raise HTTPException(status_code=503, detail=f"Servico de auditoria indisponivel: {str(re)}")
 
 @app.get("/saude")
 async def verificar_saude():

@@ -9,9 +9,12 @@
 1. **Fencing Estrito de Ambiente**: Certificar-se de que a variável `DATABASE_URL` aponte exclusivamente para a instância isolada de **Staging** (ex: `staging-db.helpusbr.com`).
 2. **Zero Segredos**: Jamais expor segredos, tokens de serviço ou strings de conexão no código-fonte, branches públicas ou issues do GitHub.
 3. **Branch de Homologação**: Confirmar que a branch ativa seja `feature/ui-ux-modernization-v1`.
-4. **Alinhamento de Schema e DDL**: Todos os campos de carimbo temporal utilizam `TIMESTAMPTZ` (Timestamp with time zone), índices com normalização `LOWER(user_email)` e chaves primárias alinhadas rigorosamente com `backend/banco.py`.
-5. **Remoção de Migração Automática no Startup**: Nenhuma migração DDL ou backfill de dados é executado na inicialização da aplicação FastAPI. Todas as alterações são estritamente versionadas e registradas na tabela `schema_migrations`.
-6. **Não-Eleição Silenciosa de Posse**: Sessoes legadas com mais de um usuário associado no histórico jamais têm um proprietário escolhido arbitrariamente por `ON CONFLICT DO NOTHING`. Conflitos são diagnosticados e isolados para decisão auditada.
+4. **Governança Estrita de Schema**: Nenhuma alteração DDL ou migração automática de dados é executada no startup da aplicação em produção ou staging. O método `criar_tabelas` bloqueia execuções quando `ENVIRONMENT=production`. Todas as alterações são versionadas e registradas na tabela `schema_migrations`.
+5. **Alinhamento de Tipos e Índices**: Todos os campos de carimbo temporal utilizam `TIMESTAMPTZ` (Timestamp with time zone), índices com normalização `LOWER(user_email)` e chaves primárias alinhadas com `backend/banco.py`.
+6. **Não-Eleição Arbitrária de Posse ou Projeto**:
+   - Sessões com múltiplos proprietários são bloqueadas e isoladas para auditoria.
+   - Sessões que misturam mensagens anônimas (`NULL`) e mensagens autenticadas são bloqueadas.
+   - Sessões com múltiplos `project_id` são bloqueadas contra escolha arbitrária.
 
 ---
 
@@ -52,31 +55,23 @@ dropdb -h localhost -U postgres helpus_staging_verify_temp
 
 ---
 
-## 4. Diagnóstico Read-Only Pré-Migração (Detecção de Conflitos)
+## 4. Diagnóstico Read-Only Pré-Migração (Detecção Tripla de Conflitos)
 Antes de inserir dados na tabela `sessoes`, execute o script de diagnóstico para quantificar sessões limpas e sessões confluentes:
 
 ```bash
-# Executa diagnóstico read-only
+# Executa diagnóstico analítico read-only
 python migrations/reconcile_sessoes_diagnostic.py
 ```
 
-Ou execute diretamente via SQL:
-```sql
-SELECT session_id, COUNT(DISTINCT LOWER(user_email)) AS distinct_owners,
-       ARRAY_AGG(DISTINCT LOWER(user_email)) AS conflicting_emails,
-       COUNT(*) AS message_count,
-       MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
-FROM conversas
-WHERE session_id IS NOT NULL AND session_id != ''
-GROUP BY session_id
-HAVING COUNT(DISTINCT LOWER(user_email)) > 1
-ORDER BY message_count DESC;
-```
+Categorias auditadas:
+1. **Conflito Multi-Usuário**: Sessões com mais de 1 `user_email` distinto.
+2. **Mistura Anônimo/Autenticado**: Sessões com mensagens nulas/vazias e autenticadas no mesmo histórico.
+3. **Conflito Multi-Projeto**: Sessões associadas a mais de 1 `project_id` sob o mesmo usuário.
 
 ---
 
 ## 5. Aplicação da Migration 003 (`migrations/003_sessoes_schema_and_diagnostic.sql`)
-Aplica a criação da tabela autoritativa `sessoes`, da trilha de auditoria `admin_audit_events` e reconcilia apenas as sessões legadas não-confluentes:
+Aplica a criação da tabela autoritativa `sessoes`, da trilha de auditoria `admin_audit_events` e reconcilia apenas as sessões estritamente limpas:
 
 ```bash
 psql -d "${DATABASE_URL}" -f migrations/003_sessoes_schema_and_diagnostic.sql
@@ -87,12 +82,12 @@ Estrutura aplicada:
 - Tabela `sessoes`: `session_id VARCHAR(120) PRIMARY KEY`, `user_email VARCHAR(255)`, `project_id VARCHAR(100) DEFAULT 'general'`, `created_at TIMESTAMPTZ`, `updated_at TIMESTAMPTZ`.
 - Índice `idx_sessoes_user_email`: `ON sessoes (LOWER(user_email))`.
 - Tabela `admin_audit_events`: Trilha persistida com `action`, `actor`, `correlation_id`, `status`, `details JSONB`.
-- Reconciliação seletiva: Apenas registros com proprietário inequívoco são migrados. Registros com colisão são preservados em `conversas` para resolução manual.
+- Reconciliação seletiva: Sessões com qualquer tipo de ambiguidade permanecem isoladas em `conversas` para resolução manual controlada.
 
 ---
 
 ## 6. Verificações de Homologação Pós-Migração
-Execute as seguintes consultas de validação para comprovar a consistência e isolamento:
+Execute as seguintes consultas de validação para comprovar consistência e isolamento:
 
 ```sql
 -- 1. Verificar registro formal da migração
@@ -108,7 +103,6 @@ GROUP BY session_id
 HAVING COUNT(*) > 1;
 
 -- 4. Teste de isolamento multi-tenant (tentativa de colisão)
--- A inserção abaixo DEVE colidir na restrição de chave primária:
 INSERT INTO sessoes (session_id, user_email, project_id)
 VALUES ('sess_teste_existente', 'outro_usuario@helpusbr.com', 'general')
 ON CONFLICT (session_id) DO NOTHING;
@@ -120,7 +114,7 @@ SELECT COUNT(*) FROM admin_audit_events;
 ---
 
 ## 7. Procedimento de Rollback de Emergência
-Caso ocorra qualquer divergência ou bloqueio operacional durante a homologação em staging:
+Caso ocorra qualquer divergência durante a homologação em staging:
 
 ```sql
 BEGIN;
@@ -137,7 +131,7 @@ DROP TABLE IF EXISTS sessoes CASCADE;
 COMMIT;
 ```
 
-Se for necessária a restauração completa a partir do backup físico:
+Se for necessária a restauração física:
 ```bash
 pg_restore --clean --if-exists -v -d "${DATABASE_URL}" "${BACKUP_FILE}"
 ```

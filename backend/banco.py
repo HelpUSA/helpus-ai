@@ -13,6 +13,35 @@ except ImportError:
 from config import DATABASE_URL
 
 
+AUDIT_ALLOWED_DETAIL_KEYS = {
+    "limite", "offset", "returned_count", "session_id", "project_id",
+    "model", "action", "status_code", "error_type", "client_request_id",
+    "ip_hash", "duration_ms", "view", "role", "total_eventos"
+}
+FORBIDDEN_DETAIL_SUBSTRINGS = {"key", "token", "secret", "password", "auth", "credential", "bearer", "private"}
+
+def sanitizar_detalhes_auditoria(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Sanitiza os detalhes de auditoria por allowlist estrita e mascara possiveis credenciais."""
+    if not details or not isinstance(details, dict):
+        return {}
+    sanitized = {}
+    for k, v in details.items():
+        k_lower = str(k).lower().strip()
+        if k_lower in AUDIT_ALLOWED_DETAIL_KEYS:
+            if any(sub in k_lower for sub in FORBIDDEN_DETAIL_SUBSTRINGS):
+                continue
+            if isinstance(v, (int, float, bool)):
+                sanitized[k_lower] = v
+            elif isinstance(v, str):
+                v_clean = v[:300]
+                if any(sub in v.lower() for sub in ["bearer ", "eyj", "ghp_", "sk-"]):
+                    sanitized[k_lower] = "[REDACTED_SECRET]"
+                else:
+                    sanitized[k_lower] = v_clean
+            elif isinstance(v, list) and len(v) <= 20:
+                sanitized[k_lower] = [str(item)[:100] for item in v]
+    return sanitized
+
 class BancoDados:
     def __init__(self):
         self.pool = None
@@ -55,6 +84,16 @@ class BancoDados:
 
     async def criar_tabelas(self):
         if not self.pool:
+            return
+
+        is_prod = (
+            os.getenv("ENVIRONMENT") == "production"
+            or os.getenv("NODE_ENV") == "production"
+            or os.getenv("VERCEL_ENV") == "production"
+        )
+        if is_prod:
+            # Em producao, alteracoes DDL automaticas no startup sao proibidas.
+            # O schema e gerenciado exclusivamente pelo processo formal de migrations (schema_migrations).
             return
 
         async with self.pool.connection() as conn:
@@ -325,17 +364,27 @@ class BancoDados:
         details: Optional[Dict] = None,
         correlation_id: Optional[str] = None,
         status: str = "success"
-    ) -> Optional[Dict]:
-        """Registra um evento de auditoria persistido de forma sanitizada."""
+    ) -> Dict:
+        """Registra um evento de auditoria persistido de forma sanitizada por allowlist.
+        FAIL-CLOSED: Falha de conexao com PostgreSQL configurado ou em producao levanta RuntimeError explícito."""
+        is_prod = (
+            os.getenv("ENVIRONMENT") == "production"
+            or os.getenv("NODE_ENV") == "production"
+            or os.getenv("VERCEL_ENV") == "production"
+        )
+        has_configured_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
+        detalhes_sanitizados = sanitizar_detalhes_auditoria(details)
+
         event = {
             "timestamp": time.time(),
             "action": action,
             "actor": actor,
             "correlation_id": correlation_id,
             "status": status,
-            "details": details or {},
+            "details": detalhes_sanitizados,
             "sanitized": True
         }
+
         if self.pool is not None:
             try:
                 import json
@@ -347,7 +396,7 @@ class BancoDados:
                             VALUES (%s, %s, %s, %s, %s)
                             RETURNING id, created_at
                             """,
-                            (action, actor, correlation_id, status, json.dumps(details or {}))
+                            (action, actor, correlation_id, status, json.dumps(detalhes_sanitizados))
                         )
                         r = await cur.fetchone()
                         await conn.commit()
@@ -356,17 +405,31 @@ class BancoDados:
                             event["created_at"] = r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1])
                             return event
             except Exception as e:
-                print(f"[WARN] Erro ao persistir evento de auditoria no PostgreSQL: {e}")
+                raise RuntimeError(f"Falha ao persistir evento de auditoria no PostgreSQL: {e}")
 
-        self._audit_log_memoria.append(event)
-        return event
+        if has_configured_db or is_prod:
+            raise RuntimeError("Trilha de auditoria indisponivel: conexao com PostgreSQL ausente ou inacessivel.")
+
+        if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
+            self._audit_log_memoria.append(event)
+            return event
+
+        raise RuntimeError("Trilha de auditoria rejeitada: nenhum backend duravel configurado.")
 
     async def listar_eventos_auditoria(
         self,
         limite: int = 50,
         offset: int = 0
     ) -> Tuple[List[Dict], int]:
-        """Lista eventos de auditoria reais persistidos, com paginacao."""
+        """Lista eventos de auditoria reais persistidos, com paginacao.
+        FAIL-CLOSED: Falha de conexao com PostgreSQL configurado ou em producao levanta RuntimeError explícito."""
+        is_prod = (
+            os.getenv("ENVIRONMENT") == "production"
+            or os.getenv("NODE_ENV") == "production"
+            or os.getenv("VERCEL_ENV") == "production"
+        )
+        has_configured_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
+
         if self.pool is not None:
             try:
                 import json
@@ -402,16 +465,22 @@ class BancoDados:
                                 "actor": r[3],
                                 "correlation_id": r[4],
                                 "status": r[5],
-                                "details": det or {},
+                                "details": sanitizar_detalhes_auditoria(det),
                                 "sanitized": True
                             })
                         return eventos, total
             except Exception as e:
-                print(f"[WARN] Erro ao listar eventos de auditoria do PostgreSQL: {e}")
+                raise RuntimeError(f"Falha ao consultar auditoria no PostgreSQL: {e}")
 
-        total = len(self._audit_log_memoria)
-        itens = list(reversed(self._audit_log_memoria))[offset:offset + limite]
-        return itens, total
+        if has_configured_db or is_prod:
+            raise RuntimeError("Trilha de auditoria indisponivel: conexao com PostgreSQL ausente ou inacessivel.")
+
+        if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
+            total = len(self._audit_log_memoria)
+            itens = list(reversed(self._audit_log_memoria))[offset:offset + limite]
+            return itens, total
+
+        raise RuntimeError("Trilha de auditoria rejeitada: nenhum backend duravel configurado.")
 
     async def salvar_mensagem(
         self,

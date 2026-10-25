@@ -398,5 +398,107 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         finally:
             app.dependency_overrides.clear()
 
+    def test_audit_log_fail_closed_raises_503_when_db_down(self):
+        from auth import obter_admin_google
+        app.dependency_overrides[obter_admin_google] = lambda: {"email": "superadmin@helpusbr.com", "role": "admin"}
+        try:
+            # Com DATABASE_URL configurada e pool inativo (banco caiu), deve retornar 503 e NAO memoria
+            with patch.dict(os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost:5432/helpus"}),                  patch.object(banco, "pool", None):
+                banco.database_url = "postgresql://user:pass@localhost:5432/helpus"
+                res = client.get("/admin/audit-log")
+                self.assertEqual(res.status_code, 503)
+                self.assertIn("indisponivel", res.text.lower())
+        finally:
+            app.dependency_overrides.clear()
+            banco.database_url = None
+
+    def test_audit_log_sanitization_allowlist_and_secret_masking(self):
+        import asyncio
+        from backend.banco import sanitizar_detalhes_auditoria
+        raw_details = {
+            "limite": 25,
+            "api_key": "minha_chave_secreta_123",
+            "bearer_token": "bearer eyJhbGciOi...",
+            "session_id": "sess_safe_audit",
+            "password": "senha_insegura",
+            "unknown_custom_field": "dado_qualquer"
+        }
+        sanitized = sanitizar_detalhes_auditoria(raw_details)
+        # Chaves permitidas
+        self.assertIn("limite", sanitized)
+        self.assertEqual(sanitized["limite"], 25)
+        self.assertIn("session_id", sanitized)
+        # Chaves proibidas/desconhecidas DEVEM ser descartadas
+        self.assertNotIn("api_key", sanitized)
+        self.assertNotIn("bearer_token", sanitized)
+        self.assertNotIn("password", sanitized)
+        self.assertNotIn("unknown_custom_field", sanitized)
+
+    def test_complete_idempotent_request_strict_cas_and_fencing(self):
+        from backend.main import (
+            claim_or_get_idempotent_request,
+            complete_idempotent_request,
+            release_idempotent_request,
+            _idempotency_cache
+        )
+        key = f"anon:cas_test:req_{uuid.uuid4().hex[:6]}:hash"
+        # 1. Escrita sem claim previo (chave inexistente) DEVE falhar
+        self.assertFalse(complete_idempotent_request(key, {"resposta": "fake"}, owner_token="qualquer"))
+
+        # 2. Claim valido
+        should_run, _, token = claim_or_get_idempotent_request(key)
+        self.assertTrue(should_run)
+        self.assertIsNotNone(token)
+
+        # 3. Escrita com token None ou vazio DEVE falhar
+        self.assertFalse(complete_idempotent_request(key, {"resposta": "fake"}, owner_token=None))
+        self.assertFalse(complete_idempotent_request(key, {"resposta": "fake"}, owner_token=""))
+
+        # 4. Escrita com token divergente (outro executor) DEVE falhar
+        self.assertFalse(complete_idempotent_request(key, {"resposta": "fake"}, owner_token="wrong_token"))
+
+        # 5. Release com token divergente DEVE falhar
+        self.assertFalse(release_idempotent_request(key, owner_token="wrong_token"))
+
+        # 6. Conclusao valida com token correto
+        self.assertTrue(complete_idempotent_request(key, {"resposta": "correta"}, owner_token=token))
+        self.assertEqual(_idempotency_cache[key]["status"], "completed")
+
+        # 7. Tentativa de re-escrever quando ja concluida DEVE falhar
+        self.assertFalse(complete_idempotent_request(key, {"resposta": "sobrescrever"}, owner_token=token))
+
+        _idempotency_cache.pop(key, None)
+
+    def test_independent_heartbeat_during_silent_inference(self):
+        import asyncio
+        from backend.main import (
+            claim_or_get_idempotent_request,
+            IdempotencyHeartbeatSession,
+            _idempotency_cache
+        )
+        async def run_silent_test():
+            key = f"anon:silent_hb:req_{uuid.uuid4().hex[:6]}:hash"
+            should_run, _, token = claim_or_get_idempotent_request(key)
+            self.assertTrue(should_run)
+
+            # Simula inicio ha 40s
+            now = time.time()
+            _idempotency_cache[key]["timestamp"] = now - 40.0
+            _idempotency_cache[key]["last_heartbeat"] = now - 40.0
+
+            # Inicia sessao independente de heartbeat com intervalo de 0.1s para o teste
+            hb = IdempotencyHeartbeatSession(key, token, interval=0.05)
+            hb.start()
+            # Aguarda 0.2s para garantir que o loop de heartbeat executou ao menos uma renovacao
+            await asyncio.sleep(0.2)
+            await hb.stop()
+
+            # Comprova que last_heartbeat foi renovado para carimbo recente (< 1s)
+            updated_hb = _idempotency_cache[key]["last_heartbeat"]
+            self.assertGreater(updated_hb, now - 2.0)
+            _idempotency_cache.pop(key, None)
+
+        asyncio.run(run_silent_test())
+
 if __name__ == "__main__":
     unittest.main()

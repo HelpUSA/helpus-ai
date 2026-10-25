@@ -1,6 +1,6 @@
--- HelpUS AI - Migration 003: Sessoes Schema, Admin Audit Trail & Conflict-Aware Reconciliation
+-- HelpUS AI - Migration 003: Sessoes Schema, Admin Audit Trail & Strict Non-Ambiguous Reconciliation
 -- Target: Remote PostgreSQL (Staging / Production)
--- Safety: Additive, Idempotent, Conflict-aware (No silent arbitrary owner election)
+-- Safety: Additive, Idempotent, Conflict-aware (Zero arbitrary election of owner or project)
 -- Reversible: Includes rollback script at footer.
 
 BEGIN;
@@ -39,42 +39,85 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_events_created
 ON admin_audit_events (created_at DESC);
 
 -- 3. ETAPA DIAGNOSTICA PRE-MIGRACAO (READ-ONLY):
--- Consulta analitica para inspecao de sessoes legadas com multiplos usuarios/projetos:
--- SELECT session_id, COUNT(DISTINCT LOWER(user_email)) AS distinct_owners,
---        ARRAY_AGG(DISTINCT LOWER(user_email)) AS conflicting_emails,
---        MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
+-- A. Diagnostico de conflito multi-usuario (proprietarios distintos na mesma sessao):
+-- SELECT session_id, COUNT(DISTINCT LOWER(user_email)) AS num_owners,
+--        ARRAY_AGG(DISTINCT LOWER(user_email)) AS conflicting_emails
 -- FROM conversas
 -- WHERE session_id IS NOT NULL AND session_id != ''
 -- GROUP BY session_id
 -- HAVING COUNT(DISTINCT LOWER(user_email)) > 1;
 
--- 4. RECONCILIACAO SEGURA E CONTROLADA:
--- Migra apenas sessoes limpas e inequivocas (exatamente 1 usuario proprietario).
--- Sessoes com conflito multi-usuario NAO sao arbitadas silenciosamente; sao mantidas para reconciliacao auditada.
+-- B. Diagnostico de mistura de anonimo (NULL/vazio) e autenticado na mesma sessao:
+-- SELECT session_id,
+--        COUNT(CASE WHEN user_email IS NULL OR TRIM(user_email) = '' THEN 1 END) AS msgs_anonimas,
+--        COUNT(CASE WHEN user_email IS NOT NULL AND TRIM(user_email) != '' THEN 1 END) AS msgs_autenticadas,
+--        ARRAY_AGG(DISTINCT LOWER(user_email)) FILTER (WHERE user_email IS NOT NULL AND TRIM(user_email) != '') AS emails
+-- FROM conversas
+-- WHERE session_id IS NOT NULL AND session_id != ''
+-- GROUP BY session_id
+-- HAVING COUNT(CASE WHEN user_email IS NULL OR TRIM(user_email) = '' THEN 1 END) > 0
+--    AND COUNT(CASE WHEN user_email IS NOT NULL AND TRIM(user_email) != '' THEN 1 END) > 0;
+
+-- C. Diagnostico de sessao com multiplos project_id (ambiguidade de projeto):
+-- SELECT session_id, LOWER(user_email) AS owner,
+--        COUNT(DISTINCT COALESCE(project_id, 'general')) AS num_projetos,
+--        ARRAY_AGG(DISTINCT COALESCE(project_id, 'general')) AS projetos_em_conflito
+-- FROM conversas
+-- WHERE session_id IS NOT NULL AND session_id != ''
+-- GROUP BY session_id, LOWER(user_email)
+-- HAVING COUNT(DISTINCT COALESCE(project_id, 'general')) > 1;
+
+-- 4. RECONCILIACAO SEGURA, CONTROLADA E NAO-AMBIGUA (P0):
+-- Migra estritamente sessoes unívocas:
+-- 1. Exatamente 1 proprietario autenticado
+-- 2. Zero mistura de mensagens anonimas com autenticadas
+-- 3. Exatamente 1 project_id atribuido no historico legado
 INSERT INTO sessoes (session_id, user_email, project_id, created_at)
 SELECT c.session_id, LOWER(c.user_email), COALESCE(c.project_id, 'general'), MIN(c.created_at)
 FROM conversas c
-WHERE c.session_id IS NOT NULL AND c.session_id != ''
+WHERE c.session_id IS NOT NULL 
+  AND c.session_id != ''
+  AND c.user_email IS NOT NULL
+  AND TRIM(c.user_email) != ''
 GROUP BY c.session_id, LOWER(c.user_email), COALESCE(c.project_id, 'general')
 HAVING c.session_id NOT IN (
-    -- Exclui qualquer session_id que possua mais de um usuario distinto no historico legado
+    -- Subquery de exclusao 1: Conflito multi-usuario
     SELECT session_id
     FROM conversas
     WHERE session_id IS NOT NULL AND session_id != ''
     GROUP BY session_id
     HAVING COUNT(DISTINCT LOWER(user_email)) > 1
+
+    UNION
+
+    -- Subquery de exclusao 2: Mistura de anonimo e autenticado
+    SELECT session_id
+    FROM conversas
+    WHERE session_id IS NOT NULL AND session_id != ''
+    GROUP BY session_id
+    HAVING COUNT(CASE WHEN user_email IS NULL OR TRIM(user_email) = '' THEN 1 END) > 0
+       AND COUNT(CASE WHEN user_email IS NOT NULL AND TRIM(user_email) != '' THEN 1 END) > 0
+
+    UNION
+
+    -- Subquery de exclusao 3: Multiplos projetos na mesma sessao (impede escolha arbitraria)
+    SELECT session_id
+    FROM conversas
+    WHERE session_id IS NOT NULL AND session_id != ''
+    GROUP BY session_id
+    HAVING COUNT(DISTINCT COALESCE(project_id, 'general')) > 1
 )
 ON CONFLICT (session_id) DO NOTHING;
 
--- 5. Registro da versao aplicada
+-- 5. Registro formal da versao aplicada
 INSERT INTO schema_migrations (version, description)
-VALUES ('003_sessoes_schema_and_diagnostic', 'Authoritative sessoes table, admin audit log, and conflict-aware reconciliation')
+VALUES ('003_sessoes_schema_and_diagnostic', 'Authoritative sessoes table, admin audit log, and strict non-ambiguous reconciliation')
 ON CONFLICT (version) DO NOTHING;
 
 COMMIT;
 
 -- ============================================================================
--- ROLLBACK DDL (Para recuperacao de desastre ou testes em sandbox):
+-- ROLLBACK DDL:
 -- BEGIN;
 -- DELETE FROM schema_migrations WHERE version = '003_sessoes_schema_and_diagnostic';
 -- DROP INDEX IF EXISTS idx_admin_audit_events_created;

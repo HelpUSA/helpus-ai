@@ -124,5 +124,25 @@ class PlaywrightViewportTests(unittest.TestCase):
         self.assertTrue(shot_path.exists())
         page.close()
 
+    def test_playwright_chat_submit_and_sse_container(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+
+        prompt = "Olá HelpUS AI, teste funcional de envio e streaming SSE Ciclo 016"
+        textarea.fill(prompt)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(600)
+
+        content = page.content()
+        self.assertIn("Olá HelpUS AI", content)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_chat_submitted_sse.png"
+        page.screenshot(path=str(shot_path))
+        self.assertTrue(shot_path.exists())
+        page.close()
+
 if __name__ == "__main__":
     unittest.main()
