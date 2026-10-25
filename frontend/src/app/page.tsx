@@ -100,6 +100,7 @@ export default function HelpUSGeminiApp() {
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
 
   // Atalho de teclado Ctrl+B para alternar menu e Escape para fechar gaveta mobile
   useEffect(() => {
@@ -429,6 +430,9 @@ export default function HelpUSGeminiApp() {
       window.localStorage.removeItem('helpus_active_session_id')
     } catch {}
     setInput('')
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+    }
     setSelectedImage(null)
     setSelectedImageBase64(null)
     setAttachedFile(null)
@@ -532,6 +536,12 @@ export default function HelpUSGeminiApp() {
     if (lastUserMsg) {
       enviarMensagem(lastUserMsg.content)
     }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+    e.target.style.height = 'auto'
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`
   }
 
   // Enviar mensagem para a IA
@@ -730,11 +740,23 @@ export default function HelpUSGeminiApp() {
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return
+      let mensagemAmigavel = 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.'
+      if (err.status === 401 || err.message?.includes('401')) {
+        mensagemAmigavel = 'Sua sessão expirou ou o acesso requer autenticação. Por favor, conecte-se com sua conta Google.'
+      } else if (err.status === 429 || err.message?.includes('429')) {
+        mensagemAmigavel = 'O limite de mensagens por minuto foi atingido. Aguarde alguns instantes antes de tentar novamente.'
+      } else if (err.status === 503 || err.message?.includes('503') || err.message?.includes('timeout')) {
+        mensagemAmigavel = 'O serviço de inteligência está temporariamente sobrecarregado ou atingiu o tempo limite. Clique em Tentar novamente.'
+      } else if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        mensagemAmigavel = 'Falha de conexão com a rede. Verifique seu acesso à internet e tente novamente.'
+      }
+
       setMessages((prev) => {
         const copia = [...prev]
         copia[copia.length - 1] = {
           role: 'assistant',
-          content: 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.',
+          content: mensagemAmigavel,
+          fallback_reason: 'erro_execucao',
         }
         return copia
       })
@@ -743,8 +765,104 @@ export default function HelpUSGeminiApp() {
     }
   }
 
+  // Processamento e validacao de arquivos (MIME e tamanho maximo de 10 MB)
+  const processFile = (file: File) => {
+    if (!file) return
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('O arquivo selecionado excede o limite máximo permitido de 10 MB.')
+      return
+    }
+
+    const isImage = file.type.startsWith('image/')
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    const isTextDoc = /\.(txt|md|csv|json|js|ts|py|sql|html|css|log|env|xml|yaml|yml)$/i.test(file.name)
+
+    if (isImage) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: file.type || 'image/png',
+            isImage: true,
+            previewUrl: result,
+            base64: result,
+          })
+          setSelectedImage(result)
+          setSelectedImageBase64(result)
+        }
+      }
+      reader.readAsDataURL(file)
+    } else if (isPdf) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: 'application/pdf',
+            isImage: false,
+            base64: result,
+          })
+          setSelectedImage(null)
+          setSelectedImageBase64(null)
+        }
+      }
+      reader.readAsDataURL(file)
+    } else if (isTextDoc) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: file.type || 'text/plain',
+            isImage: false,
+            textContent: result,
+          })
+          setSelectedImage(null)
+          setSelectedImageBase64(null)
+        }
+      }
+      reader.readAsText(file)
+    } else {
+      alert('Formato de arquivo não suportado. Por favor, envie imagens, documentos PDF ou arquivos de texto estruturados.')
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) processFile(file)
+  }
+
   // Upload de Arquivos e Imagens
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+    if (e.target) e.target.value = ''
+  }
+
+  const _legacy_handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -1343,7 +1461,12 @@ export default function HelpUSGeminiApp() {
 
                 {/* BARRA DE PROMPT CENTRAL FLUTUANTE ESTILO GEMINI */}
                 <div className="w-full">
-                  <div className="relative flex flex-col rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-3 shadow-2xl transition-all focus-within:border-[#1a73e8] focus-within:ring-1 focus-within:ring-[#1a73e8]">
+                  <div onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`relative flex flex-col rounded-3xl border p-3 shadow-2xl transition-all focus-within:border-[#7fcfff] focus-within:ring-1 focus-within:ring-[#7fcfff] ${
+                      isDragging ? 'border-[#7fcfff] ring-2 ring-[#7fcfff]/30 bg-[#282a2c]' : 'border-[#2d2e30] bg-[#1e1f20]'
+                    }`}>
                     {/* Anexo pré-visualizado (Imagem ou Documento) */}
                     {attachedFile && (
                       <div className="relative mb-2 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-[#282a2c] p-2 text-xs text-[#e3e3e3] shadow-md self-start">
@@ -1379,7 +1502,7 @@ export default function HelpUSGeminiApp() {
                     <textarea
                       ref={inputRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={handleInputChange}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
@@ -1666,7 +1789,7 @@ export default function HelpUSGeminiApp() {
                   <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
