@@ -99,17 +99,32 @@ class BancoDados:
             # Executa apenas checagem read-only para verificar presenca das tabelas requeridas sem DDL.
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
+                    # Checagem read-only estrita das tabelas obrigatorias sem qualquer instrucao DDL
                     await cur.execute("""
                         SELECT table_name 
                         FROM information_schema.tables 
                         WHERE table_schema = 'public' 
-                          AND table_name = 'conversas';
+                          AND table_name IN ('conversas', 'admin_audit_events', 'schema_migrations');
                     """)
-                    row = await cur.fetchone()
-                    if not row:
+                    rows = await cur.fetchall()
+                    found_tables = {r[0] for r in rows}
+                    required_tables = {'conversas', 'admin_audit_events', 'schema_migrations'}
+                    missing_tables = required_tables - found_tables
+                    if missing_tables:
                         raise RuntimeError(
-                            "Tabelas ausentes no banco persistente. Alteracoes DDL automaticas estao bloqueadas. "
-                            "Execute as migrations pendentes (schema_migrations) antes de inicializar o servico."
+                            f"Tabelas obrigatorias ausentes no banco persistente: {sorted(list(missing_tables))}. "
+                            "Alteracoes DDL automaticas no startup estao bloqueadas. "
+                            "Execute as migrations pendentes formais antes de inicializar o servico."
+                        )
+                    # Verifica versao minima na tabela de migrations
+                    await cur.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")
+                    ver_row = await cur.fetchone()
+                    current_version = ver_row[0] if ver_row else 0
+                    min_required_version = 1
+                    if current_version < min_required_version:
+                        raise RuntimeError(
+                            f"Versao de schema ({current_version}) inferior a minima exigida ({min_required_version}). "
+                            "Execute as migrations pendentes antes de inicializar o servico."
                         )
             return
 

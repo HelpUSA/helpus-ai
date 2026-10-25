@@ -3,6 +3,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 class MockSSEHandler(BaseHTTPRequestHandler):
     def do_POST(self):
+        content_len = int(self.headers.get("Content-Length", 0))
+        post_body = self.rfile.read(content_len).decode("utf-8", errors="ignore") if content_len > 0 else ""
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -10,6 +13,20 @@ class MockSSEHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "*")
         self.end_headers()
+
+        if "abort_test" in post_body and not getattr(self.server, "abort_done", False):
+            self.server.abort_done = True
+            self.wfile.write(b'data: {"content": "Iniciando resposta longa aguardando cancelamento...", "done": false}\n\n')
+            self.wfile.flush()
+            for _ in range(30):
+                time.sleep(0.1)
+            try:
+                self.wfile.write(b'data: [DONE]\n\n')
+                self.wfile.flush()
+            except Exception:
+                pass
+            self.close_connection = True
+            return
 
         # Chunk 1 (t = 0s)
         self.wfile.write(b'data: {"content": "Ola! Resposta temporal fragmentada ", "done": false}\n\n')
@@ -277,6 +294,49 @@ class PlaywrightViewportTests(unittest.TestCase):
         page.wait_for_selector("text=Tentar novamente", timeout=6000)
 
         shot_path = SCREENSHOTS_DIR / "viewport_sse_temporal_streaming.png"
+        page.screenshot(path=str(shot_path))
+        self.assertTrue(shot_path.exists())
+        page.close()
+
+    def test_playwright_cancel_active_stream_and_retry(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+        """)
+
+        page.route("**/chat/stream", lambda route: route.continue_(url=f"http://127.0.0.1:{self.mock_sse_port}/chat/stream"))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+
+        # Envia pergunta que dispara stream lento com suporte a cancelamento
+        textarea.fill("Pergunta para teste de abort_test no navegador")
+        btn_enviar = page.locator("button[title='Enviar']").first
+        if btn_enviar.is_visible():
+            btn_enviar.click()
+        else:
+            page.keyboard.press("Enter")
+
+        # 1. Aguarda primeiro chunk e presenca do botao Parar
+        page.wait_for_selector("text=Iniciando resposta longa", timeout=6000)
+        btn_parar = page.locator("button:has-text('Parar')").first
+        self.assertTrue(btn_parar.is_visible(), "Botao Parar deve estar visivel durante streaming ativo")
+
+        # 2. Clica no botao Parar para efetuar o cancelamento ativo
+        btn_parar.click()
+
+        # 3. Confirma que o estado de loading foi cancelado (botao Parar sumiu)
+        page.wait_for_selector("button:has-text('Parar')", state="detached", timeout=4000)
+
+        # 4. Confirma que botao Tentar Novamente aparece e clica nele
+        btn_retry = page.locator("button:has-text('Tentar novamente')").first
+        if btn_retry.is_visible():
+            btn_retry.click()
+            page.wait_for_selector("text=Finalizando stream.", timeout=8000)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_sse_abort_and_retry.png"
         page.screenshot(path=str(shot_path))
         self.assertTrue(shot_path.exists())
         page.close()

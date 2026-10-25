@@ -582,8 +582,9 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             mock_pool.connection.return_value.__aenter__.return_value = mock_conn
             mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
             mock_conn.cursor.return_value.__aexit__.return_value = None
-            # Simula tabela presente
-            mock_cur.fetchone.return_value = ("conversas",)
+            # Simula todas as tabelas obrigatorias presentes e versao >= 1
+            mock_cur.fetchall.return_value = [("conversas",), ("admin_audit_events",), ("schema_migrations",)]
+            mock_cur.fetchone.return_value = (1,)
             
             asyncio.run(banco_test.criar_tabelas())
             
@@ -690,18 +691,45 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
             mock_conn.cursor.return_value.__aexit__.return_value = None
             
-            # Simula tabela conversas ausente em information_schema.tables
-            mock_cur.fetchone.return_value = None
+            # Simula tabelas obrigatorias ausentes
+            mock_cur.fetchall.return_value = [("conversas",)] # faltando audit e migrations
             
             with self.assertRaises(RuntimeError) as ctx:
                 asyncio.run(banco_test.criar_tabelas())
             
-            self.assertIn("Tabelas ausentes no banco persistente", str(ctx.exception))
+            self.assertIn("Tabelas obrigatorias ausentes no banco persistente", str(ctx.exception))
             # Garante que nenhum CREATE TABLE DDL foi executado
             for call in mock_cur.execute.call_args_list:
                 sql = call[0][0].upper()
                 self.assertNotIn("CREATE TABLE", sql)
                 self.assertNotIn("ALTER TABLE", sql)
+
+    def test_http_sse_persistence_failure_releases_claim_without_completion(self):
+        # Garante que erro em salvar_mensagem no stream NAO conclui claim e libera para retry
+        from backend.main import _idempotency_cache, _gerar_chave_idempotencia
+        session_id = f"sess_sse_fail_{uuid.uuid4().hex[:8]}"
+        req_id = f"req_sse_fail_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "mensagem": "Pergunta simulando falha de banco",
+            "session_id": session_id,
+            "model": "gemini-2.5-flash",
+            "client_request_id": req_id,
+        }
+        
+        async def mock_salvar_error(*args, **kwargs):
+            if kwargs.get("role") == "assistant" or (len(args) >= 2 and args[1] == "assistant"):
+                raise RuntimeError("Simulated DB connection failure on save")
+            return None
+
+        with patch.object(banco, "salvar_mensagem", side_effect=mock_salvar_error):
+            with client.stream("POST", "/chat/stream", json=payload) as response:
+                self.assertEqual(response.status_code, 200)
+
+        # A chave de idempotencia gerada NAO DEVE estar no status 'completed'
+        key = _gerar_chave_idempotencia(None, session_id, req_id, payload["mensagem"])
+        entry = _idempotency_cache.get(key)
+        if entry:
+            self.assertNotEqual(entry.get("status"), "completed", "Claim nao pode ser concluido se persistencia falhou")
 
 if __name__ == "__main__":
     unittest.main()

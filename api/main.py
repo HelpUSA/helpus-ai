@@ -1,4 +1,5 @@
 import re
+import json
 import asyncio
 import socket
 import hashlib
@@ -523,6 +524,29 @@ def _sanitize_log_message(msg: Any) -> str:
     s = re.sub(r'(bearer\s+)[a-zA-Z0-9_\-\.]+', r'\1***', s, flags=re.IGNORECASE)
     s = re.sub(r'(key|token|secret|password|senha)\s*[:=]\s*[^\s,]+', r'\1=***', s, flags=re.IGNORECASE)
     return s
+
+_turn_locks: Dict[str, asyncio.Lock] = {}
+_turn_locks_mutex = asyncio.Lock()
+
+async def get_turn_lock(idempotency_key: Optional[str]) -> Optional[asyncio.Lock]:
+    """Retorna lock assincrono por chave de turno para eliminar janelas TOCTOU em concorrencia local."""
+    if not idempotency_key:
+        return None
+    async with _turn_locks_mutex:
+        if idempotency_key not in _turn_locks:
+            _turn_locks[idempotency_key] = asyncio.Lock()
+        return _turn_locks[idempotency_key]
+
+def log_structured(level: str, event: str, correlation_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+    """Emite log estruturado padronizado em JSON preservando privacidade e correlacao sem stacktraces arbitrarios."""
+    entry = {
+        "timestamp": time.time(),
+        "level": level,
+        "event": event,
+        "correlation_id": correlation_id or "none",
+        "details": details or {},
+    }
+    print(json.dumps(entry, ensure_ascii=False))
 
 def is_owner_token_valid(idempotency_key: Optional[str], owner_token: Optional[str]) -> bool:
     """Valida se o owner_token ainda e o detentor ativo e legitimo da execucao in_progress."""
@@ -1335,14 +1359,20 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             record_provider_health(upstream_prov, success=stream_completed_ok and (last_fb_reason is None))
             record_provider_health(last_prov_used, success=stream_completed_ok and (last_fb_reason is None))
 
-            # 1. P0 FENCING & STREAMING PERSISTENCIA:
+            # 1. P0 FENCING & STREAMING PERSISTENCIA (protegido contra TOCTOU):
             resposta_completa = "".join(full_chunks)
-            is_stream_fenced = bool(is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
-            if is_stream_fenced:
-                print(f"[WARN] Stream cercado (fenced): abortando persistencia de resposta tardia no banco para chave {_mask_key(idempotency_key)}")
-                if idempotency_key and owner_token:
-                    release_idempotent_request(idempotency_key, owner_token=owner_token)
-            else:
+            persisted_ok = False
+            stream_corr_id = str(uuid.uuid4())
+            
+            t_lock = await get_turn_lock(idempotency_key)
+            async def _persist_under_lock():
+                nonlocal persisted_ok
+                if is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token):
+                    log_structured("WARN", "stream_fenced_persistence_aborted", correlation_id=stream_corr_id, details={"masked_key": _mask_key(idempotency_key)})
+                    if idempotency_key and owner_token:
+                        release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    return
+
                 if banco and resposta_completa and stream_completed_ok:
                     try:
                         await banco.salvar_mensagem(
@@ -1352,13 +1382,14 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                             user_email=user_email,
                             project_id=project_id,
                         )
+                        persisted_ok = True
                     except Exception as e:
-                        if DEBUG:
-                            print(f"[WARN] Erro ao salvar resposta do assistente em stream: {_sanitize_log_message(e)}")
+                        persisted_ok = False
+                        log_structured("ERROR", "stream_assistant_persistence_failed", correlation_id=stream_corr_id, details={"error_kind": type(e).__name__})
 
-                # 2. P0 IDEMPOTENCIA: Conclui CAS apenas apos persistencia efetiva
+                # 2. P0 IDEMPOTENCIA: Conclui CAS apenas se HOUVE PERSISTENCIA EFETIVA e stream completou
                 if is_stream_claimed and idempotency_key and owner_token:
-                    if stream_completed_ok:
+                    if stream_completed_ok and persisted_ok:
                         complete_idempotent_request(idempotency_key, {
                             "resposta": resposta_completa,
                             "session_id": session_id,
@@ -1369,7 +1400,14 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                             "fallback_reason": last_fb_reason,
                         }, owner_token=owner_token)
                     else:
+                        # Falha de persistencia ou stream: libera claim para permitir retry seguro
                         release_idempotent_request(idempotency_key, owner_token=owner_token)
+
+            if t_lock:
+                async with t_lock:
+                    await _persist_under_lock()
+            else:
+                await _persist_under_lock()
 
         yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
