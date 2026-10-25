@@ -75,6 +75,6 @@ async def obter_admin_google(authorization: Optional[str] = Header(default=None)
 
     usuario = verificar_google_id_token(token)
     email = str(usuario.get("email") or "").lower()
-    if ADMIN_EMAILS and email not in ADMIN_EMAILS:
+    if not ADMIN_EMAILS or email not in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail={"error": "admin_forbidden", "message": "Conta sem permissao de admin."})
     return usuario
