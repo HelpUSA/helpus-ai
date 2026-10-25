@@ -1,3 +1,4 @@
+import asyncio
 import socket
 import hashlib
 import base64
@@ -143,6 +144,24 @@ MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
 BLOCKED_EXTENSIONS = {".env", ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".dll", ".so", ".bin", ".py", ".js"}
 ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254", "internal"}
+TRUSTED_IMAGE_DOMAINS = {
+    "images.unsplash.com",
+    "storage.googleapis.com",
+    "helpusbr.com",
+    "ai.helpusbr.com",
+}
+
+def resolver_provedor_modelo(model_name: Optional[str]) -> str:
+    if not model_name:
+        return "google"
+    m = model_name.strip().lower()
+    if "gemini" in m:
+        return "google"
+    if "deepseek" in m:
+        return "deepseek"
+    if "gpt" in m or "openai" in m:
+        return "openai"
+    return "google"
 
 def validar_url_remota(url: Optional[str]):
     if not url:
@@ -153,6 +172,15 @@ def validar_url_remota(url: Optional[str]):
     hostname = (parsed.hostname or "").lower()
     if not hostname or hostname in BLOCKED_HOSTS:
         raise HTTPException(status_code=400, detail="Host remoto nao permitido (protecao SSRF).")
+
+    # Restricao de dominios confiaveis para mitigar conexoes arbitrárias do servidor
+    dominio_permitido = any(hostname == d or hostname.endswith("." + d) for d in TRUSTED_IMAGE_DOMAINS)
+    if not dominio_permitido:
+        raise HTTPException(
+            status_code=400,
+            detail="URLs remotas arbitrarias estao desativadas por seguranca (protecao SSRF). Envie o anexo diretamente em formato base64."
+        )
+
     try:
         ip = ipaddress.ip_address(hostname)
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
@@ -717,6 +745,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         )
 
 
+    inicio_total = time.time()
+    session_id = request.session_id or str(uuid.uuid4())
+    project_id = (request.project_id or 'general')[:80]
+    user_email = usuario["email"] if usuario else None
+
     validar_modelo(request.model)
     if request.model:
         set_request_model(request.model.strip().lower())
@@ -724,15 +757,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     validar_anexo(effective_image_b64, request.file_name)
     validar_url_remota(request.image_url)
 
-    user_email = usuario["email"] if usuario else None
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
     if idempotency_key and not request.is_retry:
         cached_resp = get_idempotent_response(idempotency_key)
         if cached_resp:
             return MensagemResponse(**cached_resp)
-    inicio_total = time.time()
-    session_id = request.session_id or str(uuid.uuid4())
-    project_id = (request.project_id or 'general')[:80]
     # Agentes internos controlados por HELPUS_INTERNAL_AGENTS_ENABLED.
     agent_trace = [
         {"label": "Analisando pedido", "status": "done"}
@@ -936,7 +965,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             agent_trace=agent_trace,
         )
         if idempotency_key:
-            save_idempotent_response(idempotency_key, resp_obj.dict())
+            save_idempotent_response(idempotency_key, resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict())
+        upstream_prov = resolver_provedor_modelo(model_eff)
+        record_provider_health(upstream_prov, success=(fb_reason is None))
         record_provider_health(prov_used, success=(fb_reason is None))
         return resp_obj
 
@@ -1019,6 +1050,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 model_eff = getattr(c, "nome_modelo", model_req)
                 prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
                 fb_reason = getattr(c, "last_fallback_reason", None)
+                upstream_prov = resolver_provedor_modelo(model_eff)
+                record_provider_health(upstream_prov, success=(fb_reason is None))
                 record_provider_health(prov_used, success=(fb_reason is None))
                 yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': model_req, 'model_used': model_eff, 'provider_used': prov_used, 'fallback_reason': fb_reason}, ensure_ascii=False)}\n\n"
         except Exception as err:
