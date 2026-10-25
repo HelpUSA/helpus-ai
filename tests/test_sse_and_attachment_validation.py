@@ -16,6 +16,7 @@ from backend.main import (
     MensagemRequest,
     save_idempotent_response,
     get_idempotent_response,
+    _gerar_chave_idempotencia,
 )
 from auth import obter_usuario_google
 
@@ -63,6 +64,13 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
             validar_anexo(fake_b64, "fake.png")
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_attachment_rejects_mime_mismatch(self):
+        # Valid PNG declared as image/jpeg
+        png_b64 = "data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        with self.assertRaises(HTTPException) as ctx:
+            validar_anexo(png_b64, "photo.jpg")
+        self.assertEqual(ctx.exception.status_code, 400)
+
     def test_ssrf_blocks_private_ips_and_loopback(self):
         for bad_url in (
             "http://localhost:8080/admin",
@@ -108,13 +116,17 @@ class SSEAndAttachmentValidationTests(unittest.TestCase):
         self.assertTrue(req.is_retry)
         self.assertEqual(req.client_request_id, "req_123")
 
-    def test_idempotency_cache_behavior(self):
-        req_id = "req_test_idem_999"
-        self.assertIsNone(get_idempotent_response(req_id))
-        save_idempotent_response(req_id, {"resposta": "teste_ok", "session_id": "sess_1"})
-        cached = get_idempotent_response(req_id)
-        self.assertIsNotNone(cached)
-        self.assertEqual(cached["resposta"], "teste_ok")
+    def test_idempotency_cache_behavior_and_cross_account_isolation(self):
+        key_user1 = _gerar_chave_idempotencia("user1@helpusbr.com", "sess_1", "req_999", "Minha pergunta")
+        key_user2 = _gerar_chave_idempotencia("user2@helpusbr.com", "sess_1", "req_999", "Minha pergunta")
+        
+        self.assertNotEqual(key_user1, key_user2)
+        save_idempotent_response(key_user1, {"resposta": "resp_user1", "session_id": "sess_1"})
+        
+        self.assertIsNotNone(get_idempotent_response(key_user1))
+        self.assertEqual(get_idempotent_response(key_user1)["resposta"], "resp_user1")
+        # User 2 cannot replay or view User 1's cached response
+        self.assertIsNone(get_idempotent_response(key_user2))
 
 if __name__ == "__main__":
     unittest.main()

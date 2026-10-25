@@ -1,3 +1,5 @@
+import socket
+import hashlib
 import base64
 import binascii
 import ipaddress
@@ -153,30 +155,34 @@ def validar_url_remota(url: Optional[str]):
         raise HTTPException(status_code=400, detail="Host remoto nao permitido (protecao SSRF).")
     try:
         ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local:
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
             raise HTTPException(status_code=400, detail="IP privado ou loopback nao permitido (protecao SSRF).")
     except ValueError:
-        pass
+        # Mitigacao contra DNS rebinding e resolucao para IPs privados/locais
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for _, _, _, _, sockaddr in addr_info:
+                ip_str = sockaddr[0]
+                resolved_ip = ipaddress.ip_address(ip_str)
+                if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local or resolved_ip.is_reserved:
+                    raise HTTPException(status_code=400, detail=f"Dominio resolve para IP privado ({ip_str}) bloqueado por protecao SSRF.")
+        except socket.gaierror:
+            raise HTTPException(status_code=400, detail="Nao foi possivel resolver o dominio remoto especificado.")
 
-def _verificar_magic_bytes(dados: bytes) -> bool:
+def _detectar_tipo_binario(dados: bytes) -> Optional[str]:
     if len(dados) < 4:
-        return False
-    # PNG: \x89PNG\r\n\x1a\n
+        return None
     if dados.startswith(b"\x89PNG\r\n\x1a\n"):
-        return True
-    # JPEG: \xff\xd8\xff
+        return "image/png"
     if dados.startswith(b"\xff\xd8\xff"):
-        return True
-    # GIF: GIF87a ou GIF89a
+        return "image/jpeg"
     if dados.startswith(b"GIF87a") or dados.startswith(b"GIF89a"):
-        return True
-    # WEBP: RIFF....WEBP
+        return "image/gif"
     if len(dados) >= 12 and dados[:4] == b"RIFF" and dados[8:12] == b"WEBP":
-        return True
-    # PDF: %PDF-
+        return "image/webp"
     if dados.startswith(b"%PDF-"):
-        return True
-    return False
+        return "application/pdf"
+    return None
 
 def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] = None):
     if file_name:
@@ -188,6 +194,7 @@ def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] =
             )
     if image_base64:
         raw_b64 = image_base64
+        mime = None
         if image_base64.startswith("data:"):
             header, _, data_part = image_base64.partition(",")
             mime = header.split(";")[0].replace("data:", "").strip().lower()
@@ -209,10 +216,16 @@ def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] =
                 status_code=413,
                 detail="Tamanho decodificado do anexo excede o limite de 10MB."
             )
-        if not _verificar_magic_bytes(decoded):
+        tipo_detectado = _detectar_tipo_binario(decoded)
+        if not tipo_detectado:
             raise HTTPException(
                 status_code=400,
                 detail="Assinatura binaria de anexo incompativel com os tipos permitidos (PNG, JPEG, WEBP, GIF, PDF)."
+            )
+        if mime and tipo_detectado != mime:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo MIME declarado ('{mime}') incompativel com a assinatura binaria real ('{tipo_detectado}')."
             )
 
 class MensagemRequest(BaseModel):
@@ -387,18 +400,24 @@ def _is_provider_available(provider: str) -> bool:
 _idempotency_cache: Dict[str, Dict[str, Any]] = {}
 IDEMPOTENCY_TTL_SECONDS = 120.0
 
-def get_idempotent_response(client_request_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def _gerar_chave_idempotencia(user_email: Optional[str], session_id: str, client_request_id: Optional[str], mensagem: str) -> Optional[str]:
     if not client_request_id:
+        return None
+    msg_hash = hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()[:16]
+    return f"{user_email or 'anon'}:{session_id}:{client_request_id}:{msg_hash}"
+
+def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not idempotency_key:
         return None
     now = time.time()
     for k in [k for k, v in _idempotency_cache.items() if now - v.get("timestamp", 0) > IDEMPOTENCY_TTL_SECONDS]:
         _idempotency_cache.pop(k, None)
-    cached = _idempotency_cache.get(client_request_id)
+    cached = _idempotency_cache.get(idempotency_key)
     return cached.get("response") if cached else None
 
-def save_idempotent_response(client_request_id: Optional[str], response_data: Dict[str, Any]):
-    if client_request_id:
-        _idempotency_cache[client_request_id] = {
+def save_idempotent_response(idempotency_key: Optional[str], response_data: Dict[str, Any]):
+    if idempotency_key:
+        _idempotency_cache[idempotency_key] = {
             "response": response_data,
             "timestamp": time.time(),
         }
@@ -705,12 +724,12 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     validar_anexo(effective_image_b64, request.file_name)
     validar_url_remota(request.image_url)
 
-    if request.client_request_id and not request.is_retry:
-        cached_resp = get_idempotent_response(request.client_request_id)
+    user_email = usuario["email"] if usuario else None
+    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
+    if idempotency_key and not request.is_retry:
+        cached_resp = get_idempotent_response(idempotency_key)
         if cached_resp:
             return MensagemResponse(**cached_resp)
-
-    user_email = usuario["email"] if usuario else None
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
     project_id = (request.project_id or 'general')[:80]
@@ -900,7 +919,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         model_eff = meta.get("model_used") or get_request_model() or getattr(c, "nome_modelo", request.model or "")
         model_req = request.model or model_eff
 
-        return MensagemResponse(
+        resp_obj = MensagemResponse(
             resposta=resposta,
             session_id=session_id,
             project_id=project_id,
@@ -916,6 +935,10 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
+        if idempotency_key:
+            save_idempotent_response(idempotency_key, resp_obj.dict())
+        record_provider_health(prov_used, success=(fb_reason is None))
+        return resp_obj
 
 
     except Exception as e:
@@ -996,6 +1019,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 model_eff = getattr(c, "nome_modelo", model_req)
                 prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
                 fb_reason = getattr(c, "last_fallback_reason", None)
+                record_provider_health(prov_used, success=(fb_reason is None))
                 yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': model_req, 'model_used': model_eff, 'provider_used': prov_used, 'fallback_reason': fb_reason}, ensure_ascii=False)}\n\n"
         except Exception as err:
             err_msg = f"Erro durante streaming: {str(err)}"
