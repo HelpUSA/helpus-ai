@@ -1,3 +1,7 @@
+import base64
+import binascii
+import ipaddress
+import urllib.parse
 # -*- coding: utf-8 -*-
 """
 API Principal - HelpUS.
@@ -136,6 +140,43 @@ app.add_middleware(
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
 BLOCKED_EXTENSIONS = {".env", ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".dll", ".so", ".bin", ".py", ".js"}
 ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254", "internal"}
+
+def validar_url_remota(url: Optional[str]):
+    if not url:
+        return
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Apenas URLs HTTP/HTTPS sao permitidas.")
+    hostname = (parsed.hostname or "").lower()
+    if not hostname or hostname in BLOCKED_HOSTS:
+        raise HTTPException(status_code=400, detail="Host remoto nao permitido (protecao SSRF).")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="IP privado ou loopback nao permitido (protecao SSRF).")
+    except ValueError:
+        pass
+
+def _verificar_magic_bytes(dados: bytes) -> bool:
+    if len(dados) < 4:
+        return False
+    # PNG: \x89PNG\r\n\x1a\n
+    if dados.startswith(b"\x89PNG\r\n\x1a\n"):
+        return True
+    # JPEG: \xff\xd8\xff
+    if dados.startswith(b"\xff\xd8\xff"):
+        return True
+    # GIF: GIF87a ou GIF89a
+    if dados.startswith(b"GIF87a") or dados.startswith(b"GIF89a"):
+        return True
+    # WEBP: RIFF....WEBP
+    if len(dados) >= 12 and dados[:4] == b"RIFF" and dados[8:12] == b"WEBP":
+        return True
+    # PDF: %PDF-
+    if dados.startswith(b"%PDF-"):
+        return True
+    return False
 
 def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] = None):
     if file_name:
@@ -156,11 +197,22 @@ def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] =
                     detail=f"Tipo MIME '{mime}' nao permitido. Permitidos: {sorted(list(ALLOWED_IMAGE_MIMES))}"
                 )
             raw_b64 = data_part
-        est_bytes = (len(raw_b64) * 3) / 4
-        if est_bytes > MAX_IMAGE_SIZE_BYTES:
+        try:
+            decoded = base64.b64decode(raw_b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="Formato base64 corrompido ou invalido."
+            )
+        if len(decoded) > MAX_IMAGE_SIZE_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail="Tamanho maximo do anexo excedido (limite de 10MB)."
+                detail="Tamanho decodificado do anexo excede o limite de 10MB."
+            )
+        if not _verificar_magic_bytes(decoded):
+            raise HTTPException(
+                status_code=400,
+                detail="Assinatura binaria de anexo incompativel com os tipos permitidos (PNG, JPEG, WEBP, GIF, PDF)."
             )
 
 class MensagemRequest(BaseModel):
@@ -299,6 +351,24 @@ async def raiz():
     }
 
 
+_provider_health_cache: Dict[str, Dict[str, Any]] = {}
+HEALTH_CHECK_TTL_SECONDS = 60.0
+
+def _get_provider_health(provider: str) -> str:
+    """Retorna 'healthy', 'unhealthy', 'unknown' ou 'not_configured'. Nunca divulga credenciais."""
+    if not _is_provider_configured(provider):
+        return "not_configured"
+    cached = _provider_health_cache.get(provider)
+    if cached and (time.time() - cached.get("timestamp", 0) < HEALTH_CHECK_TTL_SECONDS):
+        return cached.get("status", "unknown")
+    return cached.get("status", "unknown") if cached else "unknown"
+
+def record_provider_health(provider: str, success: bool):
+    _provider_health_cache[provider] = {
+        "status": "healthy" if success else "unhealthy",
+        "timestamp": time.time(),
+    }
+
 def _is_provider_configured(provider: str) -> bool:
     if provider == "google":
         return bool(getattr(app_config, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY"))
@@ -309,22 +379,42 @@ def _is_provider_configured(provider: str) -> bool:
     return False
 
 def _is_provider_healthy(provider: str) -> bool:
-    # Provedor nao configurado nao e saudavel
-    return _is_provider_configured(provider)
+    return _get_provider_health(provider) == "healthy"
 
 def _is_provider_available(provider: str) -> bool:
-    return _is_provider_configured(provider) and _is_provider_healthy(provider)
+    return _is_provider_configured(provider) and (_get_provider_health(provider) in ("healthy", "unknown"))
+
+_idempotency_cache: Dict[str, Dict[str, Any]] = {}
+IDEMPOTENCY_TTL_SECONDS = 120.0
+
+def get_idempotent_response(client_request_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not client_request_id:
+        return None
+    now = time.time()
+    for k in [k for k, v in _idempotency_cache.items() if now - v.get("timestamp", 0) > IDEMPOTENCY_TTL_SECONDS]:
+        _idempotency_cache.pop(k, None)
+    cached = _idempotency_cache.get(client_request_id)
+    return cached.get("response") if cached else None
+
+def save_idempotent_response(client_request_id: Optional[str], response_data: Dict[str, Any]):
+    if client_request_id:
+        _idempotency_cache[client_request_id] = {
+            "response": response_data,
+            "timestamp": time.time(),
+        }
 
 @app.get("/modelos")
 async def listar_modelos():
     """Retorna o catalogo oficial de modelos homologados e sua disponibilidade real no servidor"""
     google_configured = _is_provider_configured("google")
-    google_healthy = _is_provider_healthy("google")
-    google_available = google_configured and google_healthy
+    google_health = _get_provider_health("google")
+    google_healthy = (google_health == "healthy")
+    google_available = google_configured and (google_health in ("healthy", "unknown"))
 
     deepseek_configured = _is_provider_configured("deepseek")
-    deepseek_healthy = _is_provider_healthy("deepseek")
-    deepseek_available = deepseek_configured and deepseek_healthy
+    deepseek_health = _get_provider_health("deepseek")
+    deepseek_healthy = (deepseek_health == "healthy")
+    deepseek_available = deepseek_configured and (deepseek_health in ("healthy", "unknown"))
 
     return {
         "modelos": [
@@ -336,6 +426,7 @@ async def listar_modelos():
                 "desc": "Rapido e eficiente",
                 "capabilities": ["text", "code", "fast"],
                 "configured": google_configured,
+                "health": google_health,
                 "healthy": google_healthy,
                 "available": google_available,
             },
@@ -347,6 +438,7 @@ async def listar_modelos():
                 "desc": "Equilibrio ideal de inteligencia",
                 "capabilities": ["text", "code", "vision", "reasoning"],
                 "configured": google_configured,
+                "health": google_health,
                 "healthy": google_healthy,
                 "available": google_available,
             },
@@ -358,6 +450,7 @@ async def listar_modelos():
                 "desc": "Raciocinio profundo e analise",
                 "capabilities": ["text", "code", "vision", "deep_thinking"],
                 "configured": google_configured,
+                "health": google_health,
                 "healthy": google_healthy,
                 "available": google_available,
             },
@@ -369,6 +462,7 @@ async def listar_modelos():
                 "desc": "Especialista em codigo e arquitetura",
                 "capabilities": ["text", "code"],
                 "configured": deepseek_configured,
+                "health": deepseek_health,
                 "healthy": deepseek_healthy,
                 "available": deepseek_available,
             },
@@ -380,6 +474,7 @@ async def listar_modelos():
                 "desc": "Raciocinio logico avancado",
                 "capabilities": ["text", "code", "deep_reasoning"],
                 "configured": deepseek_configured,
+                "health": deepseek_health,
                 "healthy": deepseek_healthy,
                 "available": deepseek_available,
             },
@@ -608,6 +703,13 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         set_request_model(request.model.strip().lower())
     effective_image_b64 = request.image_base64 or request.imagem_base64
     validar_anexo(effective_image_b64, request.file_name)
+    validar_url_remota(request.image_url)
+
+    if request.client_request_id and not request.is_retry:
+        cached_resp = get_idempotent_response(request.client_request_id)
+        if cached_resp:
+            return MensagemResponse(**cached_resp)
+
     user_email = usuario["email"] if usuario else None
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
@@ -851,6 +953,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
         set_request_model(request.model.strip().lower())
     effective_image_b64 = request.image_base64 or request.imagem_base64
     validar_anexo(effective_image_b64, request.file_name)
+    validar_url_remota(request.image_url)
     session_id = request.session_id or str(uuid.uuid4())
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"

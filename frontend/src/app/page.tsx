@@ -736,13 +736,11 @@ export default function HelpUSGeminiApp() {
           reader.releaseLock()
         }
 
-        if (respostaAcumulada.trim().length > 0) {
-          carregarConversas(googleToken)
-          return
-        }
+        carregarConversas(googleToken)
+        return
       }
 
-      // Fallback padrão /chat síncrono
+      // Fallback padrão /chat síncrono APENAS se o endpoint de stream falhou na conexão inicial
       const res = await fetch(`${apiUrl}/chat`, {
         method: 'POST',
         headers: authHeaders,
