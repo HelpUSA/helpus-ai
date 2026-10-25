@@ -338,11 +338,16 @@ class RuntimeIntegrationTests(
             False
         )
 
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "GEMINI_API_KEY nao configurada",
-        ):
-            await cerebro.CerebroIA().pensar("teste sem chave")
+        original_order = cerebro.app_config.AI_PROVIDER_ORDER
+        try:
+            cerebro.app_config.AI_PROVIDER_ORDER = ["gemini"]
+            brain = cerebro.CerebroIA()
+            response, _, _ = await brain.pensar("teste sem chave")
+            self.assertEqual(brain.last_provider_used, "fallback")
+            self.assertEqual(brain.last_fallback_reason, "all_providers_failed:gemini")
+            self.assertIn("HelpUS", response)
+        finally:
+            cerebro.app_config.AI_PROVIDER_ORDER = original_order
 
     async def test_disabled_flag_never_calls_router(self):
         cerebro.app_config.HELPUS_MULTI_AI_ENABLED = (
