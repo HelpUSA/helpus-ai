@@ -582,9 +582,11 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             mock_pool.connection.return_value.__aenter__.return_value = mock_conn
             mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
             mock_conn.cursor.return_value.__aexit__.return_value = None
-            # Simula todas as tabelas obrigatorias presentes e versao >= 1
-            mock_cur.fetchall.return_value = [("conversas",), ("admin_audit_events",), ("schema_migrations",)]
-            mock_cur.fetchone.return_value = (1,)
+            # Simula todas as tabelas obrigatorias presentes e versao nominal aplicada
+            mock_cur.fetchall.side_effect = [
+                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",)],
+                [("003_sessoes_schema_and_diagnostic",)]
+            ]
             
             asyncio.run(banco_test.criar_tabelas())
             
@@ -705,7 +707,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
                 self.assertNotIn("ALTER TABLE", sql)
 
     def test_http_sse_persistence_failure_releases_claim_without_completion(self):
-        # Garante que erro em salvar_mensagem no stream NAO conclui claim e libera para retry
+        # Garante que erro em salvar_mensagem no stream NAO conclui claim, NAO emite done:true e emite erro SSE
         from backend.main import _idempotency_cache, _gerar_chave_idempotencia
         session_id = f"sess_sse_fail_{uuid.uuid4().hex[:8]}"
         req_id = f"req_sse_fail_{uuid.uuid4().hex[:8]}"
@@ -724,12 +726,76 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         with patch.object(banco, "salvar_mensagem", side_effect=mock_salvar_error):
             with client.stream("POST", "/chat/stream", json=payload) as response:
                 self.assertEqual(response.status_code, 200)
+                body = "".join(response.iter_text())
+                self.assertNotIn('"done": true', body.lower(), "done:true NAO deve ser emitido quando a persistencia falha")
+                self.assertIn("PERSISTENCE_FAILED", body, "Evento SSE deve emitir codigo PERSISTENCE_FAILED")
+                self.assertIn("[DONE]", body)
 
         # A chave de idempotencia gerada NAO DEVE estar no status 'completed'
         key = _gerar_chave_idempotencia(None, session_id, req_id, payload["mensagem"])
         entry = _idempotency_cache.get(key)
         if entry:
             self.assertNotEqual(entry.get("status"), "completed", "Claim nao pode ser concluido se persistencia falhou")
+
+    def test_schema_verification_fails_closed_when_nominal_migration_missing(self):
+        import asyncio
+        from backend.banco import BancoDados
+        
+        banco_test = BancoDados()
+        banco_test.database_url = "postgresql://user:pass@localhost:5432/helpus_test"
+        
+        with patch.object(banco_test, "pool") as mock_pool:
+            from unittest.mock import MagicMock
+            mock_conn = MagicMock()
+            mock_cur = AsyncMock()
+            mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+            mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
+            mock_conn.cursor.return_value.__aexit__.return_value = None
+            
+            # Tabelas estao presentes
+            mock_cur.fetchall.side_effect = [
+                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",)],
+                [("001_old_migration",)]  # Faltando '003_sessoes_schema_and_diagnostic'
+            ]
+            
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(banco_test.criar_tabelas())
+            
+            self.assertIn("Migracoes nominais obrigatorias ausentes no banco persistente", str(ctx.exception))
+            self.assertIn("003_sessoes_schema_and_diagnostic", str(ctx.exception))
+
+    def test_turn_locks_cleanup_prevents_memory_leak(self):
+        import asyncio
+        from backend.main import turn_lock_context, _turn_locks
+
+        test_key = f"key_leak_test_{uuid.uuid4().hex[:8]}"
+
+        async def _run_lock():
+            async with turn_lock_context(test_key):
+                self.assertIn(test_key, _turn_locks)
+            self.assertNotIn(test_key, _turn_locks, "Lock deve ser removido de _turn_locks apos conclusao")
+
+        asyncio.run(_run_lock())
+
+    def test_structured_logging_allowlist_drops_forbidden_fields(self):
+        import io
+        import json
+        from contextlib import redirect_stdout
+        from backend.main import log_structured
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            log_structured("INFO", "test_event", correlation_id="op_id_123", details={
+                "masked_key": "***:***:abc",
+                "forbidden_secret": "sk-proj-supersecret123",
+                "raw_password": "supersecretpassword",
+            })
+        out = buf.getvalue().strip()
+        data = json.loads(out)
+        self.assertEqual(data["event"], "test_event")
+        self.assertIn("masked_key", data["details"])
+        self.assertNotIn("forbidden_secret", data["details"])
+        self.assertNotIn("raw_password", data["details"])
 
 if __name__ == "__main__":
     unittest.main()

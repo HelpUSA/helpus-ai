@@ -104,11 +104,11 @@ class BancoDados:
                         SELECT table_name 
                         FROM information_schema.tables 
                         WHERE table_schema = 'public' 
-                          AND table_name IN ('conversas', 'admin_audit_events', 'schema_migrations');
+                          AND table_name IN ('conversas', 'admin_audit_events', 'schema_migrations', 'sessoes');
                     """)
                     rows = await cur.fetchall()
                     found_tables = {r[0] for r in rows}
-                    required_tables = {'conversas', 'admin_audit_events', 'schema_migrations'}
+                    required_tables = {'conversas', 'admin_audit_events', 'schema_migrations', 'sessoes'}
                     missing_tables = required_tables - found_tables
                     if missing_tables:
                         raise RuntimeError(
@@ -116,15 +116,16 @@ class BancoDados:
                             "Alteracoes DDL automaticas no startup estao bloqueadas. "
                             "Execute as migrations pendentes formais antes de inicializar o servico."
                         )
-                    # Verifica versao minima na tabela de migrations
-                    await cur.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")
-                    ver_row = await cur.fetchone()
-                    current_version = ver_row[0] if ver_row else 0
-                    min_required_version = 1
-                    if current_version < min_required_version:
+                    # Verifica migracoes nominais obrigatorias aplicadas (sem coercao incorreta a inteiro)
+                    await cur.execute("SELECT version FROM schema_migrations;")
+                    mig_rows = await cur.fetchall()
+                    applied_versions = {r[0] for r in mig_rows} if mig_rows else set()
+                    required_versions = {'003_sessoes_schema_and_diagnostic'}
+                    missing_migrations = required_versions - applied_versions
+                    if missing_migrations:
                         raise RuntimeError(
-                            f"Versao de schema ({current_version}) inferior a minima exigida ({min_required_version}). "
-                            "Execute as migrations pendentes antes de inicializar o servico."
+                            f"Migracoes nominais obrigatorias ausentes no banco persistente: {sorted(list(missing_migrations))}. "
+                            "Execute as migrations pendentes formais antes de inicializar o servico."
                         )
             return
 
@@ -252,6 +253,20 @@ class BancoDados:
                         status VARCHAR(50) DEFAULT 'success',
                         details JSONB
                     )
+                """)
+
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS schema_migrations (
+                        version VARCHAR(100) PRIMARY KEY,
+                        applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        description TEXT
+                    )
+                """)
+
+                await cur.execute("""
+                    INSERT INTO schema_migrations (version, description)
+                    VALUES ('003_sessoes_schema_and_diagnostic', 'Authoritative sessoes table, admin audit log, and strict non-ambiguous reconciliation')
+                    ON CONFLICT (version) DO NOTHING
                 """)
 
                 await cur.execute("""
@@ -523,13 +538,15 @@ class BancoDados:
         title: Optional[str] = None,
         project_id: Optional[str] = None,
     ):
+        has_configured_db = bool(getattr(self, "database_url", None) or os.getenv("DATABASE_URL"))
         if not await self._garantir_pool():
+            if has_configured_db:
+                raise RuntimeError("Conexao com banco de dados indisponivel para persistencia.")
             return
 
         email_norm = user_email.strip().lower() if user_email else None
         if not await self.verificar_propriedade_sessao(session_id, email_norm):
             raise PermissionError(f"Acesso negado: a sessao '{session_id}' pertence a outra conta.")
-
 
         try:
             async with self.pool.connection() as conn:
@@ -545,6 +562,7 @@ class BancoDados:
                     await conn.commit()
         except Exception as e:
             print(f"[WARN] Erro ao salvar mensagem no banco: {e}")
+            raise
 
     async def carregar_mensagens(
         self,

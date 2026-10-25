@@ -16,15 +16,17 @@ class MockSSEHandler(BaseHTTPRequestHandler):
 
         if "abort_test" in post_body and not getattr(self.server, "abort_done", False):
             self.server.abort_done = True
+            self.server.aborted_detected = False
             self.wfile.write(b'data: {"content": "Iniciando resposta longa aguardando cancelamento...", "done": false}\n\n')
             self.wfile.flush()
-            for _ in range(30):
-                time.sleep(0.1)
-            try:
-                self.wfile.write(b'data: [DONE]\n\n')
-                self.wfile.flush()
-            except Exception:
-                pass
+            for _ in range(40):
+                time.sleep(0.08)
+                try:
+                    self.wfile.write(b': keepalive-ping\n\n')
+                    self.wfile.flush()
+                except Exception:
+                    self.server.aborted_detected = True
+                    break
             self.close_connection = True
             return
 
@@ -330,11 +332,17 @@ class PlaywrightViewportTests(unittest.TestCase):
         # 3. Confirma que o estado de loading foi cancelado (botao Parar sumiu)
         page.wait_for_selector("button:has-text('Parar')", state="detached", timeout=4000)
 
-        # 4. Confirma que botao Tentar Novamente aparece e clica nele
+        # 4. Confirma que botao Tentar Novamente aparece OBRIGATORIAMENTE (sem condicional permissivo) e clica nele
+        page.wait_for_selector("button:has-text('Tentar novamente')", timeout=5000)
         btn_retry = page.locator("button:has-text('Tentar novamente')").first
-        if btn_retry.is_visible():
-            btn_retry.click()
-            page.wait_for_selector("text=Finalizando stream.", timeout=8000)
+        self.assertTrue(btn_retry.is_visible(), "Botao Tentar novamente DEVE estar visivel e presente apos cancelamento")
+        btn_retry.click()
+
+        # 5. Valida que a nova requisicao de retry conclui ate a resposta final
+        page.wait_for_selector("text=Finalizando stream.", timeout=8000)
+
+        # 6. Confirma que o servidor percebeu o cancelamento da primeira conexao
+        self.assertTrue(getattr(self.sse_server, "aborted_detected", False), "Servidor SSE mockado deve detectar o cancelamento ativo do cliente")
 
         shot_path = SCREENSHOTS_DIR / "viewport_sse_abort_and_retry.png"
         page.screenshot(path=str(shot_path))

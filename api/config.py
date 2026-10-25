@@ -102,3 +102,11 @@ HELPUS_MULTI_AI_DEFAULT_ALIAS = os.getenv(
     'HELPUS_MULTI_AI_DEFAULT_ALIAS',
     'helpus-general',
 ).lower().strip()
+
+# Concorrência e Isolamento Operacional (P0 - Ciclo 020)
+# Enquanto o PostgreSQL de homologação estiver BLOCKED, a garantia de atomicidade
+# e turn lock opera em memória local por processo. Em arquitetura multi-processos sem
+# advisory lock distribuído (PostgreSQL pg_try_advisory_xact_lock), a operação DEVE ser
+# restrita a 1 worker para garantir strictly-once sem janelas de concorrência.
+MAX_OPERATIONAL_WORKERS = int(os.getenv("MAX_OPERATIONAL_WORKERS", "1"))
+OPERATIONAL_CONCURRENCY_MODE = os.getenv("OPERATIONAL_CONCURRENCY_MODE", "single_worker_in_memory")

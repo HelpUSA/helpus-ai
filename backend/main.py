@@ -525,26 +525,63 @@ def _sanitize_log_message(msg: Any) -> str:
     s = re.sub(r'(key|token|secret|password|senha)\s*[:=]\s*[^\s,]+', r'\1=***', s, flags=re.IGNORECASE)
     return s
 
-_turn_locks: Dict[str, asyncio.Lock] = {}
+class _RefCountLock:
+    def __init__(self):
+        self.lock = asyncio.Lock()
+        self.ref_count = 0
+
+_turn_locks: Dict[str, _RefCountLock] = {}
 _turn_locks_mutex = asyncio.Lock()
 
-async def get_turn_lock(idempotency_key: Optional[str]) -> Optional[asyncio.Lock]:
-    """Retorna lock assincrono por chave de turno para eliminar janelas TOCTOU em concorrencia local."""
+@asynccontextmanager
+async def turn_lock_context(idempotency_key: Optional[str]):
+    """Adquire lock exclusivo por idempotency_key com limpeza segura e atomica (sem vazamento nem corrida)."""
     if not idempotency_key:
-        return None
+        yield
+        return
+
     async with _turn_locks_mutex:
         if idempotency_key not in _turn_locks:
-            _turn_locks[idempotency_key] = asyncio.Lock()
-        return _turn_locks[idempotency_key]
+            _turn_locks[idempotency_key] = _RefCountLock()
+        entry = _turn_locks[idempotency_key]
+        entry.ref_count += 1
+
+    await entry.lock.acquire()
+    try:
+        yield
+    finally:
+        entry.lock.release()
+        async with _turn_locks_mutex:
+            entry.ref_count -= 1
+            if entry.ref_count <= 0 and not entry.lock.locked():
+                _turn_locks.pop(idempotency_key, None)
+
+async def get_turn_lock(idempotency_key: Optional[str]):
+    """Helper compativel com turn_lock_context."""
+    return turn_lock_context(idempotency_key)
+
+ALLOWED_DETAIL_KEYS = {
+    "masked_key", "error_kind", "model_eff", "model_req", "provider", "duration_ms", "status_code", "retryable"
+}
 
 def log_structured(level: str, event: str, correlation_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
-    """Emite log estruturado padronizado em JSON preservando privacidade e correlacao sem stacktraces arbitrarios."""
+    """Emite log estruturado padronizado em JSON com allowlist estrita e correlation_id opaco, sem secrets."""
+    safe_details = {}
+    if details and isinstance(details, dict):
+        for k, v in details.items():
+            if k in ALLOWED_DETAIL_KEYS:
+                safe_details[k] = _sanitize_log_message(str(v)) if isinstance(v, str) else v
+
+    safe_corr_id = "none"
+    if correlation_id and isinstance(correlation_id, str):
+        safe_corr_id = correlation_id[:64]
+
     entry = {
-        "timestamp": time.time(),
-        "level": level,
-        "event": event,
-        "correlation_id": correlation_id or "none",
-        "details": details or {},
+        "timestamp": round(time.time(), 3),
+        "level": str(level).upper() if level else "INFO",
+        "event": str(event)[:80] if event else "unknown",
+        "correlation_id": safe_corr_id,
+        "details": safe_details,
     }
     print(json.dumps(entry, ensure_ascii=False))
 
@@ -1364,7 +1401,6 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             persisted_ok = False
             stream_corr_id = str(uuid.uuid4())
             
-            t_lock = await get_turn_lock(idempotency_key)
             async def _persist_under_lock():
                 nonlocal persisted_ok
                 if is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token):
@@ -1403,13 +1439,16 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                         # Falha de persistencia ou stream: libera claim para permitir retry seguro
                         release_idempotent_request(idempotency_key, owner_token=owner_token)
 
-            if t_lock:
-                async with t_lock:
-                    await _persist_under_lock()
-            else:
+            async with turn_lock_context(idempotency_key):
                 await _persist_under_lock()
 
-        yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        # P0 STREAMING: Em erro de persistencia ou falha de stream, NAO enviar done:true
+        if stream_completed_ok and persisted_ok:
+            yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        else:
+            error_code = "PERSISTENCE_FAILED" if not persisted_ok else "STREAM_INCOMPLETE"
+            error_detail = "Falha ao persistir a resposta da IA de forma duravel." if not persisted_ok else "Streaming interrompido antes da conclusao."
+            yield f"data: {json.dumps({'error': error_detail, 'code': error_code, 'retryable': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

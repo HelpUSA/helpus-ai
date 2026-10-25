@@ -774,7 +774,9 @@ export default function HelpUSGeminiApp() {
     } catch (err: any) {
       if (err.name === 'AbortError') return
       let mensagemAmigavel = 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.'
-      if (err.status === 401 || err.message?.includes('401')) {
+      if (err.message && (err.message.includes('PERSISTENCE_FAILED') || err.message.includes('persistir'))) {
+        mensagemAmigavel = 'Falha ao persistir a resposta com segurança. Por favor, clique em Tentar novamente.'
+      } else if (err.status === 401 || err.message?.includes('401')) {
         mensagemAmigavel = 'Sua sessão expirou ou o acesso requer autenticação. Por favor, conecte-se com sua conta Google.'
       } else if (err.status === 429 || err.message?.includes('429')) {
         mensagemAmigavel = 'O limite de mensagens por minuto foi atingido. Aguarde alguns instantes antes de tentar novamente.'
