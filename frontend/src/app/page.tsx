@@ -225,7 +225,10 @@ export default function HelpUSGeminiApp() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+  // Resiliencia de infraestrutura: se NEXT_PUBLIC_API_URL apontar para a Railway desativada ou host invalido,
+  // utiliza automaticamente a API co-localizada na propria Vercel ('') para garantir resposta publica ininterrupta.
+  const rawApiUrl = (process.env.NEXT_PUBLIC_API_URL || '').trim()
+  const apiUrl = rawApiUrl.includes('railway.app') ? '' : rawApiUrl
   const googleClientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     '812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com'

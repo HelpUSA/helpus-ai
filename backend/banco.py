@@ -1448,11 +1448,11 @@ class BancoDados:
                         return False, None, False
             except Exception as e:
                 _log_db_error("verificar_propriedade_sessao_readonly", e)
-                return False, None, False
+                raise RuntimeError(f"Falha de infraestrutura ao verificar sessao no PostgreSQL: {e}")
 
-        # 2. Se banco configurado mas pool indisponivel -> fail-closed
+        # 2. Se banco configurado mas pool indisponivel -> fail-closed com erro de infraestrutura
         if getattr(self, "database_url", None) or os.getenv("DATABASE_URL"):
-            return False, None, False
+            raise RuntimeError("Banco de dados indisponivel para verificar sessao.")
 
         # 3. Em memoria para testes
         if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
@@ -2047,32 +2047,35 @@ class BancoDados:
                 raise RuntimeError("Banco de dados indisponivel para mover conversa de projeto.")
 
             # Fallback seguro para modo de testes em memoria
+            # 1. Pre-validacao estrita sem mutacao (elimina efeitos parciais)
             found = False
-            # Verifica posse em sessoes_memoria
             if session_id in self._sessoes_memoria:
                 stored = self._sessoes_memoria[session_id]
                 st_email = stored[0] if isinstance(stored, tuple) else stored
                 st_email_norm = (st_email or "").strip().lower() if st_email else None
                 if st_email_norm != email_norm:
                     raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
-                self._sessoes_memoria[session_id] = (email_norm, target_proj)
                 found = True
 
-            # Atualiza conversas_memoria
             conv_found = False
             for m in self._conversas_memoria:
                 if m.get("session_id") == session_id:
                     m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
                     if m_email != email_norm:
                         raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
-                    m["project_id"] = target_proj
                     conv_found = True
 
             if not found and not conv_found:
                 raise LookupError("Sessao nao encontrada para o usuario.")
 
+            # 2. Mutacao sincronizada apenas apos aprovacao integral
+            if found:
+                self._sessoes_memoria[session_id] = (email_norm, target_proj)
             if not found and conv_found:
                 self._sessoes_memoria[session_id] = (email_norm, target_proj)
+            for m in self._conversas_memoria:
+                if m.get("session_id") == session_id:
+                    m["project_id"] = target_proj
             return True
 
         # 3. Transacao atomica com rollback no PostgreSQL real
@@ -2098,10 +2101,13 @@ class BancoDados:
 
                         sess_owner = (row_sess[0] or "").strip().lower() if (row_sess and row_sess[0]) else None
                         conv_owner = (row_conv[0] or "").strip().lower() if (row_conv and row_conv[0]) else None
-                        owner = sess_owner or conv_owner
 
-                        if owner != email_norm:
+                        if sess_owner and sess_owner != email_norm:
                             raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
+                        if conv_owner and conv_owner != email_norm:
+                            raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
+                        if sess_owner and conv_owner and sess_owner != conv_owner:
+                            raise PermissionError("Acesso negado: inconsistencia estrutural de propriedade na sessao.")
 
                         # (b) Atualiza conversas
                         await cur.execute(

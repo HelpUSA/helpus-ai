@@ -2517,6 +2517,50 @@ asyncio.run(main())
                             await cur.execute("SELECT DISTINCT project_id FROM conversas WHERE session_id = %s", (sid_legacy_null,))
                             self.assertEqual((await cur.fetchone())[0], proj_victim_allowed)
 
+                    # 10. Diferenciacao de Erro de Infraestrutura vs Sessao Inexistente em Read-Only (P1 - Ciclo 038):
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("ALTER TABLE sessoes RENAME TO sessoes_c38_temp;")
+                            await conn.commit()
+                    try:
+                        res_infra_fail = await client.get(f"/historico/{victim_sid}")
+                        self.assertEqual(res_infra_fail.status_code, 500, "Falha de infraestrutura DEVE retornar HTTP 500 e NUNCA 404 Not Found")
+                    finally:
+                        async with b.pool.connection() as conn:
+                            async with conn.cursor() as cur:
+                                await cur.execute("ALTER TABLE sessoes_c38_temp RENAME TO sessoes;")
+                                await conn.commit()
+
+                    # 11. Teste de Deteccao de Inconsistencia Estrutural Heterogenea na Sessao (P1 - Ciclo 038):
+                    sid_hetero = f"sess_hetero_{uuid.uuid4().hex[:8]}"
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(
+                                "INSERT INTO conversas (session_id, role, content, user_email, project_id) VALUES (%s, %s, %s, %s, %s)",
+                                (sid_hetero, "user", "Mensagem de vitima", victim_email, "general")
+                            )
+                            await cur.execute(
+                                "INSERT INTO sessoes (session_id, user_email, project_id) VALUES (%s, %s, %s)",
+                                (sid_hetero, "adversary@helpus.com", "general")
+                            )
+                            await conn.commit()
+
+                    # Tentativa de mover sessao heterogenea DEVE levantar PermissionError e retornar HTTP 403
+                    res_hetero_mov = await client.put(f"/conversa/{sid_hetero}/projeto", json={"project_id": proj_victim_allowed})
+                    self.assertEqual(res_hetero_mov.status_code, 403)
+                    self.assertIn("Acesso negado", res_hetero_mov.json()["detail"])
+
+                    # 12. Teste E2E de Mensagem Curta ('bom dia') em /chat e /chat/stream (P0/P1 - Ciclo 038):
+                    res_bomdia_sync = await client.post("/chat", json={"mensagem": "bom dia", "session_id": f"sess_bomdia_{uuid.uuid4().hex[:8]}"})
+                    self.assertEqual(res_bomdia_sync.status_code, 200)
+                    self.assertIn("resposta", res_bomdia_sync.json())
+                    self.assertTrue(len(res_bomdia_sync.json()["resposta"]) > 0)
+
+                    res_bomdia_stream = await client.post("/chat/stream", json={"mensagem": "bom dia", "session_id": f"sess_bomdia_s_{uuid.uuid4().hex[:8]}"})
+                    self.assertEqual(res_bomdia_stream.status_code, 200)
+                    self.assertIn("data:", res_bomdia_stream.text)
+                    self.assertIn("[DONE]", res_bomdia_stream.text)
+
             finally:
                 b_main.banco = old_banco
                 b_main.app.dependency_overrides.clear()
