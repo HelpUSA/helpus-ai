@@ -251,6 +251,76 @@ class TestEphemeralUrlValidation(unittest.TestCase):
             validate_ephemeral_pg_url("invalid_url_without_scheme")
 
 
+class TestStateAndOverrideRestoration(unittest.TestCase):
+    """
+    Suite de Testes Unitarios Leves de Restauracao de Estado Global e Overrides (Ordem 074 item 2).
+    Executa sem conexao ao banco e sem benchmarks de carga.
+    """
+
+    def test_dependency_override_restored_after_controlled_exception(self):
+        """Comprova que dependency_overrides e restaurado ao valor exato pre-existente apos excecao."""
+        sentinel_override = lambda: {"email": "preexisting@helpus.local"}
+        b_main.app.dependency_overrides[obter_usuario_google] = sentinel_override
+
+        had_orig = obter_usuario_google in b_main.app.dependency_overrides
+        orig = b_main.app.dependency_overrides.get(obter_usuario_google)
+
+        with self.assertRaises(ZeroDivisionError):
+            try:
+                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "temporary@helpus.local"}
+                self.assertEqual(b_main.app.dependency_overrides[obter_usuario_google]()["email"], "temporary@helpus.local")
+                _ = 1 / 0
+            finally:
+                if had_orig:
+                    b_main.app.dependency_overrides[obter_usuario_google] = orig
+                else:
+                    b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+
+        self.assertIs(b_main.app.dependency_overrides[obter_usuario_google], sentinel_override)
+        b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+
+    def test_dependency_override_removed_when_previously_absent_after_exception(self):
+        """Comprova que override temporario e removido quando nao existia antes."""
+        b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+        self.assertNotIn(obter_usuario_google, b_main.app.dependency_overrides)
+
+        had_orig = obter_usuario_google in b_main.app.dependency_overrides
+        orig = b_main.app.dependency_overrides.get(obter_usuario_google)
+
+        with self.assertRaises(RuntimeError):
+            try:
+                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "temp@helpus.local"}
+                raise RuntimeError("Controlled failure")
+            finally:
+                if had_orig:
+                    b_main.app.dependency_overrides[obter_usuario_google] = orig
+                else:
+                    b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+
+        self.assertNotIn(obter_usuario_google, b_main.app.dependency_overrides)
+
+    def test_global_banco_and_cerebro_restored_after_exception(self):
+        """Comprova que b_main.banco e b_main.get_cerebro sao restaurados apos excecao."""
+        orig_banco = getattr(b_main, "banco", None)
+        orig_cerebro = getattr(b_main, "get_cerebro", None)
+
+        mock_sentinel_banco = object()
+        mock_sentinel_cerebro = lambda: "sentinel_cerebro"
+
+        with self.assertRaises(KeyError):
+            try:
+                b_main.banco = mock_sentinel_banco
+                b_main.get_cerebro = mock_sentinel_cerebro
+                self.assertIs(b_main.banco, mock_sentinel_banco)
+                raise KeyError("Controlled error")
+            finally:
+                b_main.banco = orig_banco
+                b_main.get_cerebro = orig_cerebro
+
+        self.assertIs(b_main.banco, orig_banco)
+        self.assertIs(b_main.get_cerebro, orig_cerebro)
+
+
 class LoadConcurrency50ClientsTest(unittest.TestCase):
     _orig_env_db_url = None
     _orig_env_require_pg = None
@@ -260,23 +330,27 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # 1. Validacao fail-closed da URL antes de qualquer teste
-        validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
-
-        # 2. Salvamento estrito de configuracoes globais para restauracao garantida
-        cls._orig_env_db_url = os.environ.get("DATABASE_URL")
-        cls._orig_env_require_pg = os.environ.get("HELPUS_REQUIRE_POSTGRES")
-        cls._orig_config_db_url = getattr(b_config, "DATABASE_URL", None)
-        cls._orig_b_main_banco_url = getattr(b_main.banco, "database_url", None)
         try:
-            cls._orig_loop_policy = asyncio.get_event_loop_policy()
-        except Exception:
-            cls._orig_loop_policy = None
+            # 1. Validacao fail-closed da URL antes de qualquer teste
+            validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
 
-        os.environ["DATABASE_URL"] = EPHEMERAL_PG_URL
-        b_config.DATABASE_URL = EPHEMERAL_PG_URL
-        b_main.banco.database_url = EPHEMERAL_PG_URL
-        os.environ["HELPUS_REQUIRE_POSTGRES"] = "1"
+            # 2. Salvamento estrito de configuracoes globais para restauracao garantida
+            cls._orig_env_db_url = os.environ.get("DATABASE_URL")
+            cls._orig_env_require_pg = os.environ.get("HELPUS_REQUIRE_POSTGRES")
+            cls._orig_config_db_url = getattr(b_config, "DATABASE_URL", None)
+            cls._orig_b_main_banco_url = getattr(b_main.banco, "database_url", None)
+            try:
+                cls._orig_loop_policy = asyncio.get_event_loop_policy()
+            except Exception:
+                cls._orig_loop_policy = None
+
+            os.environ["DATABASE_URL"] = EPHEMERAL_PG_URL
+            b_config.DATABASE_URL = EPHEMERAL_PG_URL
+            b_main.banco.database_url = EPHEMERAL_PG_URL
+            os.environ["HELPUS_REQUIRE_POSTGRES"] = "1"
+        except Exception:
+            cls.tearDownClass()
+            raise
 
     @classmethod
     def tearDownClass(cls):
