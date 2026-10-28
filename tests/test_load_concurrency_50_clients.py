@@ -1,22 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-HelpUS AI - Testes de Carga, Concorrencia e Isolamento Multi-Usuario (Ordem Executiva 044 / 057)
+HelpUS AI - Testes de Carga, Concorrencia e Isolamento Multi-Usuario (Ordem Executiva 044 / 057 / 072)
 Validacao de 50+ Clientes Virtuais Simultaneos em PostgreSQL 18 Efemero Local com Provedor de IA Simulado.
 
-Governanca e Seguranca Fail-Closed (Ordem 057):
+Governanca e Seguranca Fail-Closed (Ordem 072):
 1. Ambiente 100% Local: Executa exclusivamente em PostgreSQL efemero local na porta 5433 (127.0.0.1 / localhost).
-2. Aborto Fail-Closed Imediato: Validacao rigorosa de host, porta, credenciais e nome de banco antes de qualquer
-   tentativa de conexao via socket ou pool. Bloqueio absoluto de palavras-chave de producao (prod, neon, railway, vercel).
-3. Provedor de IA Simulado: MockCerebroLoad simula latencia de inferencia (5ms) sem custos ou chamadas a APIs externas pagas.
-4. Restauracao Garantida (try/finally): Variaveis de ambiente globais (DATABASE_URL), dependencias do FastAPI
-   (b_main.banco, b_main.get_cerebro, app.dependency_overrides) e conexoes do pool sao restauradas incondicionalmente.
-5. Classificacao Arquitetural do ASGITransport:
-   O ASGITransport (httpx) opera como despacho ASGI local in-process / in-memory no loop de eventos do FastAPI.
-   Avalia a vazao em rajada (burst) de corrotinas, serializacao JSON, middleware e transacoes ACID do PostgreSQL 18 local.
+2. Aborto Fail-Closed Imediato: Validacao rigorosa de esquema (postgresql/postgres), host local, porta 5433,
+   e nome EXATO de base autorizado ('helpus_ephemeral' ou 'helpus_test').
+   Bloqueio estrito de termos de producao ('prod', 'neon', 'railway', 'vercel', 'aws', 'supabase', 'render').
+3. Provedor de IA Simulado: MockCerebroLoad simula latencia de inferencia (5ms) sem custos ou chamadas a APIs pagas.
+4. Restauracao Garantida (try/finally): Variaveis de ambiente, configuracoes globais, dependencias do FastAPI
+   (b_main.banco, b_main.get_cerebro, app.dependency_overrides) e politicas de event loop sao salvas e
+   restauradas com preservacao estrita de valores preexistentes.
+5. Limpeza de Pool Garantida: Conexoes do pool sao fechadas incondicionalmente via finally, mesmo se
+   falhas ocorrerem durante conectar() ou pre-aquecimento.
+6. Classificacao Arquitetural do ASGITransport:
+   Despacho ASGI local in-process / in-memory no loop de eventos do FastAPI.
+   Avalia vazao de pico em rajada (burst), serializacao JSON, middleware e transacoes ACID do PostgreSQL 18 local.
    NAO constitui benchmark de infraestrutura serverless remota, nem inclui latencia WAN, TLS handshake ou TTFT do modelo real Gemini.
-6. Isolamento Multi-Usuario e Cross-Project:
+7. Isolamento Multi-Usuario e Cross-Project:
    - Validacao estrita em todos os 50 clientes do Cenario 1.
    - Cenario 5 dedicado a validacao funcional independente de isolamento entre identidades autenticadas distintas via API HTTP.
+8. Testes Negativos de URL:
+   - Suite TestEphemeralUrlValidation valida regras fail-closed sem conexao ao banco de dados.
 """
 
 import asyncio
@@ -35,6 +41,10 @@ from typing import Dict, List, Any
 # Definicao canonica da URL efemera local
 EPHEMERAL_PG_URL = os.getenv("EPHEMERAL_DATABASE_URL", "postgresql://helpus_test@127.0.0.1:5433/helpus_ephemeral")
 
+# Bases de dados locais expressamente autorizadas para testes efemeros
+AUTHORIZED_EPHEMERAL_DBS = {"helpus_ephemeral", "helpus_test"}
+FORBIDDEN_KEYWORDS = {"prod", "production", "neon", "railway", "vercel", "aws", "supabase", "render"}
+
 
 def validate_ephemeral_pg_url(url: str):
     """
@@ -42,43 +52,59 @@ def validate_ephemeral_pg_url(url: str):
     em PostgreSQL efemero local isolado (127.0.0.1:5433 / helpus_ephemeral).
     Qualquer tentativa de apontar para staging, producao ou porta externa aborta a execucao.
     """
-    parsed = urlparse(url)
+    if not url or not isinstance(url, str):
+        raise ValueError("VIOLACAO DE SEGURANCA: URL de conexao vazia ou invalida.")
+
+    url_clean = url.strip()
+    try:
+        parsed = urlparse(url_clean)
+    except Exception as exc:
+        raise ValueError(f"VIOLACAO DE SEGURANCA: URL malformada: {exc}")
+
+    # 1. Esquema permitido
+    if parsed.scheme not in ("postgresql", "postgres"):
+        raise ValueError(
+            f"VIOLACAO DE SEGURANCA: Esquema '{parsed.scheme}' nao permitido. "
+            f"Apenas postgresql:// ou postgres:// sao autorizados."
+        )
+
+    # 2. Host local permitido
     allowed_hosts = {"127.0.0.1", "localhost"}
-    if parsed.hostname not in allowed_hosts:
+    if not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
         raise RuntimeError(
             f"VIOLACAO DE SEGURANCA: Host '{parsed.hostname}' nao permitido para testes de carga. "
             f"Apenas hosts locais sao autorizados (127.0.0.1, localhost)."
         )
-    if parsed.port != 5433:
+
+    # 3. Porta efemera autorizada
+    try:
+        port = parsed.port
+    except Exception:
+        raise ValueError("VIOLACAO DE SEGURANCA: Porta informada na URL e invalida.")
+
+    if port != 5433:
         raise RuntimeError(
-            f"VIOLACAO DE SEGURANCA: Porta '{parsed.port}' invalida. "
+            f"VIOLACAO DE SEGURANCA: Porta '{port}' invalida. "
             f"Testes de carga exigem porta efemera isolada 5433."
         )
+
+    # 4. Nome EXATO de banco autorizado
     db_name = (parsed.path or "").lstrip("/")
-    if "ephemeral" not in db_name and "test" not in db_name:
+    if db_name not in AUTHORIZED_EPHEMERAL_DBS:
         raise RuntimeError(
-            f"VIOLACAO DE SEGURANCA: Banco de dados '{db_name}' nao permitido. "
-            f"Testes de carga exigem banco efemero/teste ('ephemeral' ou 'test')."
+            f"VIOLACAO DE SEGURANCA: Banco de dados '{db_name}' nao autorizado. "
+            f"Testes exigem nome exato explicitamente permitido: {sorted(list(AUTHORIZED_EPHEMERAL_DBS))}."
         )
-    
-    # Bloqueio fail-closed de credenciais ou termos de producao/staging
-    forbidden_terms = {"prod", "production", "neon", "railway", "vercel", "aws", "supabase", "render"}
-    full_url_lower = url.lower()
-    for term in forbidden_terms:
+
+    # 5. Bloqueio fail-closed de credenciais ou termos de producao/staging
+    full_url_lower = url_clean.lower()
+    for term in FORBIDDEN_KEYWORDS:
         if term in full_url_lower:
             raise RuntimeError(
                 f"VIOLACAO DE SEGURANCA: Termo proibido '{term}' detectado na URL de conexao. "
                 f"Execucao abortada para proteger ambientes remotos/producao."
             )
 
-
-# Validacao fail-closed imediata na carga do modulo
-validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
-
-# Configuracao global imediata para garantir que imports usem a porta efemera 5433
-_MODULE_ORIG_ENV_DB_URL = os.environ.get("DATABASE_URL")
-os.environ["DATABASE_URL"] = EPHEMERAL_PG_URL
-os.environ["HELPUS_REQUIRE_POSTGRES"] = "1"
 
 # Ajuste de path para importacao do backend
 ai_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -89,13 +115,18 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 import backend.config as b_config
-_MODULE_ORIG_CONFIG_DB_URL = getattr(b_config, "DATABASE_URL", None)
-b_config.DATABASE_URL = EPHEMERAL_PG_URL
+from backend.banco import BancoDados, _log_db_error
+import backend.main as b_main
+from auth import obter_usuario_google
 
 
 def check_ephemeral_pg_available() -> bool:
     """Verifica conectividade rapida com socket na porta efemera 5433 apos validacao fail-closed."""
-    validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
+    try:
+        validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
+    except Exception:
+        return False
+
     parsed = urlparse(EPHEMERAL_PG_URL)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or 5433
@@ -111,10 +142,6 @@ def check_ephemeral_pg_available() -> bool:
 
 
 PG_AVAILABLE = check_ephemeral_pg_available()
-
-from backend.banco import BancoDados, _log_db_error
-import backend.main as b_main
-from auth import obter_usuario_google
 
 
 def compute_percentiles(latencies_ms: List[float]) -> Dict[str, float]:
@@ -140,7 +167,7 @@ def compute_percentiles(latencies_ms: List[float]) -> Dict[str, float]:
 
 async def pre_warm_pool_connections(b: BancoDados, target_conns: int = 10):
     """Pre-aquece o pool no Windows para evitar concorrencia de sockets TCP na inicializacao."""
-    if not b.pool:
+    if not b or not getattr(b, "pool", None):
         return
     conns = []
     for _ in range(min(target_conns, 10)):
@@ -150,7 +177,10 @@ async def pre_warm_pool_connections(b: BancoDados, target_conns: int = 10):
         except Exception:
             break
     for c in conns:
-        await b.pool.putconn(c)
+        try:
+            await b.pool.putconn(c)
+        except Exception:
+            pass
 
 
 class MockCerebroLoad:
@@ -170,32 +200,110 @@ class MockCerebroLoad:
         return f"Resposta sintetica simulada para: {pergunta}", 45, 0.05
 
 
+class TestEphemeralUrlValidation(unittest.TestCase):
+    """Suite de Testes Negativos e Positivos de Validacao Fail-Closed de URL (Ordem 072 item 3)."""
+
+    def test_valid_ephemeral_url(self):
+        """URL canônica válida para banco efêmero deve passar sem erros."""
+        validate_ephemeral_pg_url("postgresql://helpus_test@127.0.0.1:5433/helpus_ephemeral")
+        validate_ephemeral_pg_url("postgres://helpus_test@localhost:5433/helpus_test")
+
+    def test_reject_invalid_scheme(self):
+        """Esquemas não-postgres (http, mysql, etc.) devem ser rejeitados."""
+        with self.assertRaises(ValueError):
+            validate_ephemeral_pg_url("http://127.0.0.1:5433/helpus_ephemeral")
+        with self.assertRaises(ValueError):
+            validate_ephemeral_pg_url("mysql://127.0.0.1:5433/helpus_ephemeral")
+
+    def test_reject_remote_host(self):
+        """Hosts externos ou remotos devem ser rejeitados imediatamente."""
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@192.168.1.100:5433/helpus_ephemeral")
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@db.example.com:5433/helpus_ephemeral")
+
+    def test_reject_invalid_port(self):
+        """Portas diferentes de 5433 devem ser estritamente bloqueadas."""
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@127.0.0.1:5432/helpus_ephemeral")
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@127.0.0.1:6543/helpus_ephemeral")
+
+    def test_reject_unauthorized_db_name(self):
+        """Bancos fora da lista explícita AUTHORIZED_EPHEMERAL_DBS devem ser rejeitados."""
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@127.0.0.1:5433/production_db")
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@127.0.0.1:5433/my_custom_db")
+
+    def test_reject_forbidden_production_keywords(self):
+        """Presença de termos proibidos em credenciais ou caminho deve abortar a execução."""
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://prod_admin:secret@127.0.0.1:5433/helpus_ephemeral")
+        with self.assertRaises(RuntimeError):
+            validate_ephemeral_pg_url("postgresql://helpus_test@127.0.0.1:5433/helpus_ephemeral?source=neon")
+
+    def test_reject_malformed_url(self):
+        """URLs vazias ou com sintaxe inválida devem falhar com erro seguro."""
+        with self.assertRaises(ValueError):
+            validate_ephemeral_pg_url("")
+        with self.assertRaises(ValueError):
+            validate_ephemeral_pg_url("invalid_url_without_scheme")
+
+
 class LoadConcurrency50ClientsTest(unittest.TestCase):
+    _orig_env_db_url = None
+    _orig_env_require_pg = None
+    _orig_config_db_url = None
+    _orig_b_main_banco_url = None
+    _orig_loop_policy = None
+
     @classmethod
     def setUpClass(cls):
-        # Validacao fail-closed da URL antes de qualquer teste
+        # 1. Validacao fail-closed da URL antes de qualquer teste
         validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
+
+        # 2. Salvamento estrito de configuracoes globais para restauracao garantida
+        cls._orig_env_db_url = os.environ.get("DATABASE_URL")
+        cls._orig_env_require_pg = os.environ.get("HELPUS_REQUIRE_POSTGRES")
+        cls._orig_config_db_url = getattr(b_config, "DATABASE_URL", None)
+        cls._orig_b_main_banco_url = getattr(b_main.banco, "database_url", None)
+        try:
+            cls._orig_loop_policy = asyncio.get_event_loop_policy()
+        except Exception:
+            cls._orig_loop_policy = None
+
         os.environ["DATABASE_URL"] = EPHEMERAL_PG_URL
         b_config.DATABASE_URL = EPHEMERAL_PG_URL
+        b_main.banco.database_url = EPHEMERAL_PG_URL
         os.environ["HELPUS_REQUIRE_POSTGRES"] = "1"
 
     @classmethod
     def tearDownClass(cls):
-        # Restauracao segura de variaveis globais
+        # Restauracao segura e incondicional de todas as variaveis globais e politicas
         try:
-            if _MODULE_ORIG_ENV_DB_URL is not None:
-                os.environ["DATABASE_URL"] = _MODULE_ORIG_ENV_DB_URL
+            if cls._orig_env_db_url is not None:
+                os.environ["DATABASE_URL"] = cls._orig_env_db_url
             else:
                 os.environ.pop("DATABASE_URL", None)
 
-            if _MODULE_ORIG_CONFIG_DB_URL is not None:
-                b_config.DATABASE_URL = _MODULE_ORIG_CONFIG_DB_URL
+            if cls._orig_env_require_pg is not None:
+                os.environ["HELPUS_REQUIRE_POSTGRES"] = cls._orig_env_require_pg
+            else:
+                os.environ.pop("HELPUS_REQUIRE_POSTGRES", None)
 
-            os.environ.pop("HELPUS_REQUIRE_POSTGRES", None)
+            if cls._orig_config_db_url is not None:
+                b_config.DATABASE_URL = cls._orig_config_db_url
+
+            if cls._orig_b_main_banco_url is not None:
+                b_main.banco.database_url = cls._orig_b_main_banco_url
+            else:
+                b_main.banco.database_url = None
+
         finally:
-            if sys.platform == "win32":
+            if cls._orig_loop_policy is not None:
                 try:
-                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+                    asyncio.set_event_loop_policy(cls._orig_loop_policy)
                 except Exception:
                     pass
 
@@ -217,8 +325,8 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
         - Disparo em rajada (burst) via asyncio.Barrier(50) para medir capacidade maxima de pico.
         - 50 usuarios distintos distribuidos em 5 projetos independentes (proj_load_0..proj_load_4).
         - Medicao de Throughput de rajada, Latencias (p50, p95, p99) e Integridade do Ledger.
-        - Validacao EXAUSTIVA de Isolamento Cross-Project e Cross-User sobre TODOS os 50 clientes (Ordem 057 item 1).
-        - Limpeza garantida de recursos com try/finally.
+        - Validacao EXAUSTIVA de Isolamento Cross-Project e Cross-User sobre TODOS os 50 clientes.
+        - Limpeza de conexoes garantida por try/finally mesmo se conectar() falhar.
         """
         NUM_CLIENTS = 50
         NUM_PROJECTS = 5
@@ -226,11 +334,11 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
 
         async def _test():
             b = BancoDados(EPHEMERAL_PG_URL)
-            await b.conectar()
-            self.assertIsNotNone(b.pool)
-            await pre_warm_pool_connections(b)
-
             try:
+                await b.conectar()
+                self.assertIsNotNone(b.pool)
+                await pre_warm_pool_connections(b)
+
                 barrier = asyncio.Barrier(NUM_CLIENTS)
 
                 async def virtual_client_worker(client_idx: int):
@@ -355,7 +463,8 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
                     "isolation_verified_clients": NUM_CLIENTS
                 }
             finally:
-                await b.fechar()
+                if b and getattr(b, "pool", None):
+                    await b.fechar()
 
         report = self.run_async(_test())
         print(f"\n[LOAD TEST 01 RESULT (Burst Local)] {json.dumps(report, indent=2)}")
@@ -365,18 +474,18 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
         Cenario 2: 10 pares (20 clientes) colidindo simultaneamente com requisicoes identicas.
         - Mesma chave de idempotencia disputada via Barrier no exato mesmo nanossegundo.
         - Comprova: exatamente 1 vencedor por par (claim concedido) e 1 perdedor bloqueado.
-        - Limpeza garantida de recursos com try/finally.
+        - Limpeza de recursos garantida por try/finally.
         """
         PAIRS = 10
         TOTAL_TASKS = PAIRS * 2
 
         async def _test():
             b = BancoDados(EPHEMERAL_PG_URL)
-            await b.conectar()
-            self.assertIsNotNone(b.pool)
-            await pre_warm_pool_connections(b)
-
             try:
+                await b.conectar()
+                self.assertIsNotNone(b.pool)
+                await pre_warm_pool_connections(b)
+
                 barrier = asyncio.Barrier(TOTAL_TASKS)
                 race_keys = [f"race_pair_{i}_{uuid.uuid4().hex[:6]}" for i in range(PAIRS)]
 
@@ -412,7 +521,8 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
 
                 return {"scenario": "Race Idempotency Collision", "pairs": PAIRS, "status": "PASS"}
             finally:
-                await b.fechar()
+                if b and getattr(b, "pool", None):
+                    await b.fechar()
 
         report = self.run_async(_test())
         print(f"\n[LOAD TEST 02 RESULT] {json.dumps(report, indent=2)}")
@@ -429,31 +539,36 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
           * Ele avalia o router ASGI, injecao de dependencias, validacao Pydantic e transacoes no PostgreSQL efemero.
           * NAO constitui benchmark serverless nem reproduz overheads de rede WAN, TLS handshake, proxies de borda
             (Vercel) ou latencia real de geracao de tokens do Gemini 2.0 Flash (tipicamente 200ms a 1200ms TTFT).
-        - Restauracao Estrita de Dependencias: old_banco, old_get_cerebro e dependency_overrides
-          sao restaurados incondicionalmente em bloco try/finally.
+        - Restauracao Estrita de Dependencias (Ordem 072 item 1):
+          Preserva o valor E a existencia preexistente de dependency_overrides[obter_usuario_google],
+          restaurando-o exatamente como estava antes do teste.
         """
         import httpx
         NUM_CLIENTS = 50
 
         async def _test():
             b = BancoDados(EPHEMERAL_PG_URL)
-            await b.conectar()
-            self.assertIsNotNone(b.pool)
-            await pre_warm_pool_connections(b)
-
             old_banco = getattr(b_main, "banco", None)
             old_get_cerebro = getattr(b_main, "get_cerebro", None)
 
-            b_main.banco = b
-            mock_ai = MockCerebroLoad(delay_ms=5.0)
-            b_main.get_cerebro = lambda: mock_ai
-
-            # Override de autenticacao para teste de carga
-            b_main.app.dependency_overrides[obter_usuario_google] = lambda: {
-                "email": "load_user@helpus.local", "name": "Load Test User", "role": "user"
-            }
+            # Preserva configuracao preexistente de override (Ordem 072 item 1)
+            had_orig_override = obter_usuario_google in b_main.app.dependency_overrides
+            orig_override = b_main.app.dependency_overrides.get(obter_usuario_google)
 
             try:
+                await b.conectar()
+                self.assertIsNotNone(b.pool)
+                await pre_warm_pool_connections(b)
+
+                b_main.banco = b
+                mock_ai = MockCerebroLoad(delay_ms=5.0)
+                b_main.get_cerebro = lambda: mock_ai
+
+                # Override de autenticacao para teste de carga
+                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {
+                    "email": "load_user@helpus.local", "name": "Load Test User", "role": "user"
+                }
+
                 barrier = asyncio.Barrier(NUM_CLIENTS)
                 transport = httpx.ASGITransport(app=b_main.app)
 
@@ -510,11 +625,16 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
                     "ai_calls_simulated": mock_ai.call_count
                 }
             finally:
-                # Restauracao incondicional de dependencias e conexao
+                # Restauracao incondicional e preservacao exata de overrides e dependencias
                 b_main.banco = old_banco
                 b_main.get_cerebro = old_get_cerebro
-                b_main.app.dependency_overrides.pop(obter_usuario_google, None)
-                await b.fechar()
+                if had_orig_override:
+                    b_main.app.dependency_overrides[obter_usuario_google] = orig_override
+                else:
+                    b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+
+                if b and getattr(b, "pool", None):
+                    await b.fechar()
 
         report = self.run_async(_test())
         print(f"\n[LOAD TEST 03 RESULT (ASGI Local In-Process)] {json.dumps(report, indent=2)}")
@@ -526,15 +646,15 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
         - Comprova:
           1. Fail-closed: Operacoes durante a queda sao rejeitadas de forma limpa (sem dados corrompidos).
           2. Auto-recuperacao: Assim que o pool e reconectado, os turnos completam com 100% de integridade.
-        - Limpeza garantida com try/finally.
+        - Limpeza de recursos garantida por try/finally.
         """
         async def _test():
             b = BancoDados(EPHEMERAL_PG_URL)
-            await b.conectar()
-            self.assertIsNotNone(b.pool)
-            await pre_warm_pool_connections(b)
-
             try:
+                await b.conectar()
+                self.assertIsNotNone(b.pool)
+                await pre_warm_pool_connections(b)
+
                 sess_id = f"sess_fault_{uuid.uuid4().hex[:6]}"
                 turn_key = f"turn_fault_{uuid.uuid4().hex[:6]}"
                 user_email = "fault_test@helpus.local"
@@ -604,7 +724,7 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
 
                 return {"scenario": "Fault Injection and Post-Crash Recovery", "status": "PASS"}
             finally:
-                if b.pool:
+                if b and getattr(b, "pool", None):
                     await b.fechar()
 
         report = self.run_async(_test())
@@ -612,7 +732,7 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
 
     def test_05_http_multi_user_authenticated_strict_isolation(self):
         """
-        Cenario 5 (Ordem 057 item 2): Teste Funcional Independente de Isolamento Entre Usuarios Autenticados Distintos.
+        Cenario 5 (Ordem 057 / 072): Teste Funcional Independente de Isolamento Entre Usuarios Autenticados Distintos.
         - Separa rigorosamente os requisitos de carga (Cenarios 1-3) da verificacao de isolamento multi-usuario na API.
         - Executa requisicoes HTTP via ASGITransport alternando entre identidades autenticadas independentes:
           * Usuario Alpha: alpha@helpus.local no projeto 'proj_alpha'
@@ -624,28 +744,32 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
           4. Usuario Alpha ve sua conversa em GET /conversas?project_id=proj_alpha -> 1 conversa.
           5. Usuario Beta em GET /conversas?project_id=proj_alpha -> 0 conversas (Isolamento Cross-User estrito).
           6. Chamada sem autenticacao em GET /historico/{session_alpha} -> HTTP 401 (Nao Autorizado).
-        - Restauracao de dependencias e conexoes estritamente garantida por try/finally.
+        - Preserva e restaura rigorosamente o override preexistente de autenticacao via try/finally.
         """
         import httpx
 
         async def _test():
             b = BancoDados(EPHEMERAL_PG_URL)
-            await b.conectar()
-            self.assertIsNotNone(b.pool)
-            await pre_warm_pool_connections(b)
-
             old_banco = getattr(b_main, "banco", None)
             old_get_cerebro = getattr(b_main, "get_cerebro", None)
 
-            b_main.banco = b
-            mock_ai = MockCerebroLoad(delay_ms=2.0)
-            b_main.get_cerebro = lambda: mock_ai
+            # Preserva configuracao preexistente de override (Ordem 072 item 1)
+            had_orig_override = obter_usuario_google in b_main.app.dependency_overrides
+            orig_override = b_main.app.dependency_overrides.get(obter_usuario_google)
 
             transport = httpx.ASGITransport(app=b_main.app)
             run_id = uuid.uuid4().hex[:6]
             sess_alpha = f"sess_alpha_{run_id}"
 
             try:
+                await b.conectar()
+                self.assertIsNotNone(b.pool)
+                await pre_warm_pool_connections(b)
+
+                b_main.banco = b
+                mock_ai = MockCerebroLoad(delay_ms=2.0)
+                b_main.get_cerebro = lambda: mock_ai
+
                 # 1. Usuario Alpha autenticado cria conversa
                 b_main.app.dependency_overrides[obter_usuario_google] = lambda: {
                     "email": "alpha@helpus.local", "name": "User Alpha", "role": "user"
@@ -705,10 +829,16 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
                     "status": "PASS"
                 }
             finally:
+                # Restauracao incondicional e preservacao exata de overrides e dependencias
                 b_main.banco = old_banco
                 b_main.get_cerebro = old_get_cerebro
-                b_main.app.dependency_overrides.pop(obter_usuario_google, None)
-                await b.fechar()
+                if had_orig_override:
+                    b_main.app.dependency_overrides[obter_usuario_google] = orig_override
+                else:
+                    b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+
+                if b and getattr(b, "pool", None):
+                    await b.fechar()
 
         report = self.run_async(_test())
         print(f"\n[MULTI-USER ISOLATION RESULT] {json.dumps(report, indent=2)}")
