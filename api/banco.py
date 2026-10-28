@@ -365,7 +365,8 @@ class BancoDados:
         project_id: Optional[str],
         request_payload_hash: str,
         is_retry: bool = False,
-        lease_seconds: float = 15.0
+        lease_seconds: float = 15.0,
+        legacy_payload_hash: Optional[str] = None
     ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         """Reivindica a execucao atomica do turno no ledger persistente ou memoria.
         
@@ -395,8 +396,16 @@ class BancoDados:
                 db_email = (entry.get("user_email") or "").strip().lower() if entry.get("user_email") else None
                 db_proj = entry.get("project_id") or "general"
                 db_hash = entry.get("request_payload_hash")
-                if db_sess != session_id or db_email != email_norm or db_proj != proj_norm or db_hash != request_payload_hash:
-                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro escopo ou hash de requisicao divergente.")
+                if db_sess != session_id:
+                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outra sessao.")
+                if db_email != email_norm:
+                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro usuario.")
+                if db_proj != proj_norm:
+                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
+                if request_payload_hash and db_hash != request_payload_hash:
+                    is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                    if not is_legacy:
+                        raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
 
                 status = entry.get("status")
                 if status == "completed":
@@ -448,11 +457,19 @@ class BancoDados:
                     if row:
                         db_owner, status, resp_payload, heartbeat_age, db_sess, db_email, db_proj, db_hash = row
                         
-                        # Validacao estrita de isolamento de escopo (P0 - Ciclo 024)
+                        # Validacao estrita de isolamento de escopo (P0 - Ciclos 024/030)
                         db_email_norm = (db_email or "").strip().lower() if db_email else None
                         db_proj_norm = db_proj or "general"
-                        if db_sess != session_id or db_email_norm != email_norm or db_proj_norm != proj_norm or db_hash != request_payload_hash:
-                            raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro escopo ou hash de requisicao divergente.")
+                        if db_sess != session_id:
+                            raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outra sessao.")
+                        if db_email_norm != email_norm:
+                            raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro usuario.")
+                        if db_proj_norm != proj_norm:
+                            raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
+                        if request_payload_hash and db_hash != request_payload_hash:
+                            is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                            if not is_legacy:
+                                raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
 
                         if status == "completed":
                             payload = resp_payload if isinstance(resp_payload, dict) else json.loads(resp_payload or "{}")
@@ -520,8 +537,16 @@ class BancoDados:
                                 r_owner, r_status, r_resp, r_age, r_sess, r_email, r_proj, r_hash = race_row
                                 r_email_norm = (r_email or "").strip().lower() if r_email else None
                                 r_proj_norm = r_proj or "general"
-                                if r_sess != session_id or r_email_norm != email_norm or r_proj_norm != proj_norm or r_hash != request_payload_hash:
-                                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro escopo ou hash divergente.")
+                                if r_sess != session_id:
+                                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outra sessao.")
+                                if r_email_norm != email_norm:
+                                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro usuario.")
+                                if r_proj_norm != proj_norm:
+                                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
+                                if request_payload_hash and r_hash != request_payload_hash:
+                                    is_legacy = bool(legacy_payload_hash and r_hash == legacy_payload_hash)
+                                    if not is_legacy:
+                                        raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
                                 if r_status == "completed":
                                     payload = r_resp if isinstance(r_resp, dict) else json.loads(r_resp or "{}")
                                     return False, payload, None
@@ -556,9 +581,11 @@ class BancoDados:
         project_id: Optional[str] = None,
         request_payload_hash: Optional[str] = None,
         lease_seconds: float = 15.0,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        legacy_payload_hash: Optional[str] = None,
+        require_strict_scope: bool = False
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029).
+        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029/030).
         
         Retorna uma tupla (classification, cached_payload):
         - 'KNOWN_COMMITTED': Turno gravado e concluido no PostgreSQL com payload disponivel. Seguro para replay.
@@ -566,6 +593,10 @@ class BancoDados:
         - 'LEASE_EXPIRED_PENDING_TAKEOVER': Turno em andamento com lease expirada sem conclusao.
         - 'NO_PRIOR_CLAIM': Nenhum registro de ledger existente para a chave local. Ausencia de registro nao prova abort de efeitos externos.
         """
+        if require_strict_scope:
+            if not idempotency_key or not session_id or not request_payload_hash:
+                raise ValueError("Escopo completo obrigatorio para reconciliacao de endpoint (idempotency_key, session_id, request_payload_hash).")
+
         if not idempotency_key:
             return "NO_PRIOR_CLAIM", None
 
@@ -583,11 +614,33 @@ class BancoDados:
             if project_id and (entry.get("project_id") or "general") != proj_norm:
                 raise PermissionError("Escopo de projeto divergente na reconciliacao.")
             if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
-                raise PermissionError("Hash de payload divergente na reconciliacao.")
+                is_legacy = bool(legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
+                if not is_legacy:
+                    raise PermissionError("Hash de payload divergente na reconciliacao.")
 
             status = entry.get("status")
             if status == "completed":
-                return "KNOWN_COMMITTED", entry.get("response_payload")
+                raw_payload = entry.get("response_payload")
+                if isinstance(raw_payload, dict):
+                    payload = dict(raw_payload)
+                elif isinstance(raw_payload, str):
+                    try:
+                        payload = json.loads(raw_payload)
+                        if not isinstance(payload, dict):
+                            payload = {"resposta": str(raw_payload)}
+                    except Exception:
+                        payload = {"resposta": str(raw_payload)}
+                else:
+                    payload = {"resposta": ""}
+                if "resposta" not in payload and "content" in payload:
+                    payload["resposta"] = payload["content"]
+                payload.setdefault("cached", True)
+                try:
+                    json.dumps(payload, ensure_ascii=False)
+                except Exception:
+                    return "UNKNOWN", None
+                return "KNOWN_COMMITTED", payload
+
             if status == "in_progress":
                 age = time.time() - entry.get("last_heartbeat", entry.get("created_at", time.time()))
                 if age < lease_seconds:
@@ -624,11 +677,31 @@ class BancoDados:
                     if project_id and db_proj_norm != proj_norm:
                         raise PermissionError("Escopo de projeto divergente na reconciliacao.")
                     if request_payload_hash and db_hash != request_payload_hash:
-                        raise PermissionError("Hash de payload divergente na reconciliacao.")
+                        is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                        if not is_legacy:
+                            raise PermissionError("Hash de payload divergente na reconciliacao.")
 
                     if status == "completed":
-                        payload = resp_payload if isinstance(resp_payload, dict) else json.loads(resp_payload or "{}")
+                        if isinstance(resp_payload, dict):
+                            payload = dict(resp_payload)
+                        elif isinstance(resp_payload, str):
+                            try:
+                                payload = json.loads(resp_payload)
+                                if not isinstance(payload, dict):
+                                    payload = {"resposta": str(resp_payload)}
+                            except Exception:
+                                payload = {"resposta": str(resp_payload)}
+                        else:
+                            payload = {"resposta": ""}
+                        if "resposta" not in payload and "content" in payload:
+                            payload["resposta"] = payload["content"]
+                        payload.setdefault("cached", True)
+                        try:
+                            json.dumps(payload, ensure_ascii=False)
+                        except Exception:
+                            return "UNKNOWN", None
                         return "KNOWN_COMMITTED", payload
+
                     if status == "in_progress":
                         if heartbeat_age is not None and heartbeat_age < lease_seconds:
                             return "UNKNOWN", None
@@ -756,7 +829,8 @@ class BancoDados:
         user_email: Optional[str] = None,
         project_id: Optional[str] = None,
         request_payload_hash: Optional[str] = None,
-        response_payload: Optional[Dict[str, Any]] = None
+        response_payload: Optional[Dict[str, Any]] = None,
+        legacy_payload_hash: Optional[str] = None
     ) -> bool:
         """Executa atomicamente a validacao de CAS, persistencia duravel e conclusao do ledger (P0 - Ciclo 024)."""
         if not session_id or not content or not idempotency_key or not owner_token:
@@ -799,7 +873,9 @@ class BancoDados:
                 if entry.get("session_id") != session_id:
                     return False
                 if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
-                    return False
+                    is_legacy = bool(legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
+                    if not is_legacy:
+                        return False
                 if entry.get("user_email") != email_norm:
                     return False
                 if entry.get("project_id") != proj_norm:
@@ -847,7 +923,9 @@ class BancoDados:
                         if db_owner != owner_token or status != "in_progress" or db_sess != session_id:
                             return False
                         if request_payload_hash and db_hash != request_payload_hash:
-                            return False
+                            is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                            if not is_legacy:
+                                return False
                         if (db_email or "").strip().lower() != (email_norm or ""):
                             return False
                         if (db_proj or "general") != proj_norm:

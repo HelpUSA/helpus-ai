@@ -325,6 +325,7 @@ class MensagemResponse(BaseModel):
     model_used: Optional[str] = None
     latency_ms: Optional[float] = None
     agent_trace: List[Dict[str, str]] = []
+    cached: Optional[bool] = None
 
 class StatusResponse(BaseModel):
     status: str
@@ -469,7 +470,48 @@ def _is_provider_available(provider: str) -> bool:
 _idempotency_cache: Dict[str, Dict[str, Any]] = {}
 IDEMPOTENCY_TTL_SECONDS = 120.0
 
-def _gerar_chave_idempotencia(user_email: Optional[str], session_id: str, client_request_id: Optional[str], mensagem: str) -> Optional[str]:
+def _calcular_fingerprint_requisicao(request: Any) -> str:
+    """Calcula hash canonico, versionado e deterministico da requisicao (P0 - Ciclos 030).
+    
+    Parametros semanticos incluidos:
+    - version: 1
+    - mensagem: texto normalizado
+    - model: modelo normalizado
+    - pesquisar_web: booleano
+    - image_hash: sha256 do payload base64 (se fornecido)
+    - image_url: url normalizada
+    - file_name: nome do anexo
+    - project_id: projeto normalizado
+    
+    Nenhum token, segredo ou credencial de usuario e incorporado.
+    """
+    effective_image = getattr(request, "image_base64", None) or getattr(request, "imagem_base64", None)
+    img_hash = hashlib.sha256(effective_image.encode("utf-8")).hexdigest() if effective_image else ""
+    
+    canonical_repr = {
+        "v": 1,
+        "msg": (getattr(request, "mensagem", "") or "").strip(),
+        "model": (getattr(request, "model", "") or "").strip().lower(),
+        "web": bool(getattr(request, "pesquisar_web", True)),
+        "img": img_hash,
+        "url": (getattr(request, "image_url", "") or "").strip(),
+        "file": (getattr(request, "file_name", "") or "").strip(),
+        "proj": (getattr(request, "project_id", "general") or "general").strip(),
+    }
+    canonical_bytes = json.dumps(canonical_repr, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(canonical_bytes).hexdigest()
+
+def _calcular_hash_legado_mensagem(mensagem: str) -> str:
+    """Calcula hash legado simples sobre a mensagem pura para compatibilidade segura."""
+    return hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()
+
+def _gerar_chave_idempotencia(
+    user_email: Optional[str],
+    session_id: str,
+    client_request_id: Optional[str],
+    mensagem: str,
+    req_hash: Optional[str] = None
+) -> Optional[str]:
     if not client_request_id:
         return None
     msg_hash = hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()[:16]
@@ -1071,12 +1113,13 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     validar_anexo(effective_image_b64, request.file_name)
     validar_url_remota(request.image_url)
 
-    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
-    req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest() if idempotency_key else None
+    req_hash = _calcular_fingerprint_requisicao(request) if request.client_request_id else None
+    legacy_req_hash = _calcular_hash_legado_mensagem(request.mensagem) if request.client_request_id else None
+    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem, req_hash=req_hash)
     is_claimed = False
     owner_token = None
 
-    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclo 029): Reconcilia estado persistente antes de inferencia ou claim
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030): Reconcilia estado persistente antes de inferencia ou claim
     if idempotency_key and banco:
         try:
             reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
@@ -1084,10 +1127,13 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                 user_email=user_email,
                 project_id=project_id,
                 request_payload_hash=req_hash,
-                session_id=session_id
+                session_id=session_id,
+                legacy_payload_hash=legacy_req_hash,
+                require_strict_scope=True
             )
             if reconcile_status == "KNOWN_COMMITTED":
-                if cached_payload:
+                if cached_payload and isinstance(cached_payload, dict) and "resposta" in cached_payload:
+                    cached_payload["cached"] = True
                     _idempotency_cache[idempotency_key] = {
                         "status": "completed",
                         "response": cached_payload,
@@ -1119,6 +1165,38 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         if not should_run and cached_resp:
             return MensagemResponse(**cached_resp)
         is_claimed = should_run
+
+        # Estende claim para o ledger persistente
+        if banco and owner_token:
+            try:
+                db_should_run, db_cached_resp, _ = await banco.claim_turn_ledger(
+                    idempotency_key=idempotency_key,
+                    owner_token=owner_token,
+                    session_id=session_id,
+                    user_email=user_email,
+                    project_id=project_id,
+                    request_payload_hash=req_hash,
+                    is_retry=request.is_retry,
+                    legacy_payload_hash=legacy_req_hash
+                )
+                if not db_should_run:
+                    if db_cached_resp:
+                        complete_idempotent_request(idempotency_key, db_cached_resp, owner_token=owner_token)
+                        return MensagemResponse(**db_cached_resp)
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Requisicao identica em processamento ativo no ledger persistente."
+                    )
+            except PermissionError:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("claim_turn_ledger_chat", e)
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
 
     hb_session = IdempotencyHeartbeatSession(idempotency_key, owner_token, interval=3.0)
     hb_session.start()
@@ -1278,18 +1356,6 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                 return MensagemResponse(**cached_now)
             raise HTTPException(status_code=409, detail="Requisicao cancelada ou substituida por concorrencia (fenced).")
 
-        # Salva resposta
-        try:
-            await banco.salvar_mensagem(
-            session_id,
-            "assistant",
-            resposta,
-            user_email=usuario["email"] if usuario else None,
-            project_id=project_id,
-        )
-        except:
-            pass
-
         # Grava evento de memoria interna sem afetar a resposta do chat.
         await run_in_threadpool(
             safe_record_chat_memory_event,
@@ -1334,6 +1400,38 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
+
+        # Salva resposta atomicamente no PostgreSQL (P0 - Ciclos 025/030)
+        if banco and resposta:
+            try:
+                if idempotency_key and owner_token:
+                    resp_dict = resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict()
+                    turn_res = await banco.persist_and_complete_turn(
+                        session_id=session_id,
+                        content=resposta,
+                        idempotency_key=idempotency_key,
+                        owner_token=owner_token,
+                        user_email=user_email,
+                        project_id=project_id,
+                        request_payload_hash=req_hash,
+                        response_payload=resp_dict,
+                        legacy_payload_hash=legacy_req_hash
+                    )
+                    if not turn_res:
+                        raise RuntimeError("Persistencia atomica de assistant falhou no ledger.")
+                else:
+                    await banco.salvar_mensagem(
+                        session_id,
+                        "assistant",
+                        resposta,
+                        user_email=user_email,
+                        project_id=project_id,
+                    )
+            except Exception as e:
+                _log_db_error("chat_save_response", e)
+                if getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"):
+                    raise HTTPException(status_code=503, detail="Falha de persistencia duravel obrigatoria.")
+
         if idempotency_key:
             save_idempotent_response(idempotency_key, resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict(), owner_token=owner_token)
         upstream_prov = resolver_provedor_modelo(model_eff)
@@ -1365,6 +1463,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
         await hb_session.stop()
         if is_claimed and not completed_successfully and idempotency_key and owner_token:
             release_idempotent_request(idempotency_key, owner_token=owner_token)
+            if banco:
+                try:
+                    await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                except:
+                    pass
 
 
 @app.post("/chat/stream")
@@ -1408,12 +1511,13 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     validar_anexo(effective_image_b64, request.file_name)
     validar_url_remota(request.image_url)
 
-    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
-    req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest() if idempotency_key else None
+    req_hash = _calcular_fingerprint_requisicao(request) if request.client_request_id else None
+    legacy_req_hash = _calcular_hash_legado_mensagem(request.mensagem) if request.client_request_id else None
+    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem, req_hash=req_hash)
     is_stream_claimed = False
     owner_token = None
 
-    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclo 029): Reconcilia estado persistente antes de inferencia ou claim
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030): Reconcilia estado persistente antes de inferencia ou claim
     if idempotency_key and banco:
         try:
             reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
@@ -1421,10 +1525,12 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 user_email=user_email,
                 project_id=project_id,
                 request_payload_hash=req_hash,
-                session_id=session_id
+                session_id=session_id,
+                legacy_payload_hash=legacy_req_hash,
+                require_strict_scope=True
             )
             if reconcile_status == "KNOWN_COMMITTED":
-                if cached_payload:
+                if cached_payload and isinstance(cached_payload, dict) and "resposta" in cached_payload:
                     _idempotency_cache[idempotency_key] = {
                         "status": "completed",
                         "response": cached_payload,
@@ -1477,7 +1583,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                     user_email=user_email,
                     project_id=project_id,
                     request_payload_hash=req_hash,
-                    is_retry=request.is_retry
+                    is_retry=request.is_retry,
+                    legacy_payload_hash=legacy_req_hash
                 )
                 if not db_should_run:
                     if db_cached_resp:
@@ -1525,8 +1632,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
         except:
             pass
 
-    # Public chat requests must never trigger local computer actions.
-    # Device operations require a separate authenticated, scoped workflow.
+    # Public chat must never trigger local device operations.
     pergunta_stream = request.mensagem
 
     captured_model = get_request_model() or request.model or "gemini-2.5-flash"
@@ -1564,6 +1670,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             yield f"data: {json.dumps({'error': err_msg, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         finally:
             await stream_hb_session.stop()
+            # Atualizacao de saude executada apenas UMA VEZ no encerramento do stream
             upstream_prov = resolver_provedor_modelo(last_model_eff)
             record_provider_health(upstream_prov, success=stream_completed_ok and (last_fb_reason is None))
             record_provider_health(last_prov_used, success=stream_completed_ok and (last_fb_reason is None))
@@ -1608,7 +1715,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                                 user_email=user_email,
                                 project_id=project_id,
                                 request_payload_hash=req_hash,
-                                response_payload=payload_final
+                                response_payload=payload_final,
+                                legacy_payload_hash=legacy_req_hash
                             )
                             persisted_ok = bool(turn_res is True)
                         else:

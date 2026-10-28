@@ -866,6 +866,372 @@ asyncio.run(main())
 
         self.run_async(_test())
 
+    # =========================================================================
+    # CICLO 030 - FINGERPRINT CANÔNICO, ISOLAMENTO & ENDPOINT /chat
+    # =========================================================================
+    def test_canonical_fingerprint_deterministic_and_legacy_compatible(self):
+        """P0 Fingerprint Canônico (Ciclo 030): Comprova que o hash semântico da requisição é determinístico,
+        sensível a alterações de parâmetros semânticos, insensível a tokens/segredos e compatível com legado."""
+        import backend.main as b_main
+
+        req1 = b_main.MensagemRequest(
+            mensagem="Olá HelpUS",
+            model="gemini-2.0-flash",
+            pesquisar_web=True,
+            image_url="",
+            file_name="",
+            project_id="general"
+        )
+        h1 = b_main._calcular_fingerprint_requisicao(req1)
+        self.assertEqual(len(h1), 64)
+        
+        # Determinismo
+        req2 = b_main.MensagemRequest(
+            mensagem="Olá HelpUS",
+            model="gemini-2.0-flash",
+            pesquisar_web=True,
+            image_url="",
+            file_name="",
+            project_id="general"
+        )
+        self.assertEqual(h1, b_main._calcular_fingerprint_requisicao(req2))
+
+        # Sensibilidade a cada campo semântico
+        req_msg_diff = b_main.MensagemRequest(mensagem="Outra mensagem", model="gemini-2.0-flash")
+        self.assertNotEqual(h1, b_main._calcular_fingerprint_requisicao(req_msg_diff))
+
+        req_model_diff = b_main.MensagemRequest(mensagem="Olá HelpUS", model="gpt-4o")
+        self.assertNotEqual(h1, b_main._calcular_fingerprint_requisicao(req_model_diff))
+
+        req_web_diff = b_main.MensagemRequest(mensagem="Olá HelpUS", model="gemini-2.0-flash", pesquisar_web=False)
+        self.assertNotEqual(h1, b_main._calcular_fingerprint_requisicao(req_web_diff))
+
+        req_proj_diff = b_main.MensagemRequest(mensagem="Olá HelpUS", model="gemini-2.0-flash", project_id="proj_xyz")
+        self.assertNotEqual(h1, b_main._calcular_fingerprint_requisicao(req_proj_diff))
+
+        req_file_diff = b_main.MensagemRequest(mensagem="Olá HelpUS", model="gemini-2.0-flash", file_name="anexo.pdf")
+        self.assertNotEqual(h1, b_main._calcular_fingerprint_requisicao(req_file_diff))
+
+        req_img_diff = b_main.MensagemRequest(mensagem="Olá HelpUS", model="gemini-2.0-flash", image_url="https://trusted.helpus.com/img.png")
+        self.assertNotEqual(h1, b_main._calcular_fingerprint_requisicao(req_img_diff))
+
+        # Hash legado simples preserva SHA-256 da mensagem pura
+        legacy_h = b_main._calcular_hash_legado_mensagem("Olá HelpUS")
+        self.assertEqual(legacy_h, hashlib.sha256("Olá HelpUS".encode("utf-8")).hexdigest())
+
+    def test_strict_scope_contract_validation(self):
+        """P1 Contrato de Reconciliação (Ciclo 030): Exige escopo completo para reconciliação de endpoints."""
+        from backend.banco import BancoDados
+        b = BancoDados()
+
+        async def _test():
+            # Falha se faltar qualquer um dos campos estritos
+            with self.assertRaises(ValueError) as ctx1:
+                await b.reconcile_idempotency_turn("key1", session_id="s1", request_payload_hash="", require_strict_scope=True)
+            self.assertIn("Escopo completo obrigatorio", str(ctx1.exception))
+
+            with self.assertRaises(ValueError) as ctx2:
+                await b.reconcile_idempotency_turn("key1", session_id="", request_payload_hash="hash1", require_strict_scope=True)
+            self.assertIn("Escopo completo obrigatorio", str(ctx2.exception))
+
+            with self.assertRaises(ValueError) as ctx3:
+                await b.reconcile_idempotency_turn("", session_id="s1", request_payload_hash="hash1", require_strict_scope=True)
+            self.assertIn("Escopo completo obrigatorio", str(ctx3.exception))
+
+        self.run_async(_test())
+
+    def test_real_postgresql_individual_scope_divergences_and_isolation(self):
+        """P0 Isolamento & Divergências Individuais (Ciclo 030): Exercita divergências pontuais de session_id,
+        user_email, project_id e req_hash para uma mesma idempotency_key em PostgreSQL real.
+        Confirma PermissionError com mensagens discriminadas e zero vazamento de payload."""
+        self._require_pg()
+        from backend.banco import BancoDados
+        import backend.main as b_main
+
+        async def _test():
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            try:
+                base_sess = f"sess_iso_{uuid.uuid4().hex[:8]}"
+                base_req_id = f"req_iso_{uuid.uuid4().hex[:8]}"
+                base_msg = "Pergunta confidencial tenant alpha"
+                base_user = "user_alpha@helpus.com"
+                base_proj = "proj_alpha"
+
+                req_obj = b_main.MensagemRequest(
+                    mensagem=base_msg,
+                    session_id=base_sess,
+                    client_request_id=base_req_id,
+                    project_id=base_proj
+                )
+                canon_hash = b_main._calcular_fingerprint_requisicao(req_obj)
+                legacy_hash = b_main._calcular_hash_legado_mensagem(base_msg)
+                idemp_key = b_main._gerar_chave_idempotencia(base_user, base_sess, base_req_id, base_msg)
+
+                # Worker registra e conclui o turno no PostgreSQL 18
+                claimed, _, token = await b.claim_turn_ledger(
+                    idempotency_key=idemp_key,
+                    owner_token=str(uuid.uuid4()),
+                    session_id=base_sess,
+                    user_email=base_user,
+                    project_id=base_proj,
+                    request_payload_hash=canon_hash
+                )
+                self.assertTrue(claimed)
+
+                secret_payload = {"resposta": "RESPOSTA_ULTRA_SECRETA_TENANT_ALPHA", "cached": True}
+                committed = await b.persist_and_complete_turn(
+                    session_id=base_sess,
+                    content="RESPOSTA_ULTRA_SECRETA_TENANT_ALPHA",
+                    idempotency_key=idemp_key,
+                    owner_token=token,
+                    user_email=base_user,
+                    project_id=base_proj,
+                    request_payload_hash=canon_hash,
+                    response_payload=secret_payload
+                )
+                self.assertTrue(committed)
+
+                # 1. Divergência de session_id
+                with self.assertRaises(PermissionError) as ctx_sess:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=idemp_key,
+                        session_id="sess_outra_diferente",
+                        user_email=base_user,
+                        project_id=base_proj,
+                        request_payload_hash=canon_hash,
+                        require_strict_scope=True
+                    )
+                self.assertIn("sessao", str(ctx_sess.exception).lower())
+                self.assertNotIn("RESPOSTA_ULTRA_SECRETA", str(ctx_sess.exception))
+
+                # 2. Divergência de user_email
+                with self.assertRaises(PermissionError) as ctx_user:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=idemp_key,
+                        session_id=base_sess,
+                        user_email="attacker@helpus.com",
+                        project_id=base_proj,
+                        request_payload_hash=canon_hash,
+                        require_strict_scope=True
+                    )
+                self.assertIn("usuario", str(ctx_user.exception).lower())
+                self.assertNotIn("RESPOSTA_ULTRA_SECRETA", str(ctx_user.exception))
+
+                # 3. Divergência de project_id
+                with self.assertRaises(PermissionError) as ctx_proj:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=idemp_key,
+                        session_id=base_sess,
+                        user_email=base_user,
+                        project_id="proj_outro",
+                        request_payload_hash=canon_hash,
+                        require_strict_scope=True
+                    )
+                self.assertIn("projeto", str(ctx_proj.exception).lower())
+                self.assertNotIn("RESPOSTA_ULTRA_SECRETA", str(ctx_proj.exception))
+
+                # 4. Divergência de hash de requisição (sem compatibilidade de legado)
+                with self.assertRaises(PermissionError) as ctx_hash:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=idemp_key,
+                        session_id=base_sess,
+                        user_email=base_user,
+                        project_id=base_proj,
+                        request_payload_hash="hash_completamente_adulterado_000000000000",
+                        require_strict_scope=True
+                    )
+                self.assertIn("payload", str(ctx_hash.exception).lower())
+                self.assertNotIn("RESPOSTA_ULTRA_SECRETA", str(ctx_hash.exception))
+
+                # 5. Escopo perfeito -> KNOWN_COMMITTED com payload correto
+                st, p = await b.reconcile_idempotency_turn(
+                    idempotency_key=idemp_key,
+                    session_id=base_sess,
+                    user_email=base_user,
+                    project_id=base_proj,
+                    request_payload_hash=canon_hash,
+                    require_strict_scope=True
+                )
+                self.assertEqual(st, "KNOWN_COMMITTED")
+                self.assertEqual(p.get("resposta"), "RESPOSTA_ULTRA_SECRETA_TENANT_ALPHA")
+
+            finally:
+                await b.fechar()
+
+        self.run_async(_test())
+
+    def test_real_postgresql_http_chat_endpoint_reconcile_and_replay_mock_ai_only(self):
+        """P1 HTTP /chat & Reconciliação (Ciclo 030): Valida fluxo completo do endpoint não-streaming /chat
+        conectado ao PostgreSQL 18 com mock estrito do provedor de IA (pensar). Comprova:
+        1. Execução de inferência única e persistência atômica com commit (call_count == 1).
+        2. Replay idempotente pós-reconciliação via KNOWN_COMMITTED sem re-inferência (call_count permanece 1).
+        3. Ausência de linhas duplicadas no PostgreSQL (conversas tem exatamente 1 row assistant).
+        4. Bloqueio seguro de turnos em andamento (UNKNOWN -> 409 Conflict).
+        5. Isolamento estrito de usuário/tenant e hash da requisição (divergência -> 403 Forbidden)."""
+        self._require_pg()
+        import httpx
+        import backend.main as b_main
+        from backend.banco import BancoDados
+        from auth import obter_usuario_google
+
+        async def _test():
+            os.environ['DATABASE_URL'] = EPHEMERAL_PG_URL
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            old_banco = b_main.banco
+            b_main.banco = b
+
+            class MockCerebroSync:
+                def __init__(self):
+                    self.call_count = 0
+                    self.nome_modelo = "gemini-2.0-flash"
+                    self.provider = "mock_provider"
+                    self.last_provider_used = "mock_provider"
+                    self.last_fallback_reason = None
+
+                async def pensar(self, pergunta, image_base64=None, image_url=None, contexto_busca=None, **kwargs):
+                    self.call_count += 1
+                    return f"Resposta não-streaming gerada para: {pergunta}", 42, 0.1
+
+            mock_ai = MockCerebroSync()
+            old_get_cerebro = b_main.get_cerebro
+            b_main.get_cerebro = lambda: mock_ai
+
+            user_email = "superadmin_chat@helpus.com"
+            test_user = {"email": user_email, "name": "SuperAdmin Chat", "role": "admin"}
+            b_main.app.dependency_overrides[obter_usuario_google] = lambda: test_user
+
+            sess_id = f"sess_http_chat_{uuid.uuid4().hex[:8]}"
+            client_req_id = f"req_http_chat_{uuid.uuid4().hex[:8]}"
+            payload = {
+                "mensagem": "Verificação de idempotência não-streaming /chat",
+                "session_id": sess_id,
+                "client_request_id": client_req_id,
+                "model": "gemini-2.0-flash"
+            }
+
+            transport = httpx.ASGITransport(app=b_main.app)
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    # 1. Primeira requisição: execução de inferência e persistência no PostgreSQL
+                    r1 = await client.post("/chat", json=payload)
+                    self.assertEqual(r1.status_code, 200)
+                    data1 = r1.json()
+                    self.assertIn("Resposta não-streaming gerada para:", data1["resposta"])
+                    self.assertEqual(mock_ai.call_count, 1, "A IA deve ser invocada exatamente 1 vez no primeiro envio")
+
+                    # Limpa cache local em memória para garantir reconciliação no PostgreSQL
+                    b_main._idempotency_cache.clear()
+
+                    # 2. Segunda requisição: replay imediato via reconciliação read-only no PostgreSQL
+                    payload_retry = dict(payload)
+                    payload_retry["is_retry"] = True
+                    r2 = await client.post("/chat", json=payload_retry)
+                    self.assertEqual(r2.status_code, 200)
+                    data2 = r2.json()
+                    self.assertTrue(data2.get("cached"), "A resposta em replay deve ter cached=True")
+                    self.assertEqual(data2["resposta"], data1["resposta"])
+                    self.assertEqual(mock_ai.call_count, 1, "A IA NÃO deve sofrer re-inferência em replay idempotente")
+
+                    # 3. Comprova ausência absoluta de linhas duplicadas no PostgreSQL
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(
+                                "SELECT COUNT(*) FROM conversas WHERE session_id = %s AND role = 'assistant';",
+                                (sess_id,)
+                            )
+                            cnt = (await cur.fetchone())[0]
+                            self.assertEqual(cnt, 1, "Deve existir exatamente UMA mensagem de assistant no PostgreSQL")
+
+                    # 4. Bloqueio seguro de estado UNKNOWN (in-progress ativo de outro worker)
+                    unknown_sess = f"sess_chat_unknown_{uuid.uuid4().hex[:8]}"
+                    unknown_req_id = f"req_chat_unknown_{uuid.uuid4().hex[:8]}"
+                    unknown_payload = {
+                        "mensagem": "Pergunta em andamento /chat",
+                        "session_id": unknown_sess,
+                        "client_request_id": unknown_req_id,
+                        "model": "gemini-2.0-flash"
+                    }
+                    unknown_key = b_main._gerar_chave_idempotencia(user_email, unknown_sess, unknown_req_id, unknown_payload["mensagem"])
+                    req_h = b_main._calcular_fingerprint_requisicao(b_main.MensagemRequest(**unknown_payload))
+                    await b.claim_turn_ledger(unknown_key, "other_worker", unknown_sess, user_email, "general", req_h)
+
+                    r_unknown = await client.post("/chat", json=unknown_payload)
+                    self.assertEqual(r_unknown.status_code, 409, "Turno em estado UNKNOWN deve ser bloqueado com 409 Conflict")
+
+                    # 5. Tentativa de invasão / isolamento de tenant divergente -> 403 Forbidden
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "attacker_chat@helpus.com", "name": "Attacker", "role": "user"}
+                    r_attack = await client.post("/chat", json=payload)
+                    self.assertEqual(r_attack.status_code, 403, "Requisição com escopo divergente deve retornar 403 Forbidden")
+            finally:
+                b_main.get_cerebro = old_get_cerebro
+                b_main.banco = old_banco
+                b_main.app.dependency_overrides.clear()
+                await b.fechar()
+
+        self.run_async(_test())
+
+    def test_real_postgresql_preflight_reconcile_and_claim_race_safety(self):
+        """P1 Corrida Preflight/Claim (Ciclo 030): Demonstra que reconciliação read-only não gera claims espúrios
+        e que apenas o CAS atômico em PostgreSQL concede propriedade de execução sob concorrência."""
+        self._require_pg()
+        from backend.banco import BancoDados
+        import backend.main as b_main
+
+        async def _test():
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            try:
+                sess_id = f"sess_race_{uuid.uuid4().hex[:8]}"
+                req_id = f"req_race_{uuid.uuid4().hex[:8]}"
+                msg = "Pergunta sob corrida preflight"
+                user_email = "racer@helpus.com"
+                key = b_main._gerar_chave_idempotencia(user_email, sess_id, req_id, msg)
+                req_hash = hashlib.sha256(msg.encode("utf-8")).hexdigest()
+
+                # Ambos os workers executam reconciliação prévia em paralelo
+                st1, p1 = await b.reconcile_idempotency_turn(key, user_email=user_email, session_id=sess_id, request_payload_hash=req_hash, require_strict_scope=True)
+                st2, p2 = await b.reconcile_idempotency_turn(key, user_email=user_email, session_id=sess_id, request_payload_hash=req_hash, require_strict_scope=True)
+
+                self.assertEqual(st1, "NO_PRIOR_CLAIM")
+                self.assertEqual(st2, "NO_PRIOR_CLAIM")
+                self.assertIsNone(p1)
+                self.assertIsNone(p2)
+
+                # Agora ambos disputam claim simultaneamente com barreira sincronizada
+                barrier = asyncio.Barrier(2)
+                results = []
+
+                async def _worker(worker_id: str):
+                    await barrier.wait()
+                    acquired, cached, tok = await b.claim_turn_ledger(
+                        idempotency_key=key,
+                        owner_token=f"token_{worker_id}",
+                        session_id=sess_id,
+                        user_email=user_email,
+                        project_id="general",
+                        request_payload_hash=req_hash
+                    )
+                    results.append((worker_id, acquired, cached, tok))
+
+                t1 = asyncio.create_task(_worker("worker_1"))
+                t2 = asyncio.create_task(_worker("worker_2"))
+                await asyncio.gather(t1, t2)
+
+                # Exatamente 1 worker deve ter obtido o lease
+                winners = [r for r in results if r[1] is True]
+                losers = [r for r in results if r[1] is False]
+
+                self.assertEqual(len(winners), 1, "Exatamente 1 worker deve vencer o CAS atômico de claim")
+                self.assertEqual(len(losers), 1, "O outro worker deve ser categoricamente rejeitado pelo CAS")
+                self.assertIsNotNone(winners[0][3], "Vencedor deve ter owner_token válido")
+
+            finally:
+                await b.fechar()
+
+        self.run_async(_test())
+
 
 if __name__ == "__main__":
     unittest.main()
