@@ -253,72 +253,148 @@ class TestEphemeralUrlValidation(unittest.TestCase):
 
 class TestStateAndOverrideRestoration(unittest.TestCase):
     """
-    Suite de Testes Unitarios Leves de Restauracao de Estado Global e Overrides (Ordem 074 item 2).
+    Suite de Testes Unitarios Leves de Restauracao de Estado Global e Overrides (Ordem 074 / 076).
     Executa sem conexao ao banco e sem benchmarks de carga.
+    Garante que o estado externo anterior seja capturado ANTES de qualquer mutacao e restaurado via finally.
     """
 
     def test_dependency_override_restored_after_controlled_exception(self):
         """Comprova que dependency_overrides e restaurado ao valor exato pre-existente apos excecao."""
-        sentinel_override = lambda: {"email": "preexisting@helpus.local"}
-        b_main.app.dependency_overrides[obter_usuario_google] = sentinel_override
+        # Captura o estado externo real antes de qualquer mutacao
+        had_external = obter_usuario_google in b_main.app.dependency_overrides
+        orig_external = b_main.app.dependency_overrides.get(obter_usuario_google)
+        try:
+            sentinel_override = lambda: {"email": "preexisting@helpus.local"}
+            b_main.app.dependency_overrides[obter_usuario_google] = sentinel_override
 
-        had_orig = obter_usuario_google in b_main.app.dependency_overrides
-        orig = b_main.app.dependency_overrides.get(obter_usuario_google)
+            had_orig = obter_usuario_google in b_main.app.dependency_overrides
+            orig = b_main.app.dependency_overrides.get(obter_usuario_google)
 
-        with self.assertRaises(ZeroDivisionError):
-            try:
-                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "temporary@helpus.local"}
-                self.assertEqual(b_main.app.dependency_overrides[obter_usuario_google]()["email"], "temporary@helpus.local")
-                _ = 1 / 0
-            finally:
-                if had_orig:
-                    b_main.app.dependency_overrides[obter_usuario_google] = orig
-                else:
-                    b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+            with self.assertRaises(ZeroDivisionError):
+                try:
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "temporary@helpus.local"}
+                    self.assertEqual(b_main.app.dependency_overrides[obter_usuario_google]()["email"], "temporary@helpus.local")
+                    _ = 1 / 0
+                finally:
+                    if had_orig:
+                        b_main.app.dependency_overrides[obter_usuario_google] = orig
+                    else:
+                        b_main.app.dependency_overrides.pop(obter_usuario_google, None)
 
-        self.assertIs(b_main.app.dependency_overrides[obter_usuario_google], sentinel_override)
-        b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+            self.assertIs(b_main.app.dependency_overrides[obter_usuario_google], sentinel_override)
+        finally:
+            if had_external:
+                b_main.app.dependency_overrides[obter_usuario_google] = orig_external
+            else:
+                b_main.app.dependency_overrides.pop(obter_usuario_google, None)
 
     def test_dependency_override_removed_when_previously_absent_after_exception(self):
         """Comprova que override temporario e removido quando nao existia antes."""
-        b_main.app.dependency_overrides.pop(obter_usuario_google, None)
-        self.assertNotIn(obter_usuario_google, b_main.app.dependency_overrides)
+        had_external = obter_usuario_google in b_main.app.dependency_overrides
+        orig_external = b_main.app.dependency_overrides.get(obter_usuario_google)
+        try:
+            b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+            self.assertNotIn(obter_usuario_google, b_main.app.dependency_overrides)
 
-        had_orig = obter_usuario_google in b_main.app.dependency_overrides
-        orig = b_main.app.dependency_overrides.get(obter_usuario_google)
+            had_orig = obter_usuario_google in b_main.app.dependency_overrides
+            orig = b_main.app.dependency_overrides.get(obter_usuario_google)
 
-        with self.assertRaises(RuntimeError):
-            try:
-                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "temp@helpus.local"}
-                raise RuntimeError("Controlled failure")
-            finally:
-                if had_orig:
-                    b_main.app.dependency_overrides[obter_usuario_google] = orig
-                else:
-                    b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+            with self.assertRaises(RuntimeError):
+                try:
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "temp@helpus.local"}
+                    raise RuntimeError("Controlled failure")
+                finally:
+                    if had_orig:
+                        b_main.app.dependency_overrides[obter_usuario_google] = orig
+                    else:
+                        b_main.app.dependency_overrides.pop(obter_usuario_google, None)
 
-        self.assertNotIn(obter_usuario_google, b_main.app.dependency_overrides)
+            self.assertNotIn(obter_usuario_google, b_main.app.dependency_overrides)
+        finally:
+            if had_external:
+                b_main.app.dependency_overrides[obter_usuario_google] = orig_external
+            else:
+                b_main.app.dependency_overrides.pop(obter_usuario_google, None)
 
     def test_global_banco_and_cerebro_restored_after_exception(self):
         """Comprova que b_main.banco e b_main.get_cerebro sao restaurados apos excecao."""
-        orig_banco = getattr(b_main, "banco", None)
-        orig_cerebro = getattr(b_main, "get_cerebro", None)
+        orig_external_banco = getattr(b_main, "banco", None)
+        orig_external_cerebro = getattr(b_main, "get_cerebro", None)
+        try:
+            orig_banco = getattr(b_main, "banco", None)
+            orig_cerebro = getattr(b_main, "get_cerebro", None)
 
-        mock_sentinel_banco = object()
-        mock_sentinel_cerebro = lambda: "sentinel_cerebro"
+            mock_sentinel_banco = object()
+            mock_sentinel_cerebro = lambda: "sentinel_cerebro"
 
-        with self.assertRaises(KeyError):
+            with self.assertRaises(KeyError):
+                try:
+                    b_main.banco = mock_sentinel_banco
+                    b_main.get_cerebro = mock_sentinel_cerebro
+                    self.assertIs(b_main.banco, mock_sentinel_banco)
+                    raise KeyError("Controlled error")
+                finally:
+                    b_main.banco = orig_banco
+                    b_main.get_cerebro = orig_cerebro
+
+            self.assertIs(b_main.banco, orig_banco)
+            self.assertIs(b_main.get_cerebro, orig_cerebro)
+        finally:
+            b_main.banco = orig_external_banco
+            b_main.get_cerebro = orig_external_cerebro
+
+    def test_setup_class_failure_cleans_up_all_partial_mutations(self):
+        """
+        Ordem 076 item 2: Comprova que uma falha durante o setUpClass (injetada apos mutacao parcial)
+        aciona o tearDownClass e restaura DATABASE_URL, HELPUS_REQUIRE_POSTGRES,
+        b_config.DATABASE_URL, b_main.banco.database_url e a politica do event loop
+        ao estado anterior, sem qualquer conexao ao PostgreSQL.
+        """
+        orig_env_db = os.environ.get("DATABASE_URL")
+        orig_env_req = os.environ.get("HELPUS_REQUIRE_POSTGRES")
+        orig_cfg_db = getattr(b_config, "DATABASE_URL", None)
+        orig_banco_db = getattr(b_main.banco, "database_url", None)
+        try:
+            orig_loop_policy = asyncio.get_event_loop_policy()
+        except Exception:
+            orig_loop_policy = None
+
+        class DummyTestClass(LoadConcurrency50ClientsTest):
+            pass
+
+        def failing_setUpClass():
             try:
-                b_main.banco = mock_sentinel_banco
-                b_main.get_cerebro = mock_sentinel_cerebro
-                self.assertIs(b_main.banco, mock_sentinel_banco)
-                raise KeyError("Controlled error")
-            finally:
-                b_main.banco = orig_banco
-                b_main.get_cerebro = orig_cerebro
+                DummyTestClass._orig_env_db_url = os.environ.get("DATABASE_URL")
+                DummyTestClass._orig_env_require_pg = os.environ.get("HELPUS_REQUIRE_POSTGRES")
+                DummyTestClass._orig_config_db_url = getattr(b_config, "DATABASE_URL", None)
+                DummyTestClass._orig_b_main_banco_url = getattr(b_main.banco, "database_url", None)
+                try:
+                    DummyTestClass._orig_loop_policy = asyncio.get_event_loop_policy()
+                except Exception:
+                    DummyTestClass._orig_loop_policy = None
 
-        self.assertIs(b_main.banco, orig_banco)
-        self.assertIs(b_main.get_cerebro, orig_cerebro)
+                # Mutações parciais simuladas
+                os.environ["DATABASE_URL"] = "postgresql://helpus_test@127.0.0.1:5433/helpus_ephemeral"
+                b_config.DATABASE_URL = "postgresql://helpus_test@127.0.0.1:5433/helpus_ephemeral"
+                b_main.banco.database_url = "postgresql://helpus_test@127.0.0.1:5433/helpus_ephemeral"
+                os.environ["HELPUS_REQUIRE_POSTGRES"] = "1"
+
+                # Injeção controlada de falha antes da conclusão
+                raise RuntimeError("Simulated failure in middle of setUpClass")
+            except Exception:
+                DummyTestClass.tearDownClass()
+                raise
+
+        with self.assertRaises(RuntimeError):
+            failing_setUpClass()
+
+        # Asserções estritas: todas as variáveis e configurações voltaram exatamente ao estado anterior
+        self.assertEqual(os.environ.get("DATABASE_URL"), orig_env_db)
+        self.assertEqual(os.environ.get("HELPUS_REQUIRE_POSTGRES"), orig_env_req)
+        self.assertEqual(getattr(b_config, "DATABASE_URL", None), orig_cfg_db)
+        self.assertEqual(getattr(b_main.banco, "database_url", None), orig_banco_db)
+        if orig_loop_policy is not None:
+            self.assertIs(asyncio.get_event_loop_policy(), orig_loop_policy)
 
 
 class LoadConcurrency50ClientsTest(unittest.TestCase):
