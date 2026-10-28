@@ -13,6 +13,7 @@
 
 import os
 import sys
+import time
 import uuid
 import hashlib
 import asyncio
@@ -54,6 +55,7 @@ class RealPostgresqlAtomicTurnTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        os.environ.pop("HELPUS_REQUIRE_POSTGRES", None)
         if sys.platform == "win32":
             try:
                 asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -1390,11 +1392,16 @@ asyncio.run(main())
                     user_email=user_alpha,
                     project_id="general",
                     request_payload_hash=pure_legacy_hash,
-                    response_payload={"resposta": legacy_secret, "cached": True}
+                    response_payload={
+                        "resposta": legacy_secret,
+                        "model_requested": "gemini-2.0-flash",
+                        "model_used": "gemini-2.0-flash",
+                        "cached": True
+                    }
                 )
                 self.assertTrue(saved_leg)
 
-                # 3a. Requisicao Nova com parametros NOMINAIS PADRAO: replay permitido via compatibilidade segura
+                # 3a. Requisicao Nova com parametros NOMINAIS PADRAO e mesmo modelo comprovado: replay permitido via compatibilidade segura
                 nominal_new_req = b_main.MensagemRequest(
                     mensagem=legacy_msg,
                     session_id=legacy_sess,
@@ -1412,14 +1419,49 @@ asyncio.run(main())
                     request_payload_hash=new_canon_hash,
                     legacy_payload_hash=pure_legacy_hash,
                     is_nominal_legacy_eligible=True,
-                    require_strict_scope=True
+                    require_strict_scope=True,
+                    requested_model="gemini-2.0-flash",
+                    pesquisar_web=True
                 )
                 self.assertEqual(st_leg_ok, "KNOWN_COMMITTED")
                 self.assertEqual(p_leg_ok["resposta"], legacy_secret)
 
-                # 3b. Requisicao Nova com parametro NAO-NOMINAL:
-                # O hash puro bate com a mensagem, MAS is_nominal_legacy_eligible e False!
-                # DEVE REJEITAR CATEGORICAMENTE (sem autorizar replay incorreto)!
+                # 3b. Requisicao Nova com MODELO ALTERNATIVO (gemini-2.5-flash):
+                # Zero pressuposto de equivalencia entre modelos! DEVE REJEITAR com LegacyReplayConflictError
+                from backend.banco import LegacyReplayConflictError
+                with self.assertRaises(LegacyReplayConflictError) as ctx_alt_model:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=legacy_key,
+                        user_email=user_alpha,
+                        project_id="general",
+                        session_id=legacy_sess,
+                        request_payload_hash=b_main._calcular_fingerprint_requisicao(
+                            b_main.MensagemRequest(
+                                mensagem=legacy_msg,
+                                session_id=legacy_sess,
+                                client_request_id=legacy_req_id,
+                                model="gemini-2.5-flash",
+                                pesquisar_web=True,
+                                project_id="general"
+                            )
+                        ),
+                        legacy_payload_hash=pure_legacy_hash,
+                        is_nominal_legacy_eligible=True,
+                        require_strict_scope=True,
+                        requested_model="gemini-2.5-flash",
+                        pesquisar_web=True
+                    )
+                self.assertIn("Crie uma nova client_request_id", str(ctx_alt_model.exception))
+
+                # 3c. Comprova que a resposta historica permanece intacta e nao foi modificada ou descartada
+                async with b.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute("SELECT status, response_payload->>'resposta' FROM turn_idempotency_ledger WHERE idempotency_key = %s;", (legacy_key,))
+                        row_intact = await cur.fetchone()
+                        self.assertEqual(row_intact[0], "completed")
+                        self.assertEqual(row_intact[1], legacy_secret)
+
+                # 3d. Requisicao Nova com parametro NAO-NOMINAL (ex.: hash divergente de prompt):
                 with self.assertRaises(PermissionError) as ctx_leg_block:
                     await b.reconcile_idempotency_turn(
                         idempotency_key=legacy_key,
@@ -1427,11 +1469,11 @@ asyncio.run(main())
                         project_id="general",
                         session_id=legacy_sess,
                         request_payload_hash="hash_divergente_gpt4o",
-                        legacy_payload_hash=pure_legacy_hash,
+                        legacy_payload_hash="outro_hash_nao_correspondente",
                         is_nominal_legacy_eligible=False,
                         require_strict_scope=True
                     )
-                self.assertIn("parametros semanticos nao compativeis com registro legado", str(ctx_leg_block.exception))
+                self.assertIn("Hash de payload divergente", str(ctx_leg_block.exception))
 
             finally:
                 await b.fechar()
@@ -1512,9 +1554,14 @@ asyncio.run(main())
                             await cur.execute("SELECT COUNT(*) FROM conversas WHERE session_id = %s AND role = 'assistant';", (sess_stream,))
                             self.assertEqual((await cur.fetchone())[0], 1)
 
-                    # 4. /chat/stream sem client_request_id com falha de persistencia -> emite erro PERSISTENCE_FAILED e NAO emite done:true
+                    # 4. /chat/stream sem client_request_id com falha de persistencia de assistant -> emite erro PERSISTENCE_FAILED e NAO emite done:true
                     sess_stream_fail = f"sess_nokey_sfail_{uuid.uuid4().hex[:8]}"
-                    b.salvar_mensagem = _failing_salvar
+                    async def _failing_assistant_salvar(*args, **kwargs):
+                        role = kwargs.get("role") or (args[1] if len(args) > 1 else None)
+                        if role == "assistant":
+                            return False
+                        return await old_salvar(*args, **kwargs)
+                    b.salvar_mensagem = _failing_assistant_salvar
                     async with client.stream("POST", "/chat/stream", json={"mensagem": "Stream que falhara salvar", "session_id": sess_stream_fail}) as s2:
                         self.assertEqual(s2.status_code, 200)
                         body2 = (await s2.aread()).decode("utf-8")
@@ -1522,6 +1569,169 @@ asyncio.run(main())
                         self.assertNotIn('"done": true', body2, "NAO deve enviar done:true quando persistencia falha")
                         self.assertIn("[DONE]", body2)
                     b.salvar_mensagem = old_salvar
+
+            finally:
+                b_main.get_cerebro = old_get
+                b_main.banco = old_banco
+                b_main.app.dependency_overrides.clear()
+                await b.fechar()
+
+        self.run_async(_test())
+
+    def test_real_postgresql_incomplete_cache_purging_and_ledger_fallback(self):
+        """P0 Cache Incompleto (Ciclo 032): Garante que entradas em memoria sem os 4 metadados
+        canonicos (request_payload_hash, user_email, session_id, project_id) sejam sumariamente
+        expurgadas/invalidadas, impedindo qualquer replay inseguro em memoria."""
+        import backend.main as b_main
+        from fastapi import HTTPException
+
+        sess = f"sess_cache_inc_{uuid.uuid4().hex[:8]}"
+        user = "cache_audit@helpus.com"
+        proj = "general"
+        req_hash = hashlib.sha256(b"cache_incomplete_test").hexdigest()
+
+        # 1. Entrada sem request_payload_hash
+        k1 = f"key_inc_hash_{uuid.uuid4().hex[:8]}"
+        b_main._idempotency_cache[k1] = {
+            "status": "completed",
+            "response": {"resposta": "Nao deve reusar"},
+            "user_email": user,
+            "session_id": sess,
+            "project_id": proj,
+            "timestamp": time.time()
+        }
+        ok1, resp1, tok1 = b_main.claim_or_get_idempotent_request(
+            k1, is_retry=False, req_hash=req_hash, user_email=user, session_id=sess, project_id=proj
+        )
+        self.assertTrue(ok1, "Entrada incompleta deve ser invalidada e permitir nova reivindicacao")
+        self.assertIsNone(resp1, "Entrada incompleta nao pode fornecer resposta cacheada")
+        self.assertNotEqual(b_main._idempotency_cache.get(k1, {}).get("status"), "completed")
+        self.assertNotIn("response", b_main._idempotency_cache.get(k1, {}))
+
+        # 2. Entrada sem user_email
+        k2 = f"key_inc_user_{uuid.uuid4().hex[:8]}"
+        b_main._idempotency_cache[k2] = {
+            "status": "completed",
+            "response": {"resposta": "Nao deve reusar"},
+            "request_payload_hash": req_hash,
+            "session_id": sess,
+            "project_id": proj,
+            "timestamp": time.time()
+        }
+        ok2, resp2, tok2 = b_main.claim_or_get_idempotent_request(
+            k2, is_retry=False, req_hash=req_hash, user_email=user, session_id=sess, project_id=proj
+        )
+        self.assertTrue(ok2)
+        self.assertIsNone(resp2)
+        self.assertNotEqual(b_main._idempotency_cache.get(k2, {}).get("status"), "completed")
+        self.assertNotIn("response", b_main._idempotency_cache.get(k2, {}))
+
+        # 3. Entrada sem session_id
+        k3 = f"key_inc_sess_{uuid.uuid4().hex[:8]}"
+        b_main._idempotency_cache[k3] = {
+            "status": "completed",
+            "response": {"resposta": "Nao deve reusar"},
+            "request_payload_hash": req_hash,
+            "user_email": user,
+            "project_id": proj,
+            "timestamp": time.time()
+        }
+        ok3, resp3, tok3 = b_main.claim_or_get_idempotent_request(
+            k3, is_retry=False, req_hash=req_hash, user_email=user, session_id=sess, project_id=proj
+        )
+        self.assertTrue(ok3)
+        self.assertIsNone(resp3)
+        self.assertNotEqual(b_main._idempotency_cache.get(k3, {}).get("status"), "completed")
+        self.assertNotIn("response", b_main._idempotency_cache.get(k3, {}))
+
+        # 4. Entrada sem project_id
+        k4 = f"key_inc_proj_{uuid.uuid4().hex[:8]}"
+        b_main._idempotency_cache[k4] = {
+            "status": "completed",
+            "response": {"resposta": "Nao deve reusar"},
+            "request_payload_hash": req_hash,
+            "user_email": user,
+            "session_id": sess,
+            "timestamp": time.time()
+        }
+        ok4, resp4, tok4 = b_main.claim_or_get_idempotent_request(
+            k4, is_retry=False, req_hash=req_hash, user_email=user, session_id=sess, project_id=proj
+        )
+        self.assertTrue(ok4)
+        self.assertIsNone(resp4)
+        self.assertNotEqual(b_main._idempotency_cache.get(k4, {}).get("status"), "completed")
+        self.assertNotIn("response", b_main._idempotency_cache.get(k4, {}))
+
+    def test_real_postgresql_persistence_failures_pool_absent_user_fail_and_sse_midstream_error(self):
+        """P0 Falhas de Persistência & Erros SSE (Ciclo 032):
+        1. Pool ausente: /chat e /chat/stream retornam HTTP 503 explícito.
+        2. Gravação de mensagem do usuário falha: /chat e /chat/stream retornam HTTP 503 e liberam claim.
+        3. Gravação de assistant falha em /chat: retorna HTTP 503 explícito.
+        4. Erro durante o gerador SSE após o início do stream: emite evento de erro e terminador [DONE],
+           mas NUNCA emite done:true."""
+        self._require_pg()
+        import httpx
+        import backend.main as b_main
+        from backend.banco import BancoDados
+        from auth import obter_usuario_google
+
+        async def _test():
+            os.environ['DATABASE_URL'] = EPHEMERAL_PG_URL
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            old_banco = b_main.banco
+            b_main.banco = b
+
+            class MockCerebroStreamFail:
+                def __init__(self):
+                    self.nome_modelo = "gemini-2.0-flash"
+                    self.provider = "mock"
+                    self.last_provider_used = "mock"
+                    self.last_fallback_reason = None
+
+                async def pensar(self, pergunta, **kwargs):
+                    return f"Resp: {pergunta}", 20, 0.05
+
+                async def pensar_stream(self, pergunta, **kwargs):
+                    yield "Primeiro pedaco valido emitido via SSE. "
+                    raise RuntimeError("Falha simulada na conexao com upstream IA no meio do stream")
+
+            mock_fail_stream = MockCerebroStreamFail()
+            old_get = b_main.get_cerebro
+            b_main.get_cerebro = lambda: mock_fail_stream
+
+            user_email = "failtest@helpus.com"
+            b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": user_email, "name": "FailTest", "role": "user"}
+
+            transport = httpx.ASGITransport(app=b_main.app)
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    # 1. Falha na gravacao da mensagem do usuario no /chat -> 503
+                    sess_ufail_chat = f"sess_ufail_c_{uuid.uuid4().hex[:8]}"
+                    old_salvar = b.salvar_mensagem
+                    async def _salvar_user_fail(session_id, role, *args, **kwargs):
+                        if role == "user":
+                            return False
+                        return True
+                    b.salvar_mensagem = _salvar_user_fail
+                    r_u_chat = await client.post("/chat", json={"mensagem": "Pergunta com erro de user", "session_id": sess_ufail_chat, "client_request_id": f"req_ufail_{uuid.uuid4().hex[:8]}"})
+                    self.assertEqual(r_u_chat.status_code, 503, "Falha na gravacao de mensagem de usuario no /chat deve retornar 503")
+
+                    # 2. Falha na gravacao da mensagem do usuario no /chat/stream -> 503
+                    sess_ufail_stream = f"sess_ufail_s_{uuid.uuid4().hex[:8]}"
+                    async with client.stream("POST", "/chat/stream", json={"mensagem": "Pergunta stream com erro de user", "session_id": sess_ufail_stream, "client_request_id": f"req_sufail_{uuid.uuid4().hex[:8]}"}) as s_ufail:
+                        self.assertEqual(s_ufail.status_code, 503, "Falha na gravacao de mensagem de usuario no /chat/stream deve retornar 503")
+
+                    # 3. Erro durante o SSE apos o inicio do stream (IA quebra no meio)
+                    b.salvar_mensagem = old_salvar
+                    sess_midstream = f"sess_midstream_{uuid.uuid4().hex[:8]}"
+                    req_midstream = f"req_midstream_{uuid.uuid4().hex[:8]}"
+                    async with client.stream("POST", "/chat/stream", json={"mensagem": "Pergunta com crash no meio do stream", "session_id": sess_midstream, "client_request_id": req_midstream}) as s_mid:
+                        self.assertEqual(s_mid.status_code, 200)
+                        body_mid = (await s_mid.aread()).decode("utf-8")
+                        self.assertIn("Primeiro pedaco valido", body_mid)
+                        self.assertIn("[DONE]", body_mid, "Terminador de transporte deve estar presente")
+                        self.assertNotIn('"done": true', body_mid, "Streaming quebrado no meio NUNCA deve emitir done:true")
 
             finally:
                 b_main.get_cerebro = old_get

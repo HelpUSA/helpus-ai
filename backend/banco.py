@@ -25,25 +25,62 @@ AUDIT_ALLOWED_DETAIL_KEYS = {
 }
 FORBIDDEN_DETAIL_SUBSTRINGS = {"key", "token", "secret", "password", "auth", "credential", "bearer", "private"}
 
+class LegacyReplayConflictError(Exception):
+    """Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro."""
+    pass
+
 def is_nominal_legacy_request(
     model: Optional[str] = None,
     pesquisar_web: bool = True,
     has_image: bool = False,
     has_file: bool = False,
-    project_id: Optional[str] = "general"
+    project_id: Optional[str] = "general",
+    historical_response_payload: Optional[Dict[str, Any]] = None
 ) -> bool:
-    """Verifica se os parametros da requisicao correspondem estritamente ao baseline nominal legado (P0 - Ciclo 031).
-    Um turno legado gravado no Ciclo 029 ou anterior assumia:
-    - modelo nominal padrao (vazio, gemini-2.0-flash, gemini-2.5-flash, gemini-1.5-flash)
-    - pesquisar_web == True
-    - sem anexos (imagem base64 ou url, arquivo)
-    - projeto padrao 'general' (ou vazio)
+    """Verifica se os parametros da requisicao correspondem estritamente ao baseline nominal legado
+    E se ha metadados historicos suficientes para comprovar a identidade semantica completa (P0 - Ciclos 031/032).
     
-    Se qualquer parametro semantico divergir, o turno NAO pode ser reusado via legacy_payload_hash."""
-    eff_model = (model or "").strip().lower()
-    is_default_model = eff_model in ("", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash")
+    Regras Estritas (Zero Pressuposto de Equivalencia):
+    - Elimina sumariamente qualquer pressuposto de equivalencia entre modelos diferentes (ex.: gemini-2.0-flash != gemini-2.5-flash).
+    - Se a requisicao solicita um modelo, ele DEVE coincidir exatamente com o modelo comprovado nos metadados historicos.
+    - Se historical_response_payload for fornecido:
+      - O modelo historico registrado DEVE existir e ser comprovado. Ausencia de metadado de modelo invalida a equivalencia.
+      - O modelo solicitado (ou padrao efetivo 'gemini-2.0-flash') deve coincidir estritamente com o modelo historico comprovado.
+    - pesquisar_web DEVE ser True (baseline fixo legado).
+    - Nao pode haver anexos (has_image=False, has_file=False).
+    - project_id DEVE coincidir ('general' ou vazio).
+    """
+    if has_image or has_file or (pesquisar_web is not True):
+        return False
+
     is_default_proj = (project_id or "general").strip() in ("", "general")
-    return is_default_model and (pesquisar_web is True) and (not has_image) and (not has_file) and is_default_proj
+    if not is_default_proj:
+        return False
+
+    eff_model = (model or "gemini-2.0-flash").strip().lower()
+    if not eff_model:
+        eff_model = "gemini-2.0-flash"
+
+    # Se metadados historicos estiverem disponiveis para inspecao:
+    if historical_response_payload is not None:
+        if not isinstance(historical_response_payload, dict):
+            return False
+        hist_model = (
+            historical_response_payload.get("model_requested")
+            or historical_response_payload.get("model_used")
+            or ""
+        ).strip().lower()
+        # Sem comprovacao explicita nos metadados historicos, o hash antigo da mensagem nao prova o modelo
+        if not hist_model:
+            return False
+        # Modelos diferentes NUNCA sao considerados equivalentes
+        if eff_model != hist_model:
+            return False
+        return True
+
+    # Sem inspecao de payload historico (pre-check estatico):
+    # Aceita apenas se o modelo solicitado for o modelo canonico historico nominal 'gemini-2.0-flash'
+    return eff_model in ("gemini-2.0-flash", "")
 
 def sanitizar_detalhes_auditoria(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Sanitiza os detalhes de auditoria por allowlist estrita e mascara possiveis credenciais."""
@@ -375,6 +412,7 @@ class BancoDados:
     _projetos_memoria: Dict[str, Optional[str]] = {}
     _audit_log_memoria: List[Dict] = []
     _ledger_memoria: Dict[str, Dict[str, Any]] = {}
+    _conversas_memoria: List[Dict] = []
 
     async def claim_turn_ledger(
         self,
@@ -387,7 +425,11 @@ class BancoDados:
         is_retry: bool = False,
         lease_seconds: float = 15.0,
         legacy_payload_hash: Optional[str] = None,
-        is_nominal_legacy_eligible: bool = False
+        is_nominal_legacy_eligible: bool = False,
+        requested_model: Optional[str] = None,
+        pesquisar_web: bool = True,
+        has_image: bool = False,
+        has_file: bool = False
     ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         """Reivindica a execucao atomica do turno no ledger persistente ou memoria.
         
@@ -424,8 +466,19 @@ class BancoDados:
                 if db_proj != proj_norm:
                     raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                 if request_payload_hash and db_hash != request_payload_hash:
-                    is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
-                    if not is_legacy:
+                    if legacy_payload_hash and db_hash == legacy_payload_hash:
+                        raw_hist = entry.get("response_payload")
+                        hist_dict = raw_hist if isinstance(raw_hist, dict) else (json.loads(raw_hist) if isinstance(raw_hist, str) and raw_hist.startswith("{") else None)
+                        if not is_nominal_legacy_request(
+                            model=requested_model,
+                            pesquisar_web=pesquisar_web,
+                            has_image=has_image,
+                            has_file=has_file,
+                            project_id=proj_norm,
+                            historical_response_payload=hist_dict
+                        ):
+                            raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
+                    else:
                         raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
 
                 status = entry.get("status")
@@ -488,8 +541,18 @@ class BancoDados:
                         if db_proj_norm != proj_norm:
                             raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                         if request_payload_hash and db_hash != request_payload_hash:
-                            is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
-                            if not is_legacy:
+                            if legacy_payload_hash and db_hash == legacy_payload_hash:
+                                hist_dict = resp_payload if isinstance(resp_payload, dict) else (json.loads(resp_payload) if isinstance(resp_payload, str) and resp_payload.startswith("{") else None)
+                                if not is_nominal_legacy_request(
+                                    model=requested_model,
+                                    pesquisar_web=pesquisar_web,
+                                    has_image=has_image,
+                                    has_file=has_file,
+                                    project_id=proj_norm,
+                                    historical_response_payload=hist_dict
+                                ):
+                                    raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
+                            else:
                                 raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
 
                         if status == "completed":
@@ -565,8 +628,18 @@ class BancoDados:
                                 if r_proj_norm != proj_norm:
                                     raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                                 if request_payload_hash and r_hash != request_payload_hash:
-                                    is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and r_hash == legacy_payload_hash)
-                                    if not is_legacy:
+                                    if legacy_payload_hash and r_hash == legacy_payload_hash:
+                                        hist_dict = r_resp if isinstance(r_resp, dict) else (json.loads(r_resp) if isinstance(r_resp, str) and r_resp.startswith("{") else None)
+                                        if not is_nominal_legacy_request(
+                                            model=requested_model,
+                                            pesquisar_web=pesquisar_web,
+                                            has_image=has_image,
+                                            has_file=has_file,
+                                            project_id=proj_norm,
+                                            historical_response_payload=hist_dict
+                                        ):
+                                            raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
+                                    else:
                                         raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
                                 if r_status == "completed":
                                     payload = r_resp if isinstance(r_resp, dict) else json.loads(r_resp or "{}")
@@ -605,9 +678,13 @@ class BancoDados:
         session_id: Optional[str] = None,
         legacy_payload_hash: Optional[str] = None,
         require_strict_scope: bool = False,
-        is_nominal_legacy_eligible: bool = False
+        is_nominal_legacy_eligible: bool = False,
+        requested_model: Optional[str] = None,
+        pesquisar_web: bool = True,
+        has_image: bool = False,
+        has_file: bool = False
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029/030/031).
+        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029/030/031/032).
         
         Retorna uma tupla (classification, cached_payload):
         - 'KNOWN_COMMITTED': Turno gravado e concluido no PostgreSQL com payload disponivel. Seguro para replay.
@@ -636,8 +713,20 @@ class BancoDados:
             if project_id and (entry.get("project_id") or "general") != proj_norm:
                 raise PermissionError("Escopo de projeto divergente na reconciliacao.")
             if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
-                is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
-                if not is_legacy:
+                db_hash = entry.get("request_payload_hash")
+                if legacy_payload_hash and db_hash == legacy_payload_hash:
+                    raw_hist = entry.get("response_payload")
+                    hist_dict = raw_hist if isinstance(raw_hist, dict) else (json.loads(raw_hist) if isinstance(raw_hist, str) and raw_hist.startswith("{") else None)
+                    if not is_nominal_legacy_request(
+                        model=requested_model,
+                        pesquisar_web=pesquisar_web,
+                        has_image=has_image,
+                        has_file=has_file,
+                        project_id=proj_norm,
+                        historical_response_payload=hist_dict
+                    ):
+                        raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
+                else:
                     raise PermissionError("Hash de payload divergente na reconciliacao: parametros semanticos nao compativeis com registro legado.")
 
             status = entry.get("status")
@@ -699,8 +788,18 @@ class BancoDados:
                     if project_id and db_proj_norm != proj_norm:
                         raise PermissionError("Escopo de projeto divergente na reconciliacao.")
                     if request_payload_hash and db_hash != request_payload_hash:
-                        is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
-                        if not is_legacy:
+                        if legacy_payload_hash and db_hash == legacy_payload_hash:
+                            hist_dict = resp_payload if isinstance(resp_payload, dict) else (json.loads(resp_payload) if isinstance(resp_payload, str) and resp_payload.startswith("{") else None)
+                            if not is_nominal_legacy_request(
+                                model=requested_model,
+                                pesquisar_web=pesquisar_web,
+                                has_image=has_image,
+                                has_file=has_file,
+                                project_id=proj_norm,
+                                historical_response_payload=hist_dict
+                            ):
+                                raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
+                        else:
                             raise PermissionError("Hash de payload divergente na reconciliacao: parametros semanticos nao compativeis com registro legado.")
 
                     if status == "completed":
@@ -853,7 +952,11 @@ class BancoDados:
         request_payload_hash: Optional[str] = None,
         response_payload: Optional[Dict[str, Any]] = None,
         legacy_payload_hash: Optional[str] = None,
-        is_nominal_legacy_eligible: bool = False
+        is_nominal_legacy_eligible: bool = False,
+        requested_model: Optional[str] = None,
+        pesquisar_web: bool = True,
+        has_image: bool = False,
+        has_file: bool = False
     ) -> bool:
         """Executa atomicamente a validacao de CAS, persistencia duravel e conclusao do ledger (P0 - Ciclo 024)."""
         if not session_id or not content or not idempotency_key or not owner_token:
@@ -896,8 +999,19 @@ class BancoDados:
                 if entry.get("session_id") != session_id:
                     return False
                 if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
-                    is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
-                    if not is_legacy:
+                    if legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash:
+                        raw_hist = entry.get("response_payload")
+                        hist_dict = raw_hist if isinstance(raw_hist, dict) else (json.loads(raw_hist) if isinstance(raw_hist, str) and raw_hist.startswith("{") else None)
+                        if not is_nominal_legacy_request(
+                            model=requested_model,
+                            pesquisar_web=pesquisar_web,
+                            has_image=has_image,
+                            has_file=has_file,
+                            project_id=proj_norm,
+                            historical_response_payload=hist_dict
+                        ):
+                            return False
+                    else:
                         return False
                 if entry.get("user_email") != email_norm:
                     return False
@@ -1290,7 +1404,25 @@ class BancoDados:
         """
         pool_ok = await self._garantir_pool()
         if not pool_ok or self.pool is None:
-            raise RuntimeError("Persistencia duravel indisponivel: conexao com banco ausente ou inacessivel.")
+            is_deploy = bool(
+                os.getenv("VERCEL")
+                or os.getenv("RAILWAY_ENVIRONMENT")
+                or os.getenv("RENDER")
+                or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+            )
+            if is_deploy or os.getenv("HELPUS_TEST_MODE") != "1" or os.getenv("HELPUS_REQUIRE_POSTGRES") == "1":
+                raise RuntimeError("Persistencia duravel indisponivel: conexao com banco ausente ou inacessivel.")
+            email_norm = user_email.strip().lower() if user_email else None
+            self._conversas_memoria.append({
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "user_email": email_norm,
+                "title": title,
+                "project_id": project_id or "general",
+                "turn_idempotency_key": turn_idempotency_key
+            })
+            return True
 
         email_norm = user_email.strip().lower() if user_email else None
         if not await self.verificar_propriedade_sessao(session_id, email_norm):
@@ -1320,7 +1452,10 @@ class BancoDados:
         limite: int = 100,
         user_email: Optional[str] = None,
     ) -> List[Dict]:
-        if not await self._garantir_pool():
+        if not await self._garantir_pool() or self.pool is None:
+            if (os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test") and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
+                msgs = [m for m in self._conversas_memoria if m["session_id"] == session_id]
+                return msgs[-limite:]
             return []
 
         try:

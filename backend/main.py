@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 
 import config as app_config
 from config import DEBUG, CORS_ORIGINS
-from banco import BancoDados, _log_db_error, is_nominal_legacy_request
+from banco import BancoDados, _log_db_error, is_nominal_legacy_request, LegacyReplayConflictError
 from cerebro import CerebroIA, set_request_model, get_request_model, get_request_metadata, set_request_metadata, reset_request_context
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
@@ -546,39 +546,67 @@ def claim_or_get_idempotent_request(
     if not idempotency_key:
         return True, None, None
 
+    # Se metadados canonicos nao foram fornecidos como kwargs mas a chave for estruturada (email:sess:req:hash)
+    if idempotency_key and len(idempotency_key.split(":")) >= 4:
+        parts = idempotency_key.split(":")
+        if not user_email:
+            user_email = parts[0]
+        if not session_id:
+            session_id = parts[1]
+        if not req_hash:
+            req_hash = parts[3]
+        if not project_id:
+            project_id = "general"
+
     now = time.time()
     for k in [k for k, v in _idempotency_cache.items() if now - v.get("timestamp", 0) > IDEMPOTENCY_TTL_SECONDS]:
         _idempotency_cache.pop(k, None)
 
     entry = _idempotency_cache.get(idempotency_key)
+    eff_user = (user_email or "anon").strip().lower()
     if entry:
-        # P1 Validacao de identidade antes de qualquer replay em memoria
-        if session_id and entry.get("session_id") and entry.get("session_id") != session_id:
-            raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outra sessao.")
-        if user_email and entry.get("user_email") and (entry.get("user_email") or "").strip().lower() != (user_email or "").strip().lower():
-            raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outro usuario.")
-        if project_id and entry.get("project_id") and entry.get("project_id") != project_id:
-            raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outro projeto.")
-        if req_hash and entry.get("request_payload_hash") and entry.get("request_payload_hash") != req_hash:
-            raise HTTPException(status_code=403, detail="Conflito de escopo: fingerprint canonico divergente em cache de idempotencia.")
+        cached_hash = entry.get("request_payload_hash")
+        has_user_meta = "user_email" in entry
+        cached_user = (entry.get("user_email") or "anon").strip().lower()
+        cached_sess = entry.get("session_id")
+        cached_proj = entry.get("project_id")
 
-        if entry.get("status") == "completed":
-            return False, entry.get("response"), None
-        if entry.get("status") == "in_progress":
-            last_hb = entry.get("last_heartbeat", entry.get("timestamp", 0))
-            hb_elapsed = now - last_hb
-            if is_retry:
-                if hb_elapsed < HEARTBEAT_TIMEOUT_SECONDS:
+        # P0 CACHE INCOMPLETO (Ciclo 032): Rejeita/invalida sumariamente qualquer entrada em memoria
+        # sem escopo completo devidamente comprovado (request_payload_hash, user_email, session_id, project_id).
+        # Nunca interpretar ausencia de metadados como identidade confirmada.
+        if not (cached_hash and has_user_meta and cached_sess and cached_proj) or not (req_hash and session_id and project_id):
+            # Invalida entrada incompleta para impedir replay inseguro e forcar consulta ao ledger persistente
+            _idempotency_cache.pop(idempotency_key, None)
+            entry = None
+        else:
+            # Validacao estrita contra os dados autenticados da requisicao atual:
+            if cached_sess != session_id:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outra sessao.")
+            if cached_user != eff_user:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outro usuario.")
+            if cached_proj != project_id:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outro projeto.")
+            if cached_hash != req_hash:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: fingerprint canonico divergente em cache de idempotencia.")
+
+        if entry:
+            if entry.get("status") == "completed":
+                return False, entry.get("response"), None
+            if entry.get("status") == "in_progress":
+                last_hb = entry.get("last_heartbeat", entry.get("timestamp", 0))
+                hb_elapsed = now - last_hb
+                if is_retry:
+                    if hb_elapsed < HEARTBEAT_TIMEOUT_SECONDS:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Inferencia original ainda em processamento ativo (heartbeat ativo). Aguarde a conclusao antes de reenviar."
+                        )
+                    _idempotency_cache.pop(idempotency_key, None)
+                else:
                     raise HTTPException(
                         status_code=409,
-                        detail="Inferencia original ainda em processamento ativo (heartbeat ativo). Aguarde a conclusao antes de reenviar."
+                        detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
                     )
-                _idempotency_cache.pop(idempotency_key, None)
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
-                )
 
     owner_token = str(uuid.uuid4())
     _idempotency_cache[idempotency_key] = {
@@ -587,7 +615,7 @@ def claim_or_get_idempotent_request(
         "last_heartbeat": now,
         "owner_token": owner_token,
         "request_payload_hash": req_hash,
-        "user_email": user_email,
+        "user_email": user_email or "anon",
         "session_id": session_id,
         "project_id": project_id,
     }
@@ -1170,7 +1198,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     is_claimed = False
     owner_token = None
 
-    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030/031): Reconcilia estado persistente antes de inferencia ou claim
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030/031/032): Reconcilia estado persistente antes de inferencia ou claim
     if idempotency_key and banco:
         try:
             reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
@@ -1181,7 +1209,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                 session_id=session_id,
                 legacy_payload_hash=legacy_req_hash,
                 require_strict_scope=True,
-                is_nominal_legacy_eligible=is_legacy_eligible
+                is_nominal_legacy_eligible=is_legacy_eligible,
+                requested_model=request.model,
+                pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                has_image=has_img,
+                has_file=has_file
             )
             if reconcile_status == "KNOWN_COMMITTED":
                 if cached_payload and isinstance(cached_payload, dict) and "resposta" in cached_payload:
@@ -1208,6 +1240,8 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     status_code=409,
                     detail="Turno pendente com lease expirada; novo envio deve especificar retry para takeover transacional."
                 )
+        except LegacyReplayConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except PermissionError:
             raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
         except HTTPException:
@@ -1242,7 +1276,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     request_payload_hash=req_hash,
                     is_retry=request.is_retry,
                     legacy_payload_hash=legacy_req_hash,
-                    is_nominal_legacy_eligible=is_legacy_eligible
+                    is_nominal_legacy_eligible=is_legacy_eligible,
+                    requested_model=request.model,
+                    pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                    has_image=has_img,
+                    has_file=has_file
                 )
                 if not db_should_run:
                     if db_cached_resp:
@@ -1256,6 +1294,9 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                         status_code=409,
                         detail="Requisicao identica em processamento ativo no ledger persistente."
                     )
+            except LegacyReplayConflictError as e:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=409, detail=str(e))
             except PermissionError:
                 release_idempotent_request(idempotency_key, owner_token=owner_token)
                 raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
@@ -1264,6 +1305,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             except Exception as e:
                 _log_db_error("claim_turn_ledger_chat", e)
                 release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
                 raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
 
     hb_session = IdempotencyHeartbeatSession(idempotency_key, owner_token, interval=3.0)
@@ -1322,10 +1364,10 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     print(f"[WARN] Erro ou timeout na busca: {e}")
 
 
-        # Salva pergunta (evita duplicacao se for retry explicito)
-        if not request.is_retry:
+        # Salva pergunta (evita duplicacao se for retry explicito) (P0 - Ciclos 031/032)
+        if banco and not request.is_retry:
             try:
-                await banco.salvar_mensagem(
+                res_u_save = await banco.salvar_mensagem(
                     session_id,
                     "user",
                     request.mensagem,
@@ -1333,8 +1375,22 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     project_id=project_id,
                     title=request.mensagem[:80],
                 )
-            except:
-                pass
+                if not res_u_save:
+                    raise RuntimeError("Persistencia duravel da mensagem do usuario falhou ou retornou False.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("salvar_mensagem_usuario_chat", e)
+                if idempotency_key and owner_token:
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    try:
+                        await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                    except:
+                        pass
+                raise HTTPException(
+                    status_code=503,
+                    detail="Falha ao persistir mensagem do usuario no banco de dados de forma duravel."
+                )
 
         # Memoria interna recente/relevante, controlada por HELPUS_MEMORY_CONTEXT_ENABLED.
         contexto_memoria_interna = ""
@@ -1469,7 +1525,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             agent_trace=agent_trace,
         )
 
-        # Salva resposta atomicamente no PostgreSQL (P0 - Ciclos 025/030)
+        # Salva resposta atomicamente no PostgreSQL (P0 - Ciclos 025/030/032)
         if banco and resposta:
             try:
                 if idempotency_key and owner_token:
@@ -1484,7 +1540,11 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                         request_payload_hash=req_hash,
                         response_payload=resp_dict,
                         legacy_payload_hash=legacy_req_hash,
-                        is_nominal_legacy_eligible=is_legacy_eligible
+                        is_nominal_legacy_eligible=is_legacy_eligible,
+                        requested_model=model_req,
+                        pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                        has_image=has_img,
+                        has_file=has_file
                     )
                     if not turn_res:
                         raise RuntimeError("Persistencia atomica de assistant falhou no ledger.")
@@ -1498,10 +1558,17 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     )
                     if save_res is not True:
                         raise RuntimeError("Persistencia duravel de assistant falhou ou retornou False.")
+            except HTTPException:
+                raise
             except Exception as e:
                 _log_db_error("chat_save_response", e)
-                if getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"):
-                    raise HTTPException(status_code=503, detail="Falha de persistencia duravel obrigatoria.")
+                if idempotency_key and owner_token:
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    try:
+                        await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                    except:
+                        pass
+                raise HTTPException(status_code=503, detail="Falha de persistencia duravel obrigatoria.")
 
         if idempotency_key:
             save_idempotent_response(
@@ -1605,7 +1672,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     is_stream_claimed = False
     owner_token = None
 
-    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030/031): Reconcilia estado persistente antes de inferencia ou claim
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030/031/032): Reconcilia estado persistente antes de inferencia ou claim
     if idempotency_key and banco:
         try:
             reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
@@ -1616,7 +1683,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 session_id=session_id,
                 legacy_payload_hash=legacy_req_hash,
                 require_strict_scope=True,
-                is_nominal_legacy_eligible=is_legacy_eligible
+                is_nominal_legacy_eligible=is_legacy_eligible,
+                requested_model=request.model,
+                pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                has_image=has_img,
+                has_file=has_file
             )
             if reconcile_status == "KNOWN_COMMITTED":
                 if cached_payload and isinstance(cached_payload, dict) and "resposta" in cached_payload:
@@ -1648,6 +1719,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                     status_code=409,
                     detail="Turno pendente com lease expirada; novo envio deve especificar retry para takeover transacional."
                 )
+        except LegacyReplayConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except PermissionError:
             raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
         except HTTPException:
@@ -1687,7 +1760,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                     request_payload_hash=req_hash,
                     is_retry=request.is_retry,
                     legacy_payload_hash=legacy_req_hash,
-                    is_nominal_legacy_eligible=is_legacy_eligible
+                    is_nominal_legacy_eligible=is_legacy_eligible,
+                    requested_model=request.model,
+                    pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                    has_image=has_img,
+                    has_file=has_file
                 )
                 if not db_should_run:
                     if db_cached_resp:
@@ -1706,6 +1783,9 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                         status_code=409,
                         detail="Requisicao identica em processamento ativo no ledger persistente."
                     )
+            except LegacyReplayConflictError as e:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=409, detail=str(e))
             except PermissionError as pe:
                 release_idempotent_request(idempotency_key, owner_token=owner_token)
                 raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
@@ -1716,19 +1796,32 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 release_idempotent_request(idempotency_key, owner_token=owner_token)
                 raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
 
-    # Salva mensagem do usuario imediatamente (se nao for retry)
+    # Salva mensagem do usuario imediatamente (se nao for retry) (P0 - Ciclos 031/032)
     if banco and not request.is_retry:
         try:
-            await banco.salvar_mensagem(
+            res_user_stream = await banco.salvar_mensagem(
                 session_id=session_id,
                 role="user",
                 content=request.mensagem,
                 user_email=user_email,
                 project_id=project_id,
             )
+            if not res_user_stream:
+                raise RuntimeError("Falha ao persistir mensagem do usuario em stream.")
+        except HTTPException:
+            raise
         except Exception as e:
-            if DEBUG:
-                print(f"[WARN] Erro ao salvar mensagem do usuario em stream: {e}")
+            _log_db_error("salvar_mensagem_usuario_stream", e)
+            if idempotency_key and owner_token:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                try:
+                    await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                except:
+                    pass
+            raise HTTPException(
+                status_code=503,
+                detail="Falha ao persistir mensagem do usuario no banco de dados antes do streaming."
+            )
 
     # Carrega historico recente para contexto conversacional
     historico_recente = []
@@ -1823,7 +1916,11 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                                 request_payload_hash=req_hash,
                                 response_payload=payload_final,
                                 legacy_payload_hash=legacy_req_hash,
-                                is_nominal_legacy_eligible=is_legacy_eligible
+                                is_nominal_legacy_eligible=is_legacy_eligible,
+                                requested_model=last_model_req,
+                                pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                                has_image=has_img,
+                                has_file=has_file
                             )
                             persisted_ok = bool(turn_res is True)
                         else:

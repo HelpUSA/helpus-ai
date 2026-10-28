@@ -33,6 +33,7 @@ client = TestClient(app, raise_server_exceptions=False)
 class ChatEndpointFunctionalTests(unittest.TestCase):
     def setUp(self):
         self.orig_db_url = os.environ.pop('DATABASE_URL', None)
+        self.orig_require_pg = os.environ.pop('HELPUS_REQUIRE_POSTGRES', None)
         self.orig_banco_url = getattr(banco, 'database_url', None)
         banco.database_url = None
 
@@ -42,6 +43,10 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             os.environ['DATABASE_URL'] = self.orig_db_url
         else:
             os.environ.pop('DATABASE_URL', None)
+        if self.orig_require_pg is not None:
+            os.environ['HELPUS_REQUIRE_POSTGRES'] = self.orig_require_pg
+        else:
+            os.environ.pop('HELPUS_REQUIRE_POSTGRES', None)
         banco.database_url = self.orig_banco_url
 
     def test_chat_unbound_local_session_id_fixed(self):
@@ -156,9 +161,18 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             self.assertIn('"cached": true', body2.lower())
 
     def test_chat_stream_concurrency_conflict_409(self):
-        # Simula uma requisicao stream que ja esta in_progress
+        # Simula uma requisicao stream que ja esta in_progress com metadados canonicos completos
         fake_key = f"anon:sess_conflict:req_conflict:hash1234"
-        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": 9999999999}
+        from backend.main import _calcular_fingerprint_requisicao, MensagemRequest
+        h = _calcular_fingerprint_requisicao(MensagemRequest(mensagem="Pergunta concorrente", session_id="sess_conflict"))
+        _idempotency_cache[fake_key] = {
+            "status": "in_progress",
+            "timestamp": 9999999999,
+            "request_payload_hash": h,
+            "user_email": "anon",
+            "session_id": "sess_conflict",
+            "project_id": "general",
+        }
         try:
             with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
                 payload = {
@@ -244,7 +258,18 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         # Se a inferencia original ainda estiver ativa dentro do lease (ex: 5s atras), retry deve ser rejeitado com 409
         import time
         fake_key = f"anon:sess_active:req_active:hash888"
-        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": time.time() - 5.0}
+        from backend.main import _calcular_fingerprint_requisicao, MensagemRequest
+        h = _calcular_fingerprint_requisicao(MensagemRequest(mensagem="Pergunta retry enquanto original ativa", session_id="sess_active"))
+        _idempotency_cache[fake_key] = {
+            "status": "in_progress",
+            "timestamp": time.time() - 5.0,
+            "last_heartbeat": time.time() - 2.0,
+            "owner_token": "token_original_alive",
+            "request_payload_hash": h,
+            "user_email": "anon",
+            "session_id": "sess_active",
+            "project_id": "general",
+        }
         try:
             with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
                 payload = {
@@ -263,7 +288,18 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         # Se um turno anterior ficou preso in_progress e o lease expirou (>30s), cliente com retry=True assume execucao
         import time
         fake_key = f"anon:sess_stale_retry:req_stale:hash999"
-        _idempotency_cache[fake_key] = {"status": "in_progress", "timestamp": time.time() - 45.0}
+        from backend.main import _calcular_fingerprint_requisicao, MensagemRequest
+        h = _calcular_fingerprint_requisicao(MensagemRequest(mensagem="Pergunta retry pos interrupcao com lease expirado", session_id="sess_stale_retry"))
+        _idempotency_cache[fake_key] = {
+            "status": "in_progress",
+            "timestamp": time.time() - 45.0,
+            "last_heartbeat": time.time() - 45.0,
+            "owner_token": "token_stale",
+            "request_payload_hash": h,
+            "user_email": "anon",
+            "session_id": "sess_stale_retry",
+            "project_id": "general",
+        }
         try:
             with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
                 payload = {
@@ -300,11 +336,17 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         # Inferencia com mais de 35s de duracao mas com heartbeat ativo (<15s) rejeita retries com 409
         fake_key = f"anon:sess_long_hb:req_long_hb:hash123"
         now = time.time()
+        from backend.main import _calcular_fingerprint_requisicao, MensagemRequest
+        h = _calcular_fingerprint_requisicao(MensagemRequest(mensagem="Pergunta retry enquanto inferencia longa ainda esta ativa", session_id="sess_long_hb"))
         _idempotency_cache[fake_key] = {
             "status": "in_progress",
             "timestamp": now - 45.0, # inicio ha 45s (>30s)
             "last_heartbeat": now - 3.0, # ultimo chunk emitido ha apenas 3s
-            "owner_token": "token_original_alive"
+            "owner_token": "token_original_alive",
+            "request_payload_hash": h,
+            "user_email": "anon",
+            "session_id": "sess_long_hb",
+            "project_id": "general",
         }
         try:
             with patch("backend.main._gerar_chave_idempotencia", return_value=fake_key):
@@ -552,7 +594,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             "client_request_id": req_id,
         }
 
-        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)) as mock_salvar:
             # Primeiro claim legitimo
             # Forcamos que durante a chamada o token de cache mude para simular um fence
             orig_is_owner = sys.modules["backend.main"].is_owner_token_valid
@@ -615,7 +657,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             "client_request_id": req_id,
         }
 
-        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)) as mock_salvar:
             with client.stream("POST", "/chat/stream", json=payload) as response:
                 self.assertEqual(response.status_code, 200)
                 body = "".join(response.iter_text())
@@ -643,7 +685,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             "client_request_id": req_id,
         }
 
-        with patch.object(banco, "salvar_mensagem", new=AsyncMock()) as mock_salvar:
+        with patch.object(banco, "salvar_mensagem", new=AsyncMock(return_value=True)) as mock_salvar:
             # Forcamos is_owner_token_valid a retornar False ao final do stream
             orig_valid = sys.modules["backend.main"].is_owner_token_valid
             def mock_fence(k, t):
@@ -729,7 +771,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         async def mock_salvar_error(*args, **kwargs):
             if kwargs.get("role") == "assistant" or (len(args) >= 2 and args[1] == "assistant"):
                 raise RuntimeError("Simulated DB connection failure on save")
-            return None
+            return True
 
         with patch.object(banco, "salvar_mensagem", side_effect=mock_salvar_error):
             with client.stream("POST", "/chat/stream", json=payload) as response:
