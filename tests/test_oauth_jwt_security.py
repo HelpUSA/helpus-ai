@@ -369,6 +369,139 @@ class TestOAuthJwtSecurity(unittest.TestCase):
             self.assertIn('info.get("email_verified") is not True', content, f"Checagem estrita ausente em {path}")
             self.assertIn("sub", content)
 
+    def test_integrated_account_isolation_flow(self):
+        """Ordem 085: Valida que dois usuários (Alice e Bob) com tokens distintos possuem
+        identidades, subs e emails rigorosamente segregados, sem vazamento mútuo."""
+        import asyncio
+        alice_payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_alice_12345",
+            "email": "alice@helpusbr.com",
+            "name": "Alice Silva",
+            "email_verified": True,
+        }
+        bob_payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_bob_67890",
+            "email": "bob@helpusbr.com",
+            "name": "Bob Souza",
+            "email_verified": True,
+        }
+
+        def mock_verify_by_token(token, req, aud):
+            if token == "token_alice":
+                return alice_payload
+            elif token == "token_bob":
+                return bob_payload
+            raise ValueError("Token desconhecido")
+
+        with patch("google.oauth2.id_token.verify_oauth2_token", side_effect=mock_verify_by_token):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                user_alice = asyncio.run(auth_backend.obter_usuario_google("Bearer token_alice"))
+                user_bob = asyncio.run(auth_backend.obter_usuario_google("Bearer token_bob"))
+
+                self.assertIsNotNone(user_alice)
+                self.assertIsNotNone(user_bob)
+                self.assertEqual(user_alice["email"], "alice@helpusbr.com")
+                self.assertEqual(user_alice["sub"], "sub_alice_12345")
+                self.assertEqual(user_bob["email"], "bob@helpusbr.com")
+                self.assertEqual(user_bob["sub"], "sub_bob_67890")
+                self.assertNotEqual(user_alice["sub"], user_bob["sub"])
+                self.assertNotEqual(user_alice["email"], user_bob["email"])
+
+    def test_token_renewal_flow(self):
+        """Ordem 085: Simula token expirado sendo rejeitado (401), seguido por renovação
+        com emissão de novo token válido aceito com sucesso."""
+        import asyncio
+        renewed_payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_renewed_user",
+            "email": "usuario@helpusbr.com",
+            "name": "Usuario Renovado",
+            "email_verified": True,
+        }
+
+        def mock_verify_flow(token, req, aud):
+            if token == "expired_token_1":
+                raise ValueError("Token is expired")
+            elif token == "fresh_renewed_token_2":
+                return renewed_payload
+            raise ValueError("Invalid token")
+
+        with patch("google.oauth2.id_token.verify_oauth2_token", side_effect=mock_verify_flow):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                # 1. Tentativa com token expirado -> falha com 401
+                with self.assertRaises(HTTPException) as ctx:
+                    asyncio.run(auth_backend.obter_usuario_google("Bearer expired_token_1"))
+                self.assertEqual(ctx.exception.status_code, 401)
+                self.assertEqual(ctx.exception.detail.get("error"), "invalid_google_token")
+
+                # 2. Cliente renova token e reenvia -> sucesso
+                user = asyncio.run(auth_backend.obter_usuario_google("Bearer fresh_renewed_token_2"))
+                self.assertIsNotNone(user)
+                self.assertEqual(user["email"], "usuario@helpusbr.com")
+                self.assertEqual(user["sub"], "sub_renewed_user")
+
+    def test_logout_flow_and_subsequent_request(self):
+        """Ordem 085: Simula logout do cliente (remoção do cabeçalho de autorização).
+        Em AUTH_REQUIRED=True, subsequente requisição deve falhar com 401 auth_required.
+        Em AUTH_REQUIRED=False, subsequente requisição retorna None (anônimo)."""
+        import asyncio
+        with patch.object(auth_backend, "AUTH_REQUIRED", True):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(auth_backend.obter_usuario_google(None))
+            self.assertEqual(ctx.exception.status_code, 401)
+            self.assertEqual(ctx.exception.detail.get("error"), "auth_required")
+
+        with patch.object(auth_backend, "AUTH_REQUIRED", False):
+            anon = asyncio.run(auth_backend.obter_usuario_google(None))
+            self.assertIsNone(anon)
+
+    def test_admin_endpoint_denies_access_when_admin_allowlist_is_empty(self):
+        """Ordem 085: Se ADMIN_EMAILS estiver vazio ([]), obter_admin_google deve
+        falhar fechado com 403 admin_forbidden para qualquer usuário."""
+        import asyncio
+        valid_user_payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_user_attempting_admin",
+            "email": "user@helpusbr.com",
+            "email_verified": True,
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=valid_user_payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with patch.object(auth_backend, "ADMIN_EMAILS", []):
+                    with self.assertRaises(HTTPException) as ctx:
+                        asyncio.run(auth_backend.obter_admin_google("Bearer valid.token.sig"))
+                    self.assertEqual(ctx.exception.status_code, 403)
+                    self.assertEqual(ctx.exception.detail.get("error"), "admin_forbidden")
+
+    def test_environment_fail_closed_validation_strategy(self):
+        """Ordem 085: Avalia a política de segurança e fail-closed da configuração por ambiente."""
+        import backend.config as b_cfg
+
+        # 1. Produção com AUTH_REQUIRED=False deve acusar não-conformidade (risco alto)
+        with patch.object(b_cfg, "ENVIRONMENT", "production"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", False):
+                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                    diag = b_cfg.validar_politica_seguranca_ambiente()
+                    self.assertFalse(diag["conforme"])
+                    self.assertTrue(any("AUTH_REQUIRED" in err for err in diag["erros"]))
+
+        # 2. Produção com AUTH_REQUIRED=True e GOOGLE_CLIENT_ID configurado deve estar conforme
+        with patch.object(b_cfg, "ENVIRONMENT", "production"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                    with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
+                        diag = b_cfg.validar_politica_seguranca_ambiente()
+                        self.assertTrue(diag["conforme"])
+                        self.assertEqual(len(diag["erros"]), 0)
+
+        # 3. Desenvolvimento local com AUTH_REQUIRED=False é permitido sem erros
+        with patch.object(b_cfg, "ENVIRONMENT", "development"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", False):
+                diag = b_cfg.validar_politica_seguranca_ambiente()
+                self.assertTrue(diag["conforme"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -110,3 +110,31 @@ HELPUS_MULTI_AI_DEFAULT_ALIAS = os.getenv(
 # restrita a 1 worker para garantir strictly-once sem janelas de concorrência.
 MAX_OPERATIONAL_WORKERS = int(os.getenv("MAX_OPERATIONAL_WORKERS", "1"))
 OPERATIONAL_CONCURRENCY_MODE = os.getenv("OPERATIONAL_CONCURRENCY_MODE", "single_worker_in_memory")
+
+
+def validar_politica_seguranca_ambiente() -> dict:
+    """Avalia o status de conformidade de seguranca e fail-closed por ambiente.
+
+    Nao altera automaticamente variaveis de producao. Fornece diagnostico formal.
+    """
+    env = (ENVIRONMENT or "development").lower().strip()
+    erros = []
+    avisos = []
+
+    if env in ("production", "staging"):
+        if not AUTH_REQUIRED:
+            erros.append("AUTH_REQUIRED esta desativado (false) em ambiente protegido.")
+        if not GOOGLE_CLIENT_ID:
+            erros.append("GOOGLE_CLIENT_ID ausente ou vazio em ambiente protegido.")
+        if not ADMIN_EMAILS:
+            avisos.append("ADMIN_EMAILS vazio. Endpoints /admin/* operarao em fail-closed total (403).")
+
+    return {
+        "environment": env,
+        "auth_required": AUTH_REQUIRED,
+        "google_client_id_configured": bool(GOOGLE_CLIENT_ID),
+        "admin_emails_count": len(ADMIN_EMAILS),
+        "conforme": len(erros) == 0,
+        "erros": erros,
+        "avisos": avisos,
+    }

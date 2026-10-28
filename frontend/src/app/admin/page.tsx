@@ -58,7 +58,7 @@ export default function AdminPage() {
     setProfileEmail(token ? decodeJwtEmail(token) : '')
   }, [])
 
-  const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
+  const isAdminAllowed = Boolean(adminEmails.length && profileEmail && adminEmails.includes(profileEmail))
 
   useEffect(() => {
     let mounted = true

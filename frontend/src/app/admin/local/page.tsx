@@ -538,7 +538,7 @@ export default function AdminLocalReadonlyPage() {
   const [handoffFingerprintExpected, setHandoffFingerprintExpected] = useState('')
   const [handoffFingerprintComparison, setHandoffFingerprintComparison] = useState('')
 
-  const isAdminAllowed = !adminEmails.length || (profileEmail ? adminEmails.includes(profileEmail) : false)
+  const isAdminAllowed = Boolean(adminEmails.length && profileEmail && adminEmails.includes(profileEmail))
   const structuredProposalRisk = summarizeStructuredProposalRisk(customPlan || proposalResult || proposalDetail || proposals)
   const patchProposalPreview = buildPatchProposalPreview(
     proposalDetail || proposalResult || customPlan || proposals,
