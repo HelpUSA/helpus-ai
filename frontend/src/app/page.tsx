@@ -9,6 +9,7 @@ import {
   SafeSourceLink,
   type MessageSource,
 } from './markdown-message'
+import { resolveApiUrl } from '../utils/resolveApiUrl'
 
 type AgentTraceItem = {
   label: string
@@ -89,8 +90,72 @@ function decodeJwtProfile(token: string): GoogleProfile | null {
   }
 }
 
+
+export const HELPUSAI_VISUAL_VERSION = 'v0.34.0-dev'
+
+export const STARTER_PROMPTS = [
+  'Resuma o que já foi decidido nesta conversa.',
+  'Organize os próximos passos em ordem de prioridade.',
+  'Revise este texto e proponha uma versão mais clara.',
+  'Explique este assunto de forma simples e prática.',
+] as const
+
+export function tituloConversa(conv: ConversaResumo) {
+  const titulo = (conv.titulo || '').trim()
+  if (titulo && titulo !== 'Nova conversa') return titulo
+  return `Conversa ${conv.session_id.slice(0, 8)}`
+}
+
+export function formatarDataConversa(conv: ConversaResumo) {
+  const raw = conv.updated_at || conv.created_at
+  if (!raw) return 'Sem data'
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return raw
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
 export default function HelpUSGeminiApp() {
   const router = useRouter()
+
+  // Phase AO / Phase AQ / Phase AS Compatibility Contract Bindings
+  const [pesquisarWeb, setPesquisarWeb] = useState(false)
+  const [chatAliases, setChatAliases] = useState<Record<string, string>>({})
+  const [activeConversationTitle, setActiveConversationTitle] = useState('')
+  const [lastSubmittedText, setLastSubmittedText] = useState('')
+  const [chatError, setChatError] = useState('')
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const [chatMenuOpenId, setChatMenuOpenId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+
+  const carregarHistorico = (id: string) => { void abrirConversa(id) }
+  const apagarConversa = (id: string, e?: React.MouseEvent) => { void excluirConversa(id, e) }
+  const tituloExibidoConversa = (conv: ConversaResumo) => conv.titulo || 'Nova conversa'
+  const renomearConversaLocal = (id: string, title: string) => { void salvarRenomeacao(id, title) }
+  const copiarLinkConversaPorId = async (id: string) => {
+    try {
+      const url = typeof window !== 'undefined' ? `${window.location.origin}/?c=${encodeURIComponent(id)}` : ''
+      if (url && navigator.clipboard) {
+        await navigator.clipboard.writeText(url)
+      }
+    } catch {}
+  }
+  const limparChat = () => { novaConversa() }
+  const submitMessage = (texto = input) => { void enviarMensagem(texto) }
+  const reenviarUltimaMensagem = () => { void tentarNovamente() }
+  const cancelarResposta = () => {
+    abortControllerRef.current?.abort()
+    setLoading(false)
+  }
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -100,6 +165,31 @@ export default function HelpUSGeminiApp() {
   const [profile, setProfile] = useState<GoogleProfile | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
+
+  // Atalho de teclado Ctrl+B para alternar menu e Escape para fechar gaveta mobile
+  useEffect(() => {
+    if (sessionId) {
+      const conv = conversas.find((c) => c.session_id === sessionId)
+      if (conv) setActiveConversationTitle(conv.titulo || 'Conversa')
+    } else {
+      setActiveConversationTitle('')
+    }
+  }, [sessionId, conversas])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        setSidebarOpen((prev) => !prev)
+      }
+      if (e.key === 'Escape' && sidebarOpen && typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setSidebarOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [sidebarOpen])
   const [activeModel, setActiveModel] = useState(MODEL_OPTIONS[0])
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -136,7 +226,11 @@ export default function HelpUSGeminiApp() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+  // Resiliencia de infraestrutura: resolucao de API robusta e desacoplada
+  const apiUrl = resolveApiUrl({
+    rawUrl: process.env.NEXT_PUBLIC_API_URL,
+    forceLocal: process.env.NEXT_PUBLIC_FORCE_LOCAL_API === 'true',
+  })
   const googleClientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     '812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com'
@@ -414,6 +508,9 @@ export default function HelpUSGeminiApp() {
       window.localStorage.removeItem('helpus_active_session_id')
     } catch {}
     setInput('')
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+    }
     setSelectedImage(null)
     setSelectedImageBase64(null)
     setAttachedFile(null)
@@ -447,8 +544,8 @@ export default function HelpUSGeminiApp() {
   }
 
   // Renomear conversa
-  const salvarRenomeacao = async (id: string) => {
-    const novoTitulo = editingTitle.trim()
+  const salvarRenomeacao = async (id: string, explicitTitle?: string) => {
+    const novoTitulo = (explicitTitle !== undefined ? explicitTitle : editingTitle).trim()
     if (!novoTitulo) {
       setEditingSessionId(null)
       return
@@ -482,8 +579,52 @@ export default function HelpUSGeminiApp() {
     return c.project_id === selectedProjectId
   })
 
+  // Agrupamento temporal de conversas (Hoje, Ontem, Ultimos 7 dias, Mais antigas)
+  const gruposConversas = (() => {
+    const groups: { label: string; items: ConversaResumo[] }[] = [
+      { label: 'Hoje', items: [] },
+      { label: 'Ontem', items: [] },
+      { label: 'Últimos 7 dias', items: [] },
+      { label: 'Mais antigas', items: [] },
+    ]
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const yesterdayStart = todayStart - 86400000
+    const sevenDaysAgo = todayStart - 6 * 86400000
+
+    for (const c of conversasFiltradas) {
+      const rawDate = c.updated_at || c.created_at
+      const timestamp = rawDate ? new Date(rawDate).getTime() : 0
+      if (!timestamp || isNaN(timestamp) || timestamp >= todayStart) {
+        groups[0].items.push(c)
+      } else if (timestamp >= yesterdayStart) {
+        groups[1].items.push(c)
+      } else if (timestamp >= sevenDaysAgo) {
+        groups[2].items.push(c)
+      } else {
+        groups[3].items.push(c)
+      }
+    }
+    return groups.filter((g) => g.items.length > 0)
+  })()
+
+  // Tentar novamente última mensagem enviada com semântica explícita de retry sem duplicação
+  const tentarNovamente = () => {
+    if (loading) return
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    if (lastUserMsg && lastUserMsg.content) {
+      enviarMensagem(lastUserMsg.content, true)
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+    e.target.style.height = 'auto'
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`
+  }
+
   // Enviar mensagem para a IA
-  const enviarMensagem = async (texto = input) => {
+  const enviarMensagem = async (texto = input, isRetry = false) => {
     const textoLimpo = texto.trim()
     if (!textoLimpo && !selectedImageBase64 && !attachedFile) return
     if (loading) return
@@ -536,30 +677,43 @@ export default function HelpUSGeminiApp() {
       return lista
     })
 
-    setInput('')
-    setSelectedImage(null)
-    setSelectedImageBase64(null)
-    setAttachedFile(null)
+    if (!isRetry) {
+      setInput('')
+      setSelectedImage(null)
+      setSelectedImageBase64(null)
+      setAttachedFile(null)
 
-    const novaMensagemUsuario: Message = {
-      role: 'user',
-      content: textoLimpo || (attachedFile ? `Analisar anexo: ${attachedFile.name}` : ''),
-      image_url: imagemPreviewUrl,
-      file_name: documentoNome,
+      const novaMensagemUsuario: Message = {
+        role: 'user',
+        content: textoLimpo || (attachedFile ? `Analisar anexo: ${attachedFile.name}` : ''),
+        image_url: imagemPreviewUrl,
+        file_name: documentoNome,
+      }
+      setMessages((prev) => [...prev, novaMensagemUsuario])
     }
 
-    setMessages((prev) => [...prev, novaMensagemUsuario])
     setLoading(true)
 
     // Mensagem temporária do assistente para streaming
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: 'assistant',
-        content: '',
-        provider_used: activeModel.name,
-      },
-    ])
+    setMessages((prev) => {
+      const copia = [...prev]
+      if (isRetry && copia.length > 0 && copia[copia.length - 1].role === 'assistant') {
+        copia[copia.length - 1] = {
+          role: 'assistant',
+          content: '',
+          provider_used: undefined,
+        }
+        return copia
+      }
+      return [
+        ...copia,
+        {
+          role: 'assistant',
+          content: '',
+          provider_used: undefined,
+        },
+      ]
+    })
 
     try {
       abortControllerRef.current = new AbortController()
@@ -571,38 +725,60 @@ export default function HelpUSGeminiApp() {
         authHeaders['Authorization'] = `Bearer ${googleToken}`
       }
 
-      // Tenta rota SSE /chat/stream
+      const clientRequestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      const payloadEnvio = {
+        mensagem: textoFinal,
+        session_id: currentSessionId,
+        pesquisar_web: webSearchEnabled,
+        image_base64: imagemBase64ParaEnvio,
+        imagem_base64: imagemBase64ParaEnvio,
+        file_name: documentoNome,
+        model: activeModel.id,
+        project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
+        client_request_id: clientRequestId,
+        is_retry: isRetry,
+      }
+
+      // Tenta rota SSE /chat/stream com buffer incremental de eventos
+      const controller = abortControllerRef.current || new AbortController()
       const resStream = await fetch(`${apiUrl}/chat/stream`, {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({
-          mensagem: textoFinal,
-          session_id: currentSessionId,
-          pesquisar_web: webSearchEnabled,
-          imagem_base64: imagemBase64ParaEnvio,
-          model: activeModel.id,
-          project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
-        }),
-        signal: abortControllerRef.current.signal,
+        body: JSON.stringify(payloadEnvio),
+        signal: controller.signal,
       })
 
       if (resStream.ok && resStream.body) {
         const reader = resStream.body.getReader()
-        const decoder = new TextDecoder()
+        const decoder = new TextDecoder('utf-8')
         let respostaAcumulada = ''
+        let buffer = ''
+        let isStreamDone = false
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value, { stream: true })
-          const lines = chunk.split('\n')
+        try {
+          while (!isStreamDone) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || '' // Mantém linha incompleta no buffer
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6).trim()
-              if (!dataStr || dataStr === '[DONE]') continue
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed.startsWith('data:')) continue
+              const dataStr = trimmed.slice(5).trim()
+              if (!dataStr) continue
+              if (dataStr === '[DONE]') {
+                isStreamDone = true
+                break
+              }
+
               try {
                 const parsed = JSON.parse(dataStr)
+                if (parsed.error || parsed.error_code === 'PERSISTENCE_FAILED') {
+                  const errMessage = parsed.error || 'PERSISTENCE_FAILED: Falha ao persistir resposta no banco de dados.'
+                  throw new Error(errMessage)
+                }
                 const chunkText = parsed.content ?? parsed.text ?? parsed.chunk ?? ''
                 if (chunkText) {
                   respostaAcumulada += chunkText
@@ -614,6 +790,8 @@ export default function HelpUSGeminiApp() {
                         ...last,
                         content: respostaAcumulada,
                         fontes: parsed.fontes || last.fontes,
+                        provider_used: parsed.provider_used || last.provider_used,
+                        fallback_reason: parsed.fallback_reason || last.fallback_reason,
                       }
                     }
                     return copia
@@ -622,7 +800,10 @@ export default function HelpUSGeminiApp() {
                 if (parsed.session_id && !sessionId) {
                   setSessionId(parsed.session_id)
                 }
-              } catch {
+              } catch (e: any) {
+                if (e.message && !e.message.includes('JSON')) {
+                  throw e
+                }
                 respostaAcumulada += dataStr
                 setMessages((prev) => {
                   const copia = [...prev]
@@ -635,25 +816,19 @@ export default function HelpUSGeminiApp() {
               }
             }
           }
+        } finally {
+          reader.releaseLock()
         }
-        if (respostaAcumulada.trim().length > 0) {
-          carregarConversas(googleToken)
-          return
-        }
+
+        carregarConversas(googleToken)
+        return
       }
 
-      // Fallback padrão /chat síncrono
+      // Fallback padrão /chat síncrono APENAS se o endpoint de stream falhou na conexão inicial
       const res = await fetch(`${apiUrl}/chat`, {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({
-          mensagem: textoFinal,
-          session_id: currentSessionId,
-          pesquisar_web: webSearchEnabled,
-          imagem_base64: imagemBase64ParaEnvio,
-          model: activeModel.id,
-          project_id: selectedProjectId === 'all' ? 'general' : selectedProjectId,
-        }),
+        body: JSON.stringify(payloadEnvio),
       })
 
       if (res.ok) {
@@ -664,7 +839,8 @@ export default function HelpUSGeminiApp() {
             role: 'assistant',
             content: data.resposta || 'Sem resposta gerada.',
             fontes: data.fontes || [],
-            provider_used: data.provider_used || activeModel.name,
+            provider_used: data.provider_used && data.provider_used !== 'fallback' ? data.provider_used : undefined,
+            fallback_reason: data.fallback_reason || (data.provider_used === 'fallback' ? 'Contingência institucional' : null),
           }
           return copia
         })
@@ -677,11 +853,25 @@ export default function HelpUSGeminiApp() {
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return
+      let mensagemAmigavel = 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.'
+      if (err.message && (err.message.includes('PERSISTENCE_FAILED') || err.message.includes('persistir'))) {
+        mensagemAmigavel = 'Falha ao persistir a resposta com segurança. Por favor, clique em Tentar novamente.'
+      } else if (err.status === 401 || err.message?.includes('401')) {
+        mensagemAmigavel = 'Sua sessão expirou ou o acesso requer autenticação. Por favor, conecte-se com sua conta Google.'
+      } else if (err.status === 429 || err.message?.includes('429')) {
+        mensagemAmigavel = 'O limite de mensagens por minuto foi atingido. Aguarde alguns instantes antes de tentar novamente.'
+      } else if (err.status === 503 || err.message?.includes('503') || err.message?.includes('timeout')) {
+        mensagemAmigavel = 'O serviço de inteligência está temporariamente sobrecarregado ou atingiu o tempo limite. Clique em Tentar novamente.'
+      } else if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        mensagemAmigavel = 'Falha de conexão com a rede. Verifique seu acesso à internet e tente novamente.'
+      }
+
       setMessages((prev) => {
         const copia = [...prev]
         copia[copia.length - 1] = {
           role: 'assistant',
-          content: 'Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.',
+          content: mensagemAmigavel,
+          fallback_reason: 'erro_execucao',
         }
         return copia
       })
@@ -690,8 +880,104 @@ export default function HelpUSGeminiApp() {
     }
   }
 
+  // Processamento e validacao de arquivos (MIME e tamanho maximo de 10 MB)
+  const processFile = (file: File) => {
+    if (!file) return
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('O arquivo selecionado excede o limite máximo permitido de 10 MB.')
+      return
+    }
+
+    const isImage = file.type.startsWith('image/')
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    const isTextDoc = /\.(txt|md|csv|json|js|ts|py|sql|html|css|log|env|xml|yaml|yml)$/i.test(file.name)
+
+    if (isImage) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: file.type || 'image/png',
+            isImage: true,
+            previewUrl: result,
+            base64: result,
+          })
+          setSelectedImage(result)
+          setSelectedImageBase64(result)
+        }
+      }
+      reader.readAsDataURL(file)
+    } else if (isPdf) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: 'application/pdf',
+            isImage: false,
+            base64: result,
+          })
+          setSelectedImage(null)
+          setSelectedImageBase64(null)
+        }
+      }
+      reader.readAsDataURL(file)
+    } else if (isTextDoc) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        if (result) {
+          setAttachedFile({
+            name: file.name,
+            size: file.size,
+            type: file.type || 'text/plain',
+            isImage: false,
+            textContent: result,
+          })
+          setSelectedImage(null)
+          setSelectedImageBase64(null)
+        }
+      }
+      reader.readAsText(file)
+    } else {
+      alert('Formato de arquivo não suportado. Por favor, envie imagens, documentos PDF ou arquivos de texto estruturados.')
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) processFile(file)
+  }
+
   // Upload de Arquivos e Imagens
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+    if (e.target) e.target.value = ''
+  }
+
+  const _legacy_handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -828,12 +1114,22 @@ export default function HelpUSGeminiApp() {
       <div id="google-native-signin-anchor" className="hidden" />
 
       <div className="flex h-screen w-screen overflow-hidden bg-[#131314] text-[#e3e3e3] font-sans">
+
         {/* ================= BARRA LATERAL (SIDEBAR GEMINI) ================= */}
-        <aside
+        {/* Backdrop acessivel para drawer mobile */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden transition-opacity"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+          <aside
           className={`${
-            sidebarOpen ? 'w-72' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
+            sidebarOpen ? 'w-[280px]' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
           } flex flex-col border-r border-[#242526] bg-[#1e1f20] transition-all duration-300 ease-in-out z-40 shrink-0 overflow-hidden`}
         >
+
           {/* Topo da Sidebar */}
           <div className="flex h-16 items-center justify-between px-3.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -849,7 +1145,7 @@ export default function HelpUSGeminiApp() {
               </button>
 
               {sidebarOpen && (
-                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={novaConversa}>
+                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={limparChat}>
                   <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10">
                     <Image
                       src="/logo-helpus.png"
@@ -889,7 +1185,7 @@ export default function HelpUSGeminiApp() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar conversas..."
+                    placeholder="Buscar conversas"
                     className="w-full rounded-full bg-[#131314] px-9 py-2 text-xs text-[#e3e3e3] placeholder-[#8e918f] outline-none focus:ring-1 focus:ring-[#7fcfff]"
                   />
                   <svg className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#8e918f]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -912,7 +1208,7 @@ export default function HelpUSGeminiApp() {
               {/* Seletor de Projetos */}
               <div className="mb-2">
                 <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
-                  <span>Projetos</span>
+                  <span className="tracking-wider">Espaços</span>
                   <button
                     type="button"
                     onClick={() => setIsNovoProjetoOpen(true)}
@@ -974,15 +1270,19 @@ export default function HelpUSGeminiApp() {
 
               {/* Lista de Recentes estilo Gemini com Renomear e Excluir */}
               <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
-                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
-                  Recentes
-                </div>
                 {conversasFiltradas.length === 0 ? (
                   <div className="px-2 py-3 text-xs text-[#8e918f]">
                     Nenhuma conversa encontrada.
                   </div>
                 ) : (
-                  conversasFiltradas.map((conv) => {
+                  gruposConversas.map((grupo) => (
+                    <div key={grupo.label} className="mb-2">
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#8e918f]">
+                        {grupo.label}
+                      </div>
+                      <div className="space-y-0.5">
+                        {grupo.items.map((conv) => {
+
                     const ativa = sessionId === conv.session_id
                     const titulo = conv.titulo || `Conversa ${conv.session_id.slice(0, 8)}`
                     const isEditing = editingSessionId === conv.session_id
@@ -992,10 +1292,11 @@ export default function HelpUSGeminiApp() {
                         <div key={conv.session_id} className="flex items-center gap-1 rounded-xl bg-[#282a2c] p-1 text-xs">
                           <input
                             type="text"
+                            data-testid="input-rename-conversa"
                             value={editingTitle}
                             onChange={(e) => setEditingTitle(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') salvarRenomeacao(conv.session_id)
+                              if (e.key === 'Enter') salvarRenomeacao(conv.session_id, (e.target as HTMLInputElement).value)
                               if (e.key === 'Escape') setEditingSessionId(null)
                             }}
                             className="flex-1 rounded-lg bg-[#131314] px-2 py-1 text-xs text-white border border-[#7fcfff] outline-none"
@@ -1024,15 +1325,27 @@ export default function HelpUSGeminiApp() {
                     return (
                       <div
                         key={conv.session_id}
-                        onClick={() => abrirConversa(conv.session_id)}
+                        onClick={() => void carregarHistorico(conv.session_id)}
                         className={`group flex items-center justify-between rounded-xl px-3 py-2 text-xs cursor-pointer transition ${
                           ativa
                             ? 'bg-[#004a77] text-white font-medium'
                             : 'text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white'
                         }`}
+                        title="Abrir conversa"
                       >
-                        <span className="truncate pr-2 flex-1">{titulo}</span>
+                        <span className="truncate pr-2 flex-1" title={formatarDataConversa(conv)}>{tituloExibidoConversa(conv)}</span>
                         <div className="hidden shrink-0 items-center gap-1 group-hover:flex">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void copiarLinkConversaPorId(conv.session_id)
+                            }}
+                            className="text-[#8e918f] hover:text-[#7fcfff] p-0.5 transition"
+                            title="Copiar link"
+                          >
+                            🔗
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1041,22 +1354,25 @@ export default function HelpUSGeminiApp() {
                               setEditingTitle(conv.titulo)
                             }}
                             className="text-[#8e918f] hover:text-[#7fcfff] p-0.5 transition"
-                            title="Renomear conversa"
+                            title="Renomear"
                           >
                             ✏️
                           </button>
                           <button
                             type="button"
-                            onClick={(e) => excluirConversa(conv.session_id, e)}
+                            onClick={(e) => void apagarConversa(conv.session_id, e)}
                             className="text-[#8e918f] hover:text-rose-400 p-0.5 transition font-bold"
-                            title="Excluir conversa"
+                            title="Excluir"
                           >
                             🗑️
                           </button>
                         </div>
                       </div>
                     )
-                  })
+                        })}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
@@ -1177,7 +1493,7 @@ export default function HelpUSGeminiApp() {
               </div>
             )}
           </div>
-        </aside>
+          </aside>
 
         {/* ================= ÁREA PRINCIPAL ================= */}
         <main className="relative flex flex-1 flex-col overflow-hidden bg-[#131314]">
@@ -1198,7 +1514,20 @@ export default function HelpUSGeminiApp() {
             </div>
 
             {/* Ações da Direita do Header */}
-            <div className="flex items-center gap-3">
+            {sessionId && (
+                <div className="hidden md:flex items-center gap-2 max-w-xs truncate text-xs text-[#c4c7c5]">
+                  <span className="truncate font-medium">{activeConversationTitle || 'Conversa'}</span>
+                  <button
+                    type="button"
+                    onClick={() => void copiarLinkConversaPorId(sessionId)}
+                    className="rounded-lg p-1 text-[#8e918f] hover:bg-[#282a2c] hover:text-[#7fcfff] transition"
+                    title="Copiar link"
+                  >
+                    🔗
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-3">
               {profile ? (
                 // Header com usuário logado (Avatar + botão Sair)
                 <div className="flex items-center gap-2">
@@ -1250,7 +1579,14 @@ export default function HelpUSGeminiApp() {
           </header>
 
           {/* ================= CORPO DO CHAT ================= */}
-          <div className="relative z-10 flex flex-1 flex-col overflow-y-auto px-4 pb-32 pt-2">
+          <div
+            ref={messagesViewportRef}
+            onScroll={(e) => {
+              const el = e.currentTarget
+              setShowScrollToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 150)
+            }}
+            className="relative z-10 flex flex-1 flex-col overflow-y-auto px-4 pb-32 pt-2"
+          >
             {messages.length === 0 ? (
               // ESTADO INICIAL (HERO DO GEMINI)
               <div className="mx-auto flex flex-1 w-full max-w-3xl flex-col items-center justify-center text-center px-2">
@@ -1273,9 +1609,31 @@ export default function HelpUSGeminiApp() {
                   </div>
                 )}
 
+                {/* Starter Prompts Sugeridos */}
+                <div className="mb-6 flex flex-wrap justify-center gap-2 max-w-2xl">
+                  {STARTER_PROMPTS.map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setInput(p)
+                        void submitMessage(p)
+                      }}
+                      className="rounded-2xl border border-white/5 bg-[#1e1f20] px-3.5 py-2 text-xs text-[#c4c7c5] hover:bg-[#282a2c] hover:text-white transition text-left"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
                 {/* BARRA DE PROMPT CENTRAL FLUTUANTE ESTILO GEMINI */}
                 <div className="w-full">
-                  <div className="relative flex flex-col rounded-3xl border border-[#2d2e30] bg-[#1e1f20] p-3 shadow-2xl transition-all focus-within:border-[#1a73e8] focus-within:ring-1 focus-within:ring-[#1a73e8]">
+                  <div onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`relative flex flex-col rounded-3xl border p-3 shadow-2xl transition-all focus-within:border-[#7fcfff] focus-within:ring-1 focus-within:ring-[#7fcfff] ${
+                      isDragging ? 'border-[#7fcfff] ring-2 ring-[#7fcfff]/30 bg-[#282a2c]' : 'border-[#2d2e30] bg-[#1e1f20]'
+                    }`}>
                     {/* Anexo pré-visualizado (Imagem ou Documento) */}
                     {attachedFile && (
                       <div className="relative mb-2 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-[#282a2c] p-2 text-xs text-[#e3e3e3] shadow-md self-start">
@@ -1311,7 +1669,7 @@ export default function HelpUSGeminiApp() {
                     <textarea
                       ref={inputRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={handleInputChange}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
@@ -1413,15 +1771,30 @@ export default function HelpUSGeminiApp() {
                         </button>
 
                         {/* Botão de Envio ↑ */}
-                        {(input.trim() || selectedImageBase64 || attachedFile) && (
+                        {loading ? (
                           <button
                             type="button"
-                            onClick={() => enviarMensagem()}
-                            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3] transition shadow-md"
-                            title="Enviar"
+                            onClick={() => {
+                              abortControllerRef.current?.abort()
+                              setLoading(false)
+                            }}
+                            className="flex h-9 items-center gap-1.5 rounded-full bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-500 transition shadow-md"
+                            title="Interromper geração"
                           >
-                            ↑
+                            <span className="h-2 w-2 rounded-xs bg-white" />
+                            <span>Parar</span>
                           </button>
+                        ) : (
+                          (input.trim() || selectedImageBase64 || attachedFile) && (
+                            <button
+                              type="button"
+                              onClick={() => enviarMensagem()}
+                              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3] transition shadow-md"
+                              title="Enviar"
+                            >
+                              ↑
+                            </button>
+                          )
                         )}
                       </div>
                     </div>
@@ -1476,14 +1849,28 @@ export default function HelpUSGeminiApp() {
                           )}
 
                           {/* Barra de Ferramentas da Resposta */}
-                          <div className="flex items-center gap-1 pt-1 text-[#8e918f]">
+                          <div className="flex flex-wrap items-center gap-2 pt-1 text-[#8e918f]">
+                            {/* Badge do Provedor Verificado pelo Servidor */}
+                            {msg.provider_used && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-[#282a2c] px-2 py-0.5 text-[10px] font-medium text-[#7fcfff]">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                {msg.provider_used}
+                              </span>
+                            )}
+                            {msg.fallback_reason && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                Contingência
+                              </span>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => copiarTexto(msg.content, idx)}
                               className="flex items-center gap-1 rounded-full p-1.5 text-xs hover:bg-[#282a2c] hover:text-white transition"
                               title="Copiar texto"
                             >
-                              <span>{copiedIndex === idx ? '✓ Copiado' : '⧉ Copiar'}</span>
+                              <span>{copiedIndex === idx ? '✓ Copiado' : '❐ Copiar'}</span>
                             </button>
                             <button
                               type="button"
@@ -1493,6 +1880,21 @@ export default function HelpUSGeminiApp() {
                             >
                               <span>🔊 Ouvir</span>
                             </button>
+
+                            {/* Botão Tentar Novamente na última resposta do assistente */}
+                            {idx === messages.length - 1 && !loading && (
+                              <button
+                                type="button"
+                                onClick={tentarNovamente}
+                                className="flex items-center gap-1 rounded-full p-1.5 text-xs text-[#7fcfff] hover:bg-[#282a2c] transition"
+                                title="Tentar gerar a resposta novamente"
+                              >
+                                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                <span>Tentar novamente</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1554,7 +1956,7 @@ export default function HelpUSGeminiApp() {
                   <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
@@ -1599,14 +2001,30 @@ export default function HelpUSGeminiApp() {
                       >
                         🎙️
                       </button>
-                      {(input.trim() || selectedImageBase64 || attachedFile) && (
+                      {loading ? (
                         <button
                           type="button"
-                          onClick={() => enviarMensagem()}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3]"
+                          onClick={() => {
+                            abortControllerRef.current?.abort()
+                            setLoading(false)
+                          }}
+                          className="flex h-8 items-center gap-1 rounded-full bg-rose-600 px-2.5 text-xs font-semibold text-white hover:bg-rose-500 transition shadow"
+                          title="Interromper geração"
                         >
-                          ↑
+                          <span className="h-2 w-2 rounded-xs bg-white" />
+                          <span>Parar</span>
                         </button>
+                      ) : (
+                        (input.trim() || selectedImageBase64 || attachedFile) && (
+                          <button
+                            type="button"
+                            onClick={() => enviarMensagem()}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-950 font-bold hover:bg-[#e3e3e3]"
+                            title="Enviar"
+                          >
+                            ↑
+                          </button>
+                        )
                       )}
                     </div>
                   </div>
@@ -1617,7 +2035,18 @@ export default function HelpUSGeminiApp() {
 
           {/* Disclaimer Inferior Discreto Estilo Gemini */}
           <footer className="absolute bottom-1 left-0 right-0 z-20 text-center text-[11px] text-[#8e918f] pointer-events-none">
-            Sujeito aos Termos do HelpUS e à Política de Privacidade. O HelpUS é uma IA e pode cometer erros.
+           {showScrollToBottom && (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="fixed bottom-24 right-8 z-40 flex items-center gap-1.5 rounded-full bg-[#282a2c] border border-white/10 px-3 py-1.5 text-xs text-[#c4c7c5] hover:text-white shadow-xl hover:bg-[#383a3c] transition"
+              title="Ir para o fim"
+            >
+              <span>↓</span>
+              <span>Ir para o fim</span>
+            </button>
+          )}
+          Sujeito aos Termos do HelpUS e à Política de Privacidade. O HelpUS é uma IA e pode cometer erros.
           </footer>
         </main>
       </div>

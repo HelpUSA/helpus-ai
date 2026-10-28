@@ -3,7 +3,28 @@ import asyncio
 import json
 import time
 import httpx
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any
+from contextvars import ContextVar
+
+request_model_ctx: ContextVar[Optional[str]] = ContextVar("request_model_ctx", default=None)
+request_meta_ctx: ContextVar[Dict[str, Any]] = ContextVar("request_meta_ctx", default={})
+
+def set_request_model(model: Optional[str]):
+    return request_model_ctx.set(model)
+
+def get_request_model() -> Optional[str]:
+    return request_model_ctx.get()
+
+def set_request_metadata(meta: Dict[str, Any]):
+    return request_meta_ctx.set(dict(meta))
+
+def get_request_metadata() -> Dict[str, Any]:
+    return request_meta_ctx.get()
+
+def reset_request_context():
+    request_model_ctx.set(None)
+    request_meta_ctx.set({})
+
 
 import config as app_config
 from config import (
@@ -99,7 +120,7 @@ class CerebroIA:
             "Nunca diga que voce e Gemini, Google, OpenAI, ChatGPT ou outro provedor.",
             "Quando perguntarem quem voce e, responda que voce e o HelpUS, o assistente inteligente da HelpUS.",
             "Se o usuario demonstrar interesse em agendamento de reuniao, orcamento ou conversa com especialista, informe que a HelpUS oferece agendamento no Google Calendar e proposta de orcamento instantanea, convidando-o a indicar a data/horario desejado ou escopo do projeto.",
-            "INTEGRACAO COM COMPUTADOR LOCAL (HELPUSDEV): Voce possui acesso ao computador local do usuario atraves da aplicacao HelpUSDev rodando na maquina dele. Voce tem permissao total para acessar arquivos, pastas e executar comandos solicitados pelo usuario de forma transparente e prestativa.",
+            "INTEGRACAO COM COMPUTADOR LOCAL (HELPUSDEV): Nao presuma acesso ao computador do usuario. Operacoes locais somente podem ocorrer quando houver HelpUSDev conectado, autenticacao, autorizacao por escopo e confirmacao explicita da operacao.",
             "Responda de forma clara, amigavel e objetiva.",
         ]
 
@@ -169,19 +190,21 @@ class CerebroIA:
                             from google import genai
                             client_gemini = genai.Client(api_key=GEMINI_API_KEY)
                             self.client = client_gemini
+                        effective_gemini_model = get_request_model() or getattr(self, "active_model", None) or GEMINI_MODEL
                         resposta = await asyncio.wait_for(
                             asyncio.to_thread(
                                 client_gemini.models.generate_content,
-                                model=GEMINI_MODEL,
+                                model=effective_gemini_model,
                                 contents=prompt,
                             ),
-                            timeout=2.0,
-
+                            timeout=15.0,
                         )
 
                         texto = (getattr(resposta, "text", "") or "").strip()
                         self.last_provider_used = "gemini"
+                        self.nome_modelo = effective_gemini_model
                         self.last_fallback_reason = None
+                        set_request_metadata({"provider_used": "gemini", "fallback_reason": None, "model_used": effective_gemini_model})
                         tempo = round(time.time() - inicio, 2)
                         return texto, 0, tempo
 
@@ -355,10 +378,19 @@ class CerebroIA:
                 )
                 self.multi_ai_provider = provider
 
+            requested_model = get_request_model() or getattr(self, "active_model", None)
+            from multi_ai_provider import resolve_model_alias
+            effective_alias = resolve_model_alias(requested_model, config.default_alias)
+            gen_kwargs = {}
+            import inspect
+            if "alias" in inspect.signature(provider.generate).parameters:
+                gen_kwargs["alias"] = effective_alias
+
             result = await provider.generate(
                 prompt=prompt,
                 max_tokens=effective_max_tokens,
                 temperature=MODEL_CONFIG["temperature"],
+                **gen_kwargs
             )
 
             self.last_provider_used = "multi_ai"
@@ -372,6 +404,7 @@ class CerebroIA:
                 result.latency_ms
             )
             self.nome_modelo = result.alias
+            set_request_metadata({"provider_used": "multi_ai", "fallback_reason": None, "model_used": result.alias, "latency_ms": result.latency_ms})
 
             return (
                 result.text,

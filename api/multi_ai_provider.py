@@ -29,6 +29,26 @@ _ALLOWED_ALIASES = {
     "helpus-embedding",
 }
 
+MODEL_TO_ALIAS = {
+    "gemini-2.5-flash-lite": "helpus-fast",
+    "gemini-2.5-flash": "helpus-general",
+    "gemini-2.5-pro": "helpus-reasoner",
+    "gemini-2.0-flash": "helpus-fast",
+    "deepseek-chat": "helpus-code",
+    "deepseek-reasoner": "helpus-reasoner",
+    "gpt-4o": "helpus-reasoner",
+    "gpt-4o-mini": "helpus-fast",
+}
+
+def resolve_model_alias(model: str | None, default_alias: str = "helpus-general") -> str:
+    if not model or not str(model).strip():
+        return default_alias
+    m = str(model).strip().lower()
+    if m in _ALLOWED_ALIASES:
+        return m
+    return MODEL_TO_ALIAS.get(m, default_alias)
+
+
 
 @dataclass(frozen=True)
 class MultiAIConfig:
@@ -274,6 +294,7 @@ class MultiAIProvider:
         prompt: str,
         max_tokens: int,
         temperature: float,
+        alias: str | None = None,
     ) -> MultiAIResult:
         if not self.config.enabled:
             raise MultiAIProviderError(
@@ -295,8 +316,9 @@ class MultiAIProvider:
                 self.config.api_key
             )
 
+        effective_alias = resolve_model_alias(alias, self.config.default_alias)
         payload = {
-            "model": self.config.default_alias,
+            "model": effective_alias,
             "messages": [
                 {
                     "role": "user",

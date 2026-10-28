@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).parent
 load_dotenv(BASE_DIR / '.env')
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/assistente')
+DATABASE_URL = os.getenv('DATABASE_URL')
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'gemini').lower().strip()
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
@@ -102,3 +102,11 @@ HELPUS_MULTI_AI_DEFAULT_ALIAS = os.getenv(
     'HELPUS_MULTI_AI_DEFAULT_ALIAS',
     'helpus-general',
 ).lower().strip()
+
+# Concorrência e Isolamento Operacional (P0 - Ciclo 020)
+# Enquanto o PostgreSQL de homologação estiver BLOCKED, a garantia de atomicidade
+# e turn lock opera em memória local por processo. Em arquitetura multi-processos sem
+# advisory lock distribuído (PostgreSQL pg_try_advisory_xact_lock), a operação DEVE ser
+# restrita a 1 worker para garantir strictly-once sem janelas de concorrência.
+MAX_OPERATIONAL_WORKERS = int(os.getenv("MAX_OPERATIONAL_WORKERS", "1"))
+OPERATIONAL_CONCURRENCY_MODE = os.getenv("OPERATIONAL_CONCURRENCY_MODE", "single_worker_in_memory")

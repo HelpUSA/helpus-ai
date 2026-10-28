@@ -1,9 +1,18 @@
+import re
+import json
+import asyncio
+import socket
+import hashlib
+import base64
+import binascii
+import ipaddress
+import urllib.parse
 # -*- coding: utf-8 -*-
 """
 API Principal - HelpUS.
 Orquestra: banco de dados, cerebro IA e motor de busca.
 """
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
@@ -12,13 +21,14 @@ from typing import List, Optional, Dict
 import time
 import uuid
 import os
+import hmac
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 import config as app_config
 from config import DEBUG, CORS_ORIGINS
-from banco import BancoDados
-from cerebro import CerebroIA
+from banco import BancoDados, _log_db_error, is_nominal_legacy_request, LegacyReplayConflictError
+from cerebro import CerebroIA, set_request_model, get_request_model, get_request_metadata, set_request_metadata, reset_request_context
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
 from admin_telemetry import summarize_events
@@ -61,7 +71,7 @@ def get_cerebro() -> Optional[CerebroIA]:
             cerebro = CerebroIA()
         except Exception as e:
             if DEBUG:
-                print(f"[WARN] Erro ao instanciar CerebroIA on-demand: {e}")
+                print(f"[WARN] Erro ao instanciar CerebroIA on-demand (tipo={type(e).__name__})")
             cerebro = None
     return cerebro
 
@@ -79,18 +89,57 @@ async def lifespan(app: FastAPI):
     """Inicializa e finaliza os servicos"""
     global cerebro, buscador
 
+    # P0/P1 MULTIWORKER (Ciclo 026 / 027): Inspeciona WORKERS, WEB_CONCURRENCY e SERVER_REPLICAS separadamente.
+    # Enquanto claim/heartbeat/complete/release operarem localmente no processo, a execucao
+    # permanece estritamente restrita a 1 worker (MAX_OPERATIONAL_WORKERS = 1).
+    for var_name in ("WORKERS", "WEB_CONCURRENCY", "SERVER_REPLICAS"):
+        raw_val = os.getenv(var_name)
+        if raw_val is not None and str(raw_val).strip() != "":
+            try:
+                val = int(str(raw_val).strip())
+                if val != 1:
+                    raise RuntimeError(
+                        f"Incompatibilidade operacional critica: {var_name}={val} foi solicitado, "
+                        "mas a arquitetura operacional atual esta estritamente restrita a 1 worker local (MAX_OPERATIONAL_WORKERS = 1). "
+                        "Configuracoes com menos de 1 ou mais de 1 worker sao invalidas. "
+                        "Ajuste WORKERS=1, WEB_CONCURRENCY=1 e SERVER_REPLICAS=1."
+                    )
+            except ValueError:
+                raise RuntimeError(f"Configuracao invalida para {var_name}: '{raw_val}'. Deve ser um numero inteiro.")
+
+    # P0 SEGURANCA (Ciclo 027): Bloqueia sumariamente HELPUS_TEST_MODE=1 em ambientes de deploy
+    if os.getenv("HELPUS_TEST_MODE") == "1":
+        is_deploy = bool(
+            os.getenv("VERCEL")
+            or os.getenv("RAILWAY_ENVIRONMENT")
+            or os.getenv("RAILWAY_PROJECT_ID")
+            or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+        )
+        if is_deploy:
+            raise RuntimeError(
+                "Violacao de seguranca critica: HELPUS_TEST_MODE=1 e terminantemente proibido em ambientes de deploy "
+                "(producao, staging, Railway ou Vercel). Persistencia duravel real e fail-closed sao obrigatorios."
+            )
+
     print("=" * 60)
     print("[INFO] INICIANDO HelpUS")
     print("=" * 60)
 
     # 1. Conectar ao banco
+    db_url_configured = bool(getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"))
     print("[INFO] Conectando ao PostgreSQL...")
     try:
         await banco.conectar()
         await banco.criar_tabelas()
         print("[OK] Banco de dados pronto")
     except Exception as e:
-        print(f"[WARN] Banco de dados nao disponivel: {e}")
+        if db_url_configured:
+            _log_db_error("startup_db_fail_closed", e)
+            raise RuntimeError(
+                f"Falha critica no startup: DATABASE_URL esta configurada porem a conexao ou inicializacao de tabelas falhou (tipo={type(e).__name__}). "
+                "Fail-closed obrigatorio: abortando inicializacao para impedir operacao inconsistente sem banco persistente."
+            ) from e
+        print(f"[WARN] Banco de dados nao configurado/disponivel (tipo={type(e).__name__})")
         print("   Rodando sem banco de dados...")
 
     # 2. Carregar modelo IA se ainda nao carregado
@@ -132,13 +181,134 @@ app.add_middleware(
 )
 
 # ===== MODELOS DE DADOS =====
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
+BLOCKED_EXTENSIONS = {".env", ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".dll", ".so", ".bin", ".py", ".js"}
+ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254", "internal"}
+TRUSTED_IMAGE_DOMAINS = {
+    "images.unsplash.com",
+    "storage.googleapis.com",
+    "helpusbr.com",
+    "ai.helpusbr.com",
+}
+
+def resolver_provedor_modelo(model_name: Optional[str]) -> str:
+    if not model_name:
+        return "google"
+    m = model_name.strip().lower()
+    if "gemini" in m:
+        return "google"
+    if "deepseek" in m:
+        return "deepseek"
+    if "gpt" in m or "openai" in m:
+        return "openai"
+    return "google"
+
+def validar_url_remota(url: Optional[str]):
+    if not url:
+        return
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Apenas URLs HTTP/HTTPS sao permitidas.")
+    hostname = (parsed.hostname or "").lower()
+    if not hostname or hostname in BLOCKED_HOSTS:
+        raise HTTPException(status_code=400, detail="Host remoto nao permitido (protecao SSRF).")
+
+    # Bloqueio definitivo de URLs externas arbitrarias para mitigar qualquer risco de SSRF/Rebinding
+    dominio_permitido = hostname in ("ai.helpusbr.com", "helpusbr.com") or hostname.endswith(".helpusbr.com")
+    if not dominio_permitido:
+        raise HTTPException(
+            status_code=400,
+            detail="URLs externas arbitrarias estao desabilitadas por seguranca (protecao SSRF). Por favor, anexe a imagem diretamente via upload (base64)."
+        )
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise HTTPException(status_code=400, detail="IP privado ou loopback nao permitido (protecao SSRF).")
+    except ValueError:
+        # Mitigacao contra DNS rebinding e resolucao para IPs privados/locais
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for _, _, _, _, sockaddr in addr_info:
+                ip_str = sockaddr[0]
+                resolved_ip = ipaddress.ip_address(ip_str)
+                if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local or resolved_ip.is_reserved:
+                    raise HTTPException(status_code=400, detail=f"Dominio resolve para IP privado ({ip_str}) bloqueado por protecao SSRF.")
+        except socket.gaierror:
+            raise HTTPException(status_code=400, detail="Nao foi possivel resolver o dominio remoto especificado.")
+
+def _detectar_tipo_binario(dados: bytes) -> Optional[str]:
+    if len(dados) < 4:
+        return None
+    if dados.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if dados.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if dados.startswith(b"GIF87a") or dados.startswith(b"GIF89a"):
+        return "image/gif"
+    if len(dados) >= 12 and dados[:4] == b"RIFF" and dados[8:12] == b"WEBP":
+        return "image/webp"
+    if dados.startswith(b"%PDF-"):
+        return "application/pdf"
+    return None
+
+def validar_anexo(image_base64: Optional[str] = None, file_name: Optional[str] = None):
+    if file_name:
+        fn_lower = file_name.strip().lower()
+        if fn_lower.startswith(".env") or any(fn_lower.endswith(ext) for ext in BLOCKED_EXTENSIONS):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Arquivo '{file_name}' nao permitido por questoes de seguranca."
+            )
+    if image_base64:
+        raw_b64 = image_base64
+        mime = None
+        if image_base64.startswith("data:"):
+            header, _, data_part = image_base64.partition(",")
+            mime = header.split(";")[0].replace("data:", "").strip().lower()
+            if mime and mime not in ALLOWED_IMAGE_MIMES and mime != "application/pdf":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tipo MIME '{mime}' nao permitido. Permitidos: {sorted(list(ALLOWED_IMAGE_MIMES))}"
+                )
+            raw_b64 = data_part
+        try:
+            decoded = base64.b64decode(raw_b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="Formato base64 corrompido ou invalido."
+            )
+        if len(decoded) > MAX_IMAGE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Tamanho decodificado do anexo excede o limite de 10MB."
+            )
+        tipo_detectado = _detectar_tipo_binario(decoded)
+        if not tipo_detectado:
+            raise HTTPException(
+                status_code=400,
+                detail="Assinatura binaria de anexo incompativel com os tipos permitidos (PNG, JPEG, WEBP, GIF, PDF)."
+            )
+        if mime and tipo_detectado != mime:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo MIME declarado ('{mime}') incompativel com a assinatura binaria real ('{tipo_detectado}')."
+            )
+
 class MensagemRequest(BaseModel):
     mensagem: str
     session_id: Optional[str] = None
     pesquisar_web: bool = True
     project_id: Optional[str] = 'general'
     image_base64: Optional[str] = None
+    imagem_base64: Optional[str] = None
+    file_name: Optional[str] = None
     image_url: Optional[str] = None
+    model: Optional[str] = None
+    client_request_id: Optional[str] = None
+    is_retry: bool = False
 
 class MensagemResponse(BaseModel):
     resposta: str
@@ -151,8 +321,11 @@ class MensagemResponse(BaseModel):
     fallback_reason: Optional[str] = None
     provider_configured: str = ""
     model: str = ""
+    model_requested: Optional[str] = None
+    model_used: Optional[str] = None
     latency_ms: Optional[float] = None
     agent_trace: List[Dict[str, str]] = []
+    cached: Optional[bool] = None
 
 class StatusResponse(BaseModel):
     status: str
@@ -260,6 +433,510 @@ async def raiz():
         "docs": "/docs"
     }
 
+
+_provider_health_cache: Dict[str, Dict[str, Any]] = {}
+HEALTH_CHECK_TTL_SECONDS = 60.0
+
+def _get_provider_health(provider: str) -> str:
+    """Retorna 'healthy', 'unhealthy', 'unknown' ou 'not_configured'. Nunca divulga credenciais."""
+    if not _is_provider_configured(provider):
+        return "not_configured"
+    cached = _provider_health_cache.get(provider)
+    if cached and (time.time() - cached.get("timestamp", 0) < HEALTH_CHECK_TTL_SECONDS):
+        return cached.get("status", "unknown")
+    return cached.get("status", "unknown") if cached else "unknown"
+
+def record_provider_health(provider: str, success: bool):
+    _provider_health_cache[provider] = {
+        "status": "healthy" if success else "unhealthy",
+        "timestamp": time.time(),
+    }
+
+def _is_provider_configured(provider: str) -> bool:
+    if provider == "google":
+        return bool(getattr(app_config, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY"))
+    if provider == "deepseek":
+        return bool(getattr(app_config, "DEEPSEEK_API_KEY", None) or os.getenv("DEEPSEEK_API_KEY"))
+    if provider == "openai":
+        return bool(getattr(app_config, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY"))
+    return False
+
+def _is_provider_healthy(provider: str) -> bool:
+    return _get_provider_health(provider) == "healthy"
+
+def _is_provider_available(provider: str) -> bool:
+    return _is_provider_configured(provider) and (_get_provider_health(provider) in ("healthy", "unknown"))
+
+_idempotency_cache: Dict[str, Dict[str, Any]] = {}
+IDEMPOTENCY_TTL_SECONDS = 120.0
+
+def _calcular_fingerprint_requisicao(request: Any) -> str:
+    """Calcula hash canonico, versionado e deterministico da requisicao (P0 - Ciclos 030).
+    
+    Parametros semanticos incluidos:
+    - version: 1
+    - mensagem: texto normalizado
+    - model: modelo normalizado
+    - pesquisar_web: booleano
+    - image_hash: sha256 do payload base64 (se fornecido)
+    - image_url: url normalizada
+    - file_name: nome do anexo
+    - project_id: projeto normalizado
+    
+    Nenhum token, segredo ou credencial de usuario e incorporado.
+    """
+    effective_image = getattr(request, "image_base64", None) or getattr(request, "imagem_base64", None)
+    img_hash = hashlib.sha256(effective_image.encode("utf-8")).hexdigest() if effective_image else ""
+    
+    canonical_repr = {
+        "v": 1,
+        "msg": (getattr(request, "mensagem", "") or "").strip(),
+        "model": (getattr(request, "model", "") or "").strip().lower(),
+        "web": bool(getattr(request, "pesquisar_web", True)),
+        "img": img_hash,
+        "url": (getattr(request, "image_url", "") or "").strip(),
+        "file": (getattr(request, "file_name", "") or "").strip(),
+        "proj": (getattr(request, "project_id", "general") or "general").strip(),
+    }
+    canonical_bytes = json.dumps(canonical_repr, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(canonical_bytes).hexdigest()
+
+def _calcular_hash_legado_mensagem(mensagem: str) -> str:
+    """Calcula hash legado simples sobre a mensagem pura para compatibilidade segura."""
+    return hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()
+
+def _gerar_chave_idempotencia(
+    user_email: Optional[str],
+    session_id: str,
+    client_request_id: Optional[str],
+    mensagem: str,
+    req_hash: Optional[str] = None
+) -> Optional[str]:
+    if not client_request_id:
+        return None
+    msg_hash = hashlib.sha256((mensagem or "").encode("utf-8")).hexdigest()[:16]
+    return f"{user_email or 'anon'}:{session_id}:{client_request_id}:{msg_hash}"
+
+LEASE_TIMEOUT_SECONDS = 30.0
+HEARTBEAT_TIMEOUT_SECONDS = 15.0
+
+def claim_or_get_idempotent_request(
+    idempotency_key: Optional[str],
+    is_retry: bool = False,
+    req_hash: Optional[str] = None,
+    user_email: Optional[str] = None,
+    session_id: Optional[str] = None,
+    project_id: Optional[str] = None
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+    """Reivindica a execucao atomica com token de posse (fencing token) ou retorna a resposta em cache.
+
+    Garantias e Comportamento:
+    - Retorna tupla: (should_run: bool, cached_response: Optional[dict], owner_token: Optional[str]).
+    - Se uma resposta concluida existir, retorna (False, cached_response, None).
+    - Valida identidade canonica (fingerprint, usuario, sessao, projeto) antes de qualquer replay em memoria (P1 - Ciclo 031).
+    - Se uma requisicao identica ja estiver in_progress:
+      - Verifica o heartbeat da inferencia original:
+        - Se heartbeat recente (< HEARTBEAT_TIMEOUT_SECONDS, 15s), a inferencia esta ATIVA independentemente
+          do tempo decorrido total (mesmo > 30s). Rejeita com HTTP 409 Conflict.
+        - Se o heartbeat expirou (>= 15s sem atualizacao) E is_retry=True: o processo anterior falhou/travou.
+          Assume o lease com um NOVO owner_token seguro (fencing token).
+        - Se nao for retry: rejeita com HTTP 409 Conflict (concorrencia bloqueada).
+    - Se for nova requisicao: gera owner_token unico (UUID4), armazena timestamps e retorna (True, None, owner_token).
+    """
+    if not idempotency_key:
+        return True, None, None
+
+    # Se metadados canonicos nao foram fornecidos como kwargs mas a chave for estruturada (email:sess:req:hash)
+    if idempotency_key and len(idempotency_key.split(":")) >= 4:
+        parts = idempotency_key.split(":")
+        if not user_email:
+            user_email = parts[0]
+        if not session_id:
+            session_id = parts[1]
+        if not req_hash:
+            req_hash = parts[3]
+        if not project_id:
+            project_id = "general"
+
+    now = time.time()
+    for k in [k for k, v in _idempotency_cache.items() if now - v.get("timestamp", 0) > IDEMPOTENCY_TTL_SECONDS]:
+        _idempotency_cache.pop(k, None)
+
+    entry = _idempotency_cache.get(idempotency_key)
+    eff_user = (user_email or "anon").strip().lower()
+    if entry:
+        cached_hash = entry.get("request_payload_hash")
+        has_user_meta = "user_email" in entry
+        cached_user = (entry.get("user_email") or "anon").strip().lower()
+        cached_sess = entry.get("session_id")
+        cached_proj = entry.get("project_id")
+
+        # P0 CACHE INCOMPLETO (Ciclo 032): Rejeita/invalida sumariamente qualquer entrada em memoria
+        # sem escopo completo devidamente comprovado (request_payload_hash, user_email, session_id, project_id).
+        # Nunca interpretar ausencia de metadados como identidade confirmada.
+        if not (cached_hash and has_user_meta and cached_sess and cached_proj) or not (req_hash and session_id and project_id):
+            # Invalida entrada incompleta para impedir replay inseguro e forcar consulta ao ledger persistente
+            _idempotency_cache.pop(idempotency_key, None)
+            entry = None
+        else:
+            # Validacao estrita contra os dados autenticados da requisicao atual:
+            if cached_sess != session_id:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outra sessao.")
+            if cached_user != eff_user:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outro usuario.")
+            if cached_proj != project_id:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: chave de idempotencia pertence a outro projeto.")
+            if cached_hash != req_hash:
+                raise HTTPException(status_code=403, detail="Conflito de escopo: fingerprint canonico divergente em cache de idempotencia.")
+
+        if entry:
+            if entry.get("status") == "completed":
+                return False, entry.get("response"), None
+            if entry.get("status") == "in_progress":
+                last_hb = entry.get("last_heartbeat", entry.get("timestamp", 0))
+                hb_elapsed = now - last_hb
+                if is_retry:
+                    if hb_elapsed < HEARTBEAT_TIMEOUT_SECONDS:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Inferencia original ainda em processamento ativo (heartbeat ativo). Aguarde a conclusao antes de reenviar."
+                        )
+                    _idempotency_cache.pop(idempotency_key, None)
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Requisicao identica ja esta sendo processada simultaneamente (concorrencia bloqueada)."
+                    )
+
+    owner_token = str(uuid.uuid4())
+    _idempotency_cache[idempotency_key] = {
+        "status": "in_progress",
+        "timestamp": now,
+        "last_heartbeat": now,
+        "owner_token": owner_token,
+        "request_payload_hash": req_hash,
+        "user_email": user_email or "anon",
+        "session_id": session_id,
+        "project_id": project_id,
+    }
+    return True, None, owner_token
+
+def heartbeat_idempotent_request(idempotency_key: Optional[str], owner_token: Optional[str]) -> bool:
+    """Atualiza o batimento cardiaco da requisicao em progresso pelo detentor valido do token."""
+    if not idempotency_key or not owner_token:
+        return False
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry and entry.get("status") == "in_progress" and entry.get("owner_token") == owner_token:
+        entry["last_heartbeat"] = time.time()
+        return True
+    return False
+
+def _mask_key(key: Optional[str]) -> str:
+    """Mascara chaves de idempotencia em logs para proteger dados de usuario, emails e session IDs."""
+    if not key:
+        return "none"
+    parts = key.split(":")
+    if len(parts) >= 4:
+        return f"***:***:***:{parts[-1][:8]}"
+    return f"***_{hashlib.sha256(key.encode()).hexdigest()[:8]}"
+
+def _sanitize_log_message(msg: Any) -> str:
+    """Sanitiza mensagens de log impedindo vazamento de credenciais, URLs internas de banco ou tokens."""
+    s = str(msg)
+    s = re.sub(r'postgres(ql)?://[^@\s]+@', 'postgresql://***:***@', s)
+    s = re.sub(r'(bearer\s+)[a-zA-Z0-9_\-\.]+', r'\1***', s, flags=re.IGNORECASE)
+    s = re.sub(r'(key|token|secret|password|senha)\s*[:=]\s*[^\s,]+', r'\1=***', s, flags=re.IGNORECASE)
+    return s
+
+class _RefCountLock:
+    def __init__(self):
+        self.lock = asyncio.Lock()
+        self.ref_count = 0
+
+_turn_locks: Dict[str, _RefCountLock] = {}
+_turn_locks_mutex = asyncio.Lock()
+
+@asynccontextmanager
+async def turn_lock_context(idempotency_key: Optional[str]):
+    """Adquire lock exclusivo por idempotency_key com limpeza segura e atomica (sem vazamento nem corrida)."""
+    if not idempotency_key:
+        yield
+        return
+
+    async with _turn_locks_mutex:
+        if idempotency_key not in _turn_locks:
+            _turn_locks[idempotency_key] = _RefCountLock()
+        entry = _turn_locks[idempotency_key]
+        entry.ref_count += 1
+
+    await entry.lock.acquire()
+    try:
+        yield
+    finally:
+        entry.lock.release()
+        async with _turn_locks_mutex:
+            entry.ref_count -= 1
+            if entry.ref_count <= 0 and not entry.lock.locked():
+                _turn_locks.pop(idempotency_key, None)
+
+async def get_turn_lock(idempotency_key: Optional[str]):
+    """Helper compativel com turn_lock_context."""
+    return turn_lock_context(idempotency_key)
+
+ALLOWED_DETAIL_KEYS = {
+    "masked_key", "error_kind", "model_eff", "model_req", "provider", "duration_ms", "status_code", "retryable"
+}
+SAFE_CORR_ID_RE = re.compile(r'^[a-zA-Z0-9\-_]{8,64}$')
+SAFE_EVENT_RE = re.compile(r'^[a-zA-Z0-9_]{3,64}$')
+
+def log_structured(level: str, event: str, correlation_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+    """Emite log estruturado padronizado em JSON com allowlist estrita e correlation_id opaco, sem secrets (P1 - Ciclo 021)."""
+    safe_details = {}
+    if details and isinstance(details, dict):
+        for k, v in details.items():
+            if k in ALLOWED_DETAIL_KEYS:
+                safe_details[k] = _sanitize_log_message(str(v)) if isinstance(v, str) else v
+
+    safe_corr_id = "opaque_none"
+    if correlation_id and isinstance(correlation_id, str):
+        c_str = correlation_id.strip()
+        if SAFE_CORR_ID_RE.match(c_str):
+            safe_corr_id = c_str[:64]
+
+    safe_event = "unknown_event"
+    if event and isinstance(event, str):
+        e_str = event.strip()
+        if SAFE_EVENT_RE.match(e_str):
+            safe_event = e_str[:64]
+
+    entry = {
+        "timestamp": round(time.time(), 3),
+        "level": str(level).upper() if level else "INFO",
+        "event": safe_event,
+        "correlation_id": safe_corr_id,
+        "details": safe_details,
+    }
+    print(json.dumps(entry, ensure_ascii=False))
+
+def is_owner_token_valid(idempotency_key: Optional[str], owner_token: Optional[str]) -> bool:
+    """Valida se o owner_token ainda e o detentor ativo e legitimo da execucao in_progress."""
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
+        return False
+    entry = _idempotency_cache.get(idempotency_key)
+    if not entry or entry.get("status") != "in_progress":
+        return False
+    return entry.get("owner_token") == owner_token
+
+def complete_idempotent_request(
+    idempotency_key: Optional[str],
+    response_data: Dict[str, Any],
+    owner_token: str,
+    req_hash: Optional[str] = None,
+    user_email: Optional[str] = None,
+    session_id: Optional[str] = None,
+    project_id: Optional[str] = None
+) -> bool:
+    """Finaliza a requisicao atomica com a resposta calculada (CAS com fencing token estrito).
+    
+    Invariantes Estritas (P0 - Ciclo 017/031):
+    1. EXIGE owner_token valido e nao-vazio do executor legitimo.
+    2. Rejeita se a chave nao existir no cache.
+    3. Rejeita se o status atual nao for 'in_progress' (ja concluida ou cancelada).
+    4. Rejeita se o owner_token nao corresponder exatamente ao executor atual (fenced).
+    5. Transicao atomica para status 'completed' com carimbo temporal e escopo canonico validado.
+    """
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
+        return False
+
+    entry = _idempotency_cache.get(idempotency_key)
+    if not entry:
+        return False
+
+    if entry.get("status") != "in_progress":
+        return False
+
+    if entry.get("owner_token") != owner_token:
+        return False
+
+    entry["status"] = "completed"
+    entry["response"] = response_data
+    entry["completed_at"] = time.time()
+    entry["timestamp"] = time.time()
+    if req_hash:
+        entry["request_payload_hash"] = req_hash
+    if user_email:
+        entry["user_email"] = user_email
+    if session_id:
+        entry["session_id"] = session_id
+    if project_id:
+        entry["project_id"] = project_id
+    return True
+
+def release_idempotent_request(idempotency_key: Optional[str], owner_token: str) -> bool:
+    """Libera a trava in_progress se a requisicao falhar antes da conclusao.
+    
+    Invariantes Estritas (P0 - Ciclo 017):
+    1. EXIGE owner_token valido e nao-vazio; impede release desautorizado ou sem token.
+    2. Rejeita se chave inexistente ou se status nao for 'in_progress'.
+    3. Rejeita se owner_token pertencer a outro executor.
+    """
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
+        return False
+
+    entry = _idempotency_cache.get(idempotency_key)
+    if not entry or entry.get("status") != "in_progress":
+        return False
+
+    if entry.get("owner_token") != owner_token:
+        return False
+
+    _idempotency_cache.pop(idempotency_key, None)
+    return True
+
+class IdempotencyHeartbeatSession:
+    """Mantem renovacao independente e periodica de heartbeat em background durante inferencias silenciosas.
+    Garante que o lease seja renovado mesmo se o modelo demorar > 15s ou > 30s sem emitir chunks."""
+    def __init__(self, idempotency_key: Optional[str], owner_token: Optional[str], interval: float = 3.0):
+        self.idempotency_key = idempotency_key
+        self.owner_token = owner_token
+        self.interval = interval
+        self._stop_event = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self):
+        if not self.idempotency_key or not self.owner_token:
+            return
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def _run_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval)
+                break
+            except asyncio.TimeoutError:
+                ok = heartbeat_idempotent_request(self.idempotency_key, self.owner_token)
+                if not ok:
+                    break
+
+    async def stop(self):
+        self._stop_event.set()
+        if self._task and not self._task.done():
+            try:
+                await asyncio.wait_for(self._task, timeout=0.5)
+            except Exception:
+                pass
+
+def get_idempotent_response(idempotency_key: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Helper de leitura PURA: consulta resposta concluida em cache sem qualquer side effect ou criacao de claim."""
+    if not idempotency_key:
+        return None
+    entry = _idempotency_cache.get(idempotency_key)
+    if entry and entry.get("status") == "completed":
+        return entry.get("response")
+    return None
+
+def save_idempotent_response(
+    idempotency_key: Optional[str],
+    response_data: Dict[str, Any],
+    owner_token: str,
+    req_hash: Optional[str] = None,
+    user_email: Optional[str] = None,
+    session_id: Optional[str] = None,
+    project_id: Optional[str] = None
+) -> bool:
+    """Salva a resposta idempotente concluida. EXIGE owner_token explicito e valido do executor legitimo.
+    Sem recuperacao automatica ou fallback para impedir side effects ou bypass de fencing."""
+    if not idempotency_key or not owner_token or not isinstance(owner_token, str) or not owner_token.strip():
+        return False
+    return complete_idempotent_request(
+        idempotency_key,
+        response_data,
+        owner_token=owner_token,
+        req_hash=req_hash,
+        user_email=user_email,
+        session_id=session_id,
+        project_id=project_id
+    )
+
+@app.get("/modelos")
+async def listar_modelos():
+    """Retorna o catalogo oficial de modelos homologados e sua disponibilidade real no servidor"""
+    google_configured = _is_provider_configured("google")
+    google_health = _get_provider_health("google")
+    google_healthy = (google_health == "healthy")
+    google_available = google_configured and google_healthy
+
+    deepseek_configured = _is_provider_configured("deepseek")
+    deepseek_health = _get_provider_health("deepseek")
+    deepseek_healthy = (deepseek_health == "healthy")
+    deepseek_available = deepseek_configured and deepseek_healthy
+
+    return {
+        "modelos": [
+            {
+                "id": "gemini-2.5-flash-lite",
+                "name": "Flash-Lite",
+                "provider": "google",
+                "alias": "helpus-fast",
+                "desc": "Rapido e eficiente",
+                "capabilities": ["text", "code", "fast"],
+                "configured": google_configured,
+                "health": google_health,
+                "healthy": google_healthy,
+                "available": google_available,
+            },
+            {
+                "id": "gemini-2.5-flash",
+                "name": "Flash",
+                "provider": "google",
+                "alias": "helpus-general",
+                "desc": "Equilibrio ideal de inteligencia",
+                "capabilities": ["text", "code", "vision", "reasoning"],
+                "configured": google_configured,
+                "health": google_health,
+                "healthy": google_healthy,
+                "available": google_available,
+            },
+            {
+                "id": "gemini-2.5-pro",
+                "name": "Pro",
+                "provider": "google",
+                "alias": "helpus-reasoner",
+                "desc": "Raciocinio profundo e analise",
+                "capabilities": ["text", "code", "vision", "deep_thinking"],
+                "configured": google_configured,
+                "health": google_health,
+                "healthy": google_healthy,
+                "available": google_available,
+            },
+            {
+                "id": "deepseek-chat",
+                "name": "DeepSeek Chat",
+                "provider": "deepseek",
+                "alias": "helpus-code",
+                "desc": "Especialista em codigo e arquitetura",
+                "capabilities": ["text", "code"],
+                "configured": deepseek_configured,
+                "health": deepseek_health,
+                "healthy": deepseek_healthy,
+                "available": deepseek_available,
+            },
+            {
+                "id": "deepseek-reasoner",
+                "name": "DeepSeek R1",
+                "provider": "deepseek",
+                "alias": "helpus-reasoner",
+                "desc": "Raciocinio logico avancado",
+                "capabilities": ["text", "code", "deep_reasoning"],
+                "configured": deepseek_configured,
+                "health": deepseek_health,
+                "healthy": deepseek_healthy,
+                "available": deepseek_available,
+            },
+        ],
+        "default_model": "gemini-2.5-flash",
+    }
+
 @app.get("/status", response_model=StatusResponse)
 async def status():
     """Verifica o status de todos os servicos"""
@@ -300,20 +977,34 @@ except ModuleNotFoundError:
         executar_no_computador_local,
     )
 
+def require_bridge_token(authorization: Optional[str] = Header(default=None)) -> None:
+    """Fail closed unless a dedicated bridge credential matches.
+
+    Configure HELPUS_BRIDGE_API_TOKEN on both the server and the trusted
+    HelpUSDev client. Never reuse a Google user token or public API key.
+    """
+    configured = os.getenv("HELPUS_BRIDGE_API_TOKEN", "")
+    if not configured:
+        raise HTTPException(status_code=503, detail={"error": "bridge_not_configured"})
+    scheme, _, presented = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not presented or not hmac.compare_digest(presented, configured):
+        raise HTTPException(status_code=401, detail={"error": "bridge_unauthorized"})
+
+
 @app.get("/bridge/poll")
-async def bridge_poll():
+async def bridge_poll(_bridge_auth: None = Depends(require_bridge_token)):
     """Endpoint de long-polling para a aplicação HelpUSDev local receber tarefas"""
     cmd = await obter_proximo_comando(timeout=20.0)
     return {"command": cmd}
 
 @app.post("/bridge/result")
-async def bridge_result(res: BridgeResultRequest):
+async def bridge_result(res: BridgeResultRequest, _bridge_auth: None = Depends(require_bridge_token)):
     """Recebe o resultado da execução realizada pelo HelpUSDev local"""
     processar_resultado_comando(res.command_id, res.status, res.output or "")
     return {"ok": True}
 
 @app.get("/bridge/status")
-async def bridge_status():
+async def bridge_status(_bridge_auth: None = Depends(require_bridge_token)):
     """Retorna o status da conexão com a aplicação HelpUSDev local"""
     return {
         "online": is_helpusdev_online(),
@@ -426,6 +1117,31 @@ async def internal_smoke_chat(
     )
 
 
+
+ALLOWED_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "gpt-4o",
+    "gpt-4o-mini",
+}
+
+def validar_modelo(model: Optional[str]) -> Optional[str]:
+    if not model or not str(model).strip():
+        return None
+    m = str(model).strip().lower()
+    if m not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Modelo '{model}' invalido ou nao permitido. Modelos permitidos: {sorted(list(ALLOWED_MODELS))}"
+        )
+    return m
+
 @app.post("/chat", response_model=MensagemResponse)
 async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)):
     """Endpoint principal de conversa"""
@@ -440,16 +1156,171 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     inicio_total = time.time()
     session_id = request.session_id or str(uuid.uuid4())
     project_id = (request.project_id or 'general')[:80]
+    user_email = usuario["email"] if usuario else None
+
+    # Validacao estrita de propriedade de sessao (FAIL-CLOSED)
+    if banco and session_id:
+        try:
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email, project_id)
+            if not eh_dono:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Acesso negado: sessao pertence a outra conta ou autorizacao nao pode ser confirmada."
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            if getattr(banco, "database_url", None):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Servico de validacao de sessao temporariamente indisponivel."
+                )
+
+    validar_modelo(request.model)
+    if request.model:
+        set_request_model(request.model.strip().lower())
+    effective_image_b64 = request.image_base64 or request.imagem_base64
+    validar_anexo(effective_image_b64, request.file_name)
+    validar_url_remota(request.image_url)
+
+    req_hash = _calcular_fingerprint_requisicao(request) if request.client_request_id else None
+    legacy_req_hash = _calcular_hash_legado_mensagem(request.mensagem) if request.client_request_id else None
+    has_img = bool(effective_image_b64 or (getattr(request, "image_url", "") or "").strip())
+    has_file = bool((getattr(request, "file_name", "") or "").strip())
+    is_legacy_eligible = is_nominal_legacy_request(
+        model=request.model,
+        pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+        has_image=has_img,
+        has_file=has_file,
+        project_id=project_id
+    ) if request.client_request_id else False
+    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem, req_hash=req_hash)
+    is_claimed = False
+    owner_token = None
+
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030/031/032): Reconcilia estado persistente antes de inferencia ou claim
+    if idempotency_key and banco:
+        try:
+            reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
+                idempotency_key=idempotency_key,
+                user_email=user_email,
+                project_id=project_id,
+                request_payload_hash=req_hash,
+                session_id=session_id,
+                legacy_payload_hash=legacy_req_hash,
+                require_strict_scope=True,
+                is_nominal_legacy_eligible=is_legacy_eligible,
+                requested_model=request.model,
+                pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                has_image=has_img,
+                has_file=has_file
+            )
+            if reconcile_status == "KNOWN_COMMITTED":
+                if cached_payload and isinstance(cached_payload, dict) and "resposta" in cached_payload:
+                    cached_payload["cached"] = True
+                    _idempotency_cache[idempotency_key] = {
+                        "status": "completed",
+                        "response": cached_payload,
+                        "completed_at": time.time(),
+                        "timestamp": time.time(),
+                        "owner_token": "reconciled_from_db",
+                        "request_payload_hash": req_hash,
+                        "user_email": user_email,
+                        "session_id": session_id,
+                        "project_id": project_id,
+                    }
+                    return MensagemResponse(**cached_payload)
+            elif reconcile_status == "UNKNOWN":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Requisicao identica em processamento ativo ou estado ambiguo no ledger persistente."
+                )
+            elif reconcile_status == "LEASE_EXPIRED_PENDING_TAKEOVER" and not request.is_retry:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Turno pendente com lease expirada; novo envio deve especificar retry para takeover transacional."
+                )
+        except LegacyReplayConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            if getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"):
+                _log_db_error("reconcile_chat_preflight", e)
+                raise HTTPException(status_code=503, detail="Servico de reconciliacao temporariamente indisponivel.")
+
+    if idempotency_key:
+        should_run, cached_resp, owner_token = claim_or_get_idempotent_request(
+            idempotency_key,
+            is_retry=request.is_retry,
+            req_hash=req_hash,
+            user_email=user_email,
+            session_id=session_id,
+            project_id=project_id
+        )
+        if not should_run and cached_resp:
+            return MensagemResponse(**cached_resp)
+        is_claimed = should_run
+
+        # Estende claim para o ledger persistente
+        if banco and owner_token:
+            try:
+                db_should_run, db_cached_resp, _ = await banco.claim_turn_ledger(
+                    idempotency_key=idempotency_key,
+                    owner_token=owner_token,
+                    session_id=session_id,
+                    user_email=user_email,
+                    project_id=project_id,
+                    request_payload_hash=req_hash,
+                    is_retry=request.is_retry,
+                    legacy_payload_hash=legacy_req_hash,
+                    is_nominal_legacy_eligible=is_legacy_eligible,
+                    requested_model=request.model,
+                    pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                    has_image=has_img,
+                    has_file=has_file
+                )
+                if not db_should_run:
+                    if db_cached_resp:
+                        complete_idempotent_request(
+                            idempotency_key, db_cached_resp, owner_token=owner_token,
+                            req_hash=req_hash, user_email=user_email, session_id=session_id, project_id=project_id
+                        )
+                        return MensagemResponse(**db_cached_resp)
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Requisicao identica em processamento ativo no ledger persistente."
+                    )
+            except LegacyReplayConflictError as e:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=409, detail=str(e))
+            except PermissionError:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("claim_turn_ledger_chat", e)
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
+                raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
+
+    hb_session = IdempotencyHeartbeatSession(idempotency_key, owner_token, interval=3.0)
+    hb_session.start()
     # Agentes internos controlados por HELPUS_INTERNAL_AGENTS_ENABLED.
     agent_trace = [
         {"label": "Analisando pedido", "status": "done"}
     ]
+    completed_successfully = False
 
     try:
         # Carrega historico
         historico = []
         try:
-            historico = await banco.carregar_mensagens(session_id, limite=10)
+            historico = await banco.carregar_mensagens(session_id, limite=10, user_email=user_email)
         except:
             pass
 
@@ -493,18 +1364,33 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
                     print(f"[WARN] Erro ou timeout na busca: {e}")
 
 
-        # Salva pergunta
-        try:
-            await banco.salvar_mensagem(
-            session_id,
-            "user",
-            request.mensagem,
-            user_email=usuario["email"] if usuario else None,
-            project_id=project_id,
-            title=request.mensagem[:80],
-        )
-        except:
-            pass
+        # Salva pergunta (evita duplicacao se for retry explicito) (P0 - Ciclos 031/032)
+        if banco and not request.is_retry:
+            try:
+                res_u_save = await banco.salvar_mensagem(
+                    session_id,
+                    "user",
+                    request.mensagem,
+                    user_email=usuario["email"] if usuario else None,
+                    project_id=project_id,
+                    title=request.mensagem[:80],
+                )
+                if not res_u_save:
+                    raise RuntimeError("Persistencia duravel da mensagem do usuario falhou ou retornou False.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("salvar_mensagem_usuario_chat", e)
+                if idempotency_key and owner_token:
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    try:
+                        await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                    except:
+                        pass
+                raise HTTPException(
+                    status_code=503,
+                    detail="Falha ao persistir mensagem do usuario no banco de dados de forma duravel."
+                )
 
         # Memoria interna recente/relevante, controlada por HELPUS_MEMORY_CONTEXT_ENABLED.
         contexto_memoria_interna = ""
@@ -560,7 +1446,7 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             pergunta=pergunta_para_ia,
             contexto_busca="\n\n".join([parte for parte in [contexto_memorias, contexto_memoria_interna, contexto_busca] if parte]),
             historico=historico,
-            image_base64=request.image_base64,
+            image_base64=effective_image_b64,
             image_url=request.image_url,
         )
         internal_agents_result = await run_internal_agents(
@@ -585,17 +1471,14 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         agent_trace[-1] = {"label": "Chamando modelo de IA", "status": "done"}
 
-        # Salva resposta
-        try:
-            await banco.salvar_mensagem(
-            session_id,
-            "assistant",
-            resposta,
-            user_email=usuario["email"] if usuario else None,
-            project_id=project_id,
-        )
-        except:
-            pass
+        # P0 Concorrencia: aborta persistencia se o worker foi cercado (fenced por retry/timeout)
+        is_fenced = bool(is_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token))
+        if is_fenced:
+            print(f"[WARN] Worker cercado (fenced): abortando persistencia para chave {_mask_key(idempotency_key)}")
+            cached_now = get_idempotent_response(idempotency_key)
+            if cached_now:
+                return MensagemResponse(**cached_now)
+            raise HTTPException(status_code=409, detail="Requisicao cancelada ou substituida por concorrencia (fenced).")
 
         # Grava evento de memoria interna sem afetar a resposta do chat.
         await run_in_threadpool(
@@ -619,22 +1502,93 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
 
         tempo_total = round(time.time() - inicio_total, 2)
 
-        return MensagemResponse(
+        meta = get_request_metadata()
+        prov_used = meta.get("provider_used") or getattr(c, "last_provider_used", getattr(c, "provider", ""))
+        fb_reason = meta.get("fallback_reason") or getattr(c, "last_fallback_reason", None)
+        model_eff = meta.get("model_used") or get_request_model() or getattr(c, "nome_modelo", request.model or "")
+        model_req = request.model or model_eff
+
+        resp_obj = MensagemResponse(
             resposta=resposta,
             session_id=session_id,
             project_id=project_id,
             fontes=fontes,
             tempo_total=tempo_total,
             tokens_gerados=tokens,
-            provider_used=getattr(c, "last_provider_used", getattr(c, "provider", "")),
-            fallback_reason=getattr(c, "last_fallback_reason", None),
+            provider_used=prov_used,
+            fallback_reason=fb_reason,
             provider_configured=getattr(app_config, "AI_PROVIDER", ""),
-            model=getattr(c, "nome_modelo", ""),
+            model=model_eff,
+            model_requested=model_req,
+            model_used=model_eff,
             latency_ms=round(tempo_ia * 1000, 2) if isinstance(tempo_ia, (int, float)) else None,
             agent_trace=agent_trace,
         )
 
+        # Salva resposta atomicamente no PostgreSQL (P0 - Ciclos 025/030/032)
+        if banco and resposta:
+            try:
+                if idempotency_key and owner_token:
+                    resp_dict = resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict()
+                    turn_res = await banco.persist_and_complete_turn(
+                        session_id=session_id,
+                        content=resposta,
+                        idempotency_key=idempotency_key,
+                        owner_token=owner_token,
+                        user_email=user_email,
+                        project_id=project_id,
+                        request_payload_hash=req_hash,
+                        response_payload=resp_dict,
+                        legacy_payload_hash=legacy_req_hash,
+                        is_nominal_legacy_eligible=is_legacy_eligible,
+                        requested_model=model_req,
+                        pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                        has_image=has_img,
+                        has_file=has_file
+                    )
+                    if not turn_res:
+                        raise RuntimeError("Persistencia atomica de assistant falhou no ledger.")
+                else:
+                    save_res = await banco.salvar_mensagem(
+                        session_id,
+                        "assistant",
+                        resposta,
+                        user_email=user_email,
+                        project_id=project_id,
+                    )
+                    if save_res is not True:
+                        raise RuntimeError("Persistencia duravel de assistant falhou ou retornou False.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("chat_save_response", e)
+                if idempotency_key and owner_token:
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    try:
+                        await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                    except:
+                        pass
+                raise HTTPException(status_code=503, detail="Falha de persistencia duravel obrigatoria.")
 
+        if idempotency_key:
+            save_idempotent_response(
+                idempotency_key,
+                resp_obj.model_dump() if hasattr(resp_obj, 'model_dump') else resp_obj.dict(),
+                owner_token=owner_token,
+                req_hash=req_hash,
+                user_email=user_email,
+                session_id=session_id,
+                project_id=project_id
+            )
+        upstream_prov = resolver_provedor_modelo(model_eff)
+        record_provider_health(upstream_prov, success=(fb_reason is None))
+        record_provider_health(prov_used, success=(fb_reason is None))
+        completed_successfully = True
+        return resp_obj
+
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ERROR] Erro no chat: {e}")
         return MensagemResponse(
@@ -651,6 +1605,15 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
             latency_ms=None,
             agent_trace=agent_trace,
         )
+    finally:
+        await hb_session.stop()
+        if is_claimed and not completed_successfully and idempotency_key and owner_token:
+            release_idempotent_request(idempotency_key, owner_token=owner_token)
+            if banco:
+                try:
+                    await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                except:
+                    pass
 
 
 @app.post("/chat/stream")
@@ -669,73 +1632,346 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     user_email = usuario["email"] if usuario else None
     project_id = request.project_id or "general"
 
-    # Salva mensagem do usuario imediatamente
-    if banco:
+    # Validacao estrita de propriedade de sessao (FAIL-CLOSED)
+    if banco and session_id:
         try:
-            await banco.salvar_mensagem(
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email, project_id)
+            if not eh_dono:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Acesso negado: sessao pertence a outra conta ou autorizacao nao pode ser confirmada."
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            if getattr(banco, "database_url", None):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Servico de validacao de sessao temporariamente indisponivel."
+                )
+
+    validar_modelo(request.model)
+    if request.model:
+        set_request_model(request.model.strip().lower())
+    effective_image_b64 = request.image_base64 or request.imagem_base64
+    validar_anexo(effective_image_b64, request.file_name)
+    validar_url_remota(request.image_url)
+
+    req_hash = _calcular_fingerprint_requisicao(request) if request.client_request_id else None
+    legacy_req_hash = _calcular_hash_legado_mensagem(request.mensagem) if request.client_request_id else None
+    has_img = bool(effective_image_b64 or (getattr(request, "image_url", "") or "").strip())
+    has_file = bool((getattr(request, "file_name", "") or "").strip())
+    is_legacy_eligible = is_nominal_legacy_request(
+        model=request.model,
+        pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+        has_image=has_img,
+        has_file=has_file,
+        project_id=project_id
+    ) if request.client_request_id else False
+    idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem, req_hash=req_hash)
+    is_stream_claimed = False
+    owner_token = None
+
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclos 029/030/031/032): Reconcilia estado persistente antes de inferencia ou claim
+    if idempotency_key and banco:
+        try:
+            reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
+                idempotency_key=idempotency_key,
+                user_email=user_email,
+                project_id=project_id,
+                request_payload_hash=req_hash,
+                session_id=session_id,
+                legacy_payload_hash=legacy_req_hash,
+                require_strict_scope=True,
+                is_nominal_legacy_eligible=is_legacy_eligible,
+                requested_model=request.model,
+                pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                has_image=has_img,
+                has_file=has_file
+            )
+            if reconcile_status == "KNOWN_COMMITTED":
+                if cached_payload and isinstance(cached_payload, dict) and "resposta" in cached_payload:
+                    cached_payload["cached"] = True
+                    _idempotency_cache[idempotency_key] = {
+                        "status": "completed",
+                        "response": cached_payload,
+                        "completed_at": time.time(),
+                        "timestamp": time.time(),
+                        "owner_token": "reconciled_from_db",
+                        "request_payload_hash": req_hash,
+                        "user_email": user_email,
+                        "session_id": session_id,
+                        "project_id": project_id,
+                    }
+                    async def replay_reconciled_stream():
+                        text_content = cached_payload.get("resposta", "")
+                        yield f"data: {json.dumps({'content': text_content, 'text': text_content, 'session_id': session_id, 'model_requested': cached_payload.get('model_requested'), 'model_used': cached_payload.get('model_used'), 'provider_used': cached_payload.get('provider_used'), 'fallback_reason': cached_payload.get('fallback_reason'), 'cached': True}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(replay_reconciled_stream(), media_type="text/event-stream")
+            elif reconcile_status == "UNKNOWN":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Requisicao identica em processamento ativo ou estado ambiguo no ledger persistente."
+                )
+            elif reconcile_status == "LEASE_EXPIRED_PENDING_TAKEOVER" and not request.is_retry:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Turno pendente com lease expirada; novo envio deve especificar retry para takeover transacional."
+                )
+        except LegacyReplayConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            if getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"):
+                _log_db_error("reconcile_stream_preflight", e)
+                raise HTTPException(status_code=503, detail="Servico de reconciliacao temporariamente indisponivel.")
+
+    if idempotency_key:
+        should_run, cached_resp, owner_token = claim_or_get_idempotent_request(
+            idempotency_key,
+            is_retry=request.is_retry,
+            req_hash=req_hash,
+            user_email=user_email,
+            session_id=session_id,
+            project_id=project_id
+        )
+        if not should_run and cached_resp:
+            async def replay_cached_stream():
+                text_content = cached_resp.get("resposta", "")
+                yield f"data: {json.dumps({'content': text_content, 'text': text_content, 'session_id': session_id, 'model_requested': cached_resp.get('model_requested'), 'model_used': cached_resp.get('model_used'), 'provider_used': cached_resp.get('provider_used'), 'fallback_reason': cached_resp.get('fallback_reason'), 'cached': True}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(replay_cached_stream(), media_type="text/event-stream")
+        is_stream_claimed = should_run
+
+        # Estende o claim para o ledger persistente ou memoria
+        if banco and owner_token:
+            try:
+                db_should_run, db_cached_resp, _ = await banco.claim_turn_ledger(
+                    idempotency_key=idempotency_key,
+                    owner_token=owner_token,
+                    session_id=session_id,
+                    user_email=user_email,
+                    project_id=project_id,
+                    request_payload_hash=req_hash,
+                    is_retry=request.is_retry,
+                    legacy_payload_hash=legacy_req_hash,
+                    is_nominal_legacy_eligible=is_legacy_eligible,
+                    requested_model=request.model,
+                    pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                    has_image=has_img,
+                    has_file=has_file
+                )
+                if not db_should_run:
+                    if db_cached_resp:
+                        complete_idempotent_request(
+                            idempotency_key, db_cached_resp, owner_token=owner_token,
+                            req_hash=req_hash, user_email=user_email, session_id=session_id, project_id=project_id
+                        )
+                        async def replay_cached_stream():
+                            text_content = db_cached_resp.get("resposta", "")
+                            yield f"data: {json.dumps({'content': text_content, 'text': text_content, 'session_id': session_id, 'model_requested': db_cached_resp.get('model_requested'), 'model_used': db_cached_resp.get('model_used'), 'provider_used': db_cached_resp.get('provider_used'), 'fallback_reason': db_cached_resp.get('fallback_reason'), 'cached': True}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                            yield "data: [DONE]\n\n"
+                        return StreamingResponse(replay_cached_stream(), media_type="text/event-stream")
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Requisicao identica em processamento ativo no ledger persistente."
+                    )
+            except LegacyReplayConflictError as e:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=409, detail=str(e))
+            except PermissionError as pe:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("claim_turn_ledger_stream", e)
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
+
+    # Salva mensagem do usuario imediatamente (se nao for retry) (P0 - Ciclos 031/032)
+    if banco and not request.is_retry:
+        try:
+            res_user_stream = await banco.salvar_mensagem(
                 session_id=session_id,
                 role="user",
                 content=request.mensagem,
                 user_email=user_email,
                 project_id=project_id,
             )
+            if not res_user_stream:
+                raise RuntimeError("Falha ao persistir mensagem do usuario em stream.")
+        except HTTPException:
+            raise
         except Exception as e:
-            if DEBUG:
-                print(f"[WARN] Erro ao salvar mensagem do usuario em stream: {e}")
+            _log_db_error("salvar_mensagem_usuario_stream", e)
+            if idempotency_key and owner_token:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                try:
+                    await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                except:
+                    pass
+            raise HTTPException(
+                status_code=503,
+                detail="Falha ao persistir mensagem do usuario no banco de dados antes do streaming."
+            )
 
-    # Carrega histórico recente para contexto conversacional
+    # Carrega historico recente para contexto conversacional
     historico_recente = []
     if banco:
         try:
-            historico_recente = await banco.carregar_mensagens(session_id, limite=6)
+            historico_recente = await banco.carregar_mensagens(session_id, limite=6, user_email=user_email)
         except:
             pass
 
-    # Execução transparente no computador local via HelpUSDev
-    contexto_local = ""
-    acao_local = detectar_intencao_local(request.mensagem, historico=historico_recente)
-    if acao_local:
-        action, params = acao_local
-        res_local = await executar_no_computador_local(action, params)
-        if res_local.get("status") == "success":
-            saida = res_local.get("output", "")
-            contexto_local = f"\n\n[DADOS OBTIDOS DIRETAMENTE DO COMPUTADOR LOCAL VIA HELPUSDEV]:\nAção: {action}\nResultado:\n{saida}\n[FIM DOS DADOS LOCAIS]\nInstrução: Responda ao usuário com base nesses dados reais do computador dele de forma prestativa e transparente."
-        else:
-            aviso = res_local.get("output", "Falha de conexão.")
-            contexto_local = f"\n\n[AVISO HELPUSDEV LOCAL]: {aviso}\nInstrução: Informe educadamente que você tentou acessar o computador local, mas a aplicação HelpUSDev precisa estar aberta e rodando na máquina."
+    # Public chat must never trigger local device operations.
+    pergunta_stream = request.mensagem
 
-    pergunta_stream = request.mensagem + (contexto_local if contexto_local else "")
+    captured_model = get_request_model() or request.model or "gemini-2.5-flash"
+    captured_metadata = dict(get_request_metadata())
+    stream_hb_session = IdempotencyHeartbeatSession(idempotency_key, owner_token, interval=3.0)
+    stream_hb_session.start()
 
     async def event_generator():
+        set_request_model(captured_model)
+        set_request_metadata(captured_metadata)
         full_chunks = []
+        stream_completed_ok = False
+        last_model_req = request.model or getattr(c, "nome_modelo", "gemini-2.5-flash")
+        last_model_eff = getattr(c, "nome_modelo", last_model_req)
+        last_prov_used = getattr(c, "last_provider_used", getattr(c, "provider", "fallback"))
+        last_fb_reason = getattr(c, "last_fallback_reason", None)
         try:
             async for chunk in c.pensar_stream(
                 pergunta=pergunta_stream,
                 image_base64=request.image_base64,
                 image_url=request.image_url,
             ):
+                heartbeat_idempotent_request(idempotency_key, owner_token)
+                if banco and idempotency_key and owner_token:
+                    asyncio.create_task(banco.heartbeat_turn_ledger(idempotency_key, owner_token))
                 full_chunks.append(chunk)
-                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                meta = get_request_metadata()
+                model_eff = meta.get("model_used") or get_request_model() or request.model or "gemini-2.5-flash"
+                prov_used = meta.get("provider_used") or resolver_provedor_modelo(model_eff)
+                fb_reason = meta.get("fallback_reason")
+                yield f"data: {json.dumps({'content': chunk, 'text': chunk, 'session_id': session_id, 'model_requested': request.model or model_eff, 'model_used': model_eff, 'provider_used': prov_used, 'fallback_reason': fb_reason}, ensure_ascii=False)}\n\n"
+            stream_completed_ok = True
         except Exception as err:
             err_msg = f"Erro durante streaming: {str(err)}"
             yield f"data: {json.dumps({'error': err_msg, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        finally:
+            await stream_hb_session.stop()
+            # Atualizacao de saude executada apenas UMA VEZ no encerramento do stream
+            upstream_prov = resolver_provedor_modelo(last_model_eff)
+            record_provider_health(upstream_prov, success=stream_completed_ok and (last_fb_reason is None))
+            record_provider_health(last_prov_used, success=stream_completed_ok and (last_fb_reason is None))
 
-        # Salva resposta final gerada pelo assistente
-        resposta_completa = "".join(full_chunks)
-        if banco and resposta_completa:
-            try:
-                await banco.salvar_mensagem(
-                    session_id=session_id,
-                    role="assistant",
-                    content=resposta_completa,
-                    user_email=user_email,
-                    project_id=project_id,
-                )
-            except Exception as e:
-                if DEBUG:
-                    print(f"[WARN] Erro ao salvar resposta do assistente em stream: {e}")
+            # 1. P0 FENCING & STREAMING PERSISTENCIA (protegido contra TOCTOU):
+            resposta_completa = "".join(full_chunks)
+            persisted_ok = (banco is None)
+            stream_corr_id = str(uuid.uuid4())
+            
+            async def _persist_under_lock():
+                nonlocal persisted_ok
+                if is_stream_claimed and owner_token and not is_owner_token_valid(idempotency_key, owner_token):
+                    log_structured("WARN", "stream_fenced_persistence_aborted", correlation_id=stream_corr_id, details={"masked_key": _mask_key(idempotency_key)})
+                    if idempotency_key and owner_token:
+                        release_idempotent_request(idempotency_key, owner_token=owner_token)
+                        if banco:
+                            try:
+                                await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                            except:
+                                pass
+                    return
 
-        yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                payload_final = {
+                    "resposta": resposta_completa,
+                    "session_id": session_id,
+                    "project_id": project_id,
+                    "model_requested": last_model_req,
+                    "model_used": last_model_eff,
+                    "provider_used": last_prov_used,
+                    "fallback_reason": last_fb_reason,
+                }
+
+                if banco and resposta_completa and stream_completed_ok:
+                    try:
+                        if idempotency_key and owner_token:
+                            # 1. P0 ATOMICIDADE: Transacao unica PostgreSQL para salvar mensagem e concluir ledger
+                            turn_res = await banco.persist_and_complete_turn(
+                                session_id=session_id,
+                                content=resposta_completa,
+                                idempotency_key=idempotency_key,
+                                owner_token=owner_token,
+                                user_email=user_email,
+                                project_id=project_id,
+                                request_payload_hash=req_hash,
+                                response_payload=payload_final,
+                                legacy_payload_hash=legacy_req_hash,
+                                is_nominal_legacy_eligible=is_legacy_eligible,
+                                requested_model=last_model_req,
+                                pesquisar_web=bool(getattr(request, "pesquisar_web", True)),
+                                has_image=has_img,
+                                has_file=has_file
+                            )
+                            persisted_ok = bool(turn_res is True)
+                        else:
+                            # Requisicao legada sem chave de idempotencia
+                            res_save = await banco.salvar_mensagem(
+                                session_id=session_id,
+                                role="assistant",
+                                content=resposta_completa,
+                                user_email=user_email,
+                                project_id=project_id,
+                            )
+                            persisted_ok = bool(res_save is True)
+                    except Exception as e:
+                        persisted_ok = False
+                        log_structured("ERROR", "stream_assistant_persistence_failed", correlation_id=stream_corr_id, details={"error_kind": type(e).__name__})
+
+                # 2. P0 IDEMPOTENCIA: Conclui CAS em cache APENAS se houve persistencia duravel confirmada
+                if is_stream_claimed and idempotency_key and owner_token:
+                    if stream_completed_ok and persisted_ok:
+                        complete_idempotent_request(
+                            idempotency_key,
+                            payload_final,
+                            owner_token=owner_token,
+                            req_hash=req_hash,
+                            user_email=user_email,
+                            session_id=session_id,
+                            project_id=project_id
+                        )
+                    else:
+                        # Falha de persistencia ou stream: libera claim para permitir retry seguro
+                        release_idempotent_request(idempotency_key, owner_token=owner_token)
+                        if banco:
+                            try:
+                                await banco.release_turn_ledger(idempotency_key, owner_token, failed=not persisted_ok)
+                            except:
+                                pass
+
+            async with turn_lock_context(idempotency_key):
+                await _persist_under_lock()
+
+        # P0 STREAMING: Em erro de persistencia ou falha de stream, NAO enviar done:true (P0 - Ciclo 031)
+        if not persisted_ok:
+            error_code = "PERSISTENCE_FAILED"
+            error_detail = "Falha ao persistir a resposta da IA de forma duravel."
+            yield f"data: {json.dumps({'error': error_detail, 'code': error_code, 'retryable': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        elif stream_completed_ok:
+            yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        else:
+            error_code = "STREAM_INCOMPLETE"
+            error_detail = "Streaming interrompido antes da conclusao."
+            yield f"data: {json.dumps({'error': error_detail, 'code': error_code, 'retryable': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -773,6 +2009,10 @@ async def listar_memorias(
     """Lista memorias ativas do projeto para o usuario autenticado."""
     if not usuario:
         raise HTTPException(status_code=401, detail="Login Google obrigatorio.")
+    user_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    if project_id and project_id != "general":
+        if not await banco.verificar_propriedade_projeto(project_id, user_email):
+            raise HTTPException(status_code=403, detail="Acesso negado: projeto pertence a outra conta.")
 
     try:
         return {
@@ -809,9 +2049,15 @@ async def criar_memoria(
     if len(content) > 4000:
         raise HTTPException(status_code=400, detail="Conteudo da memoria deve ter ate 4000 caracteres.")
 
+    user_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    target_project = (request.project_id or "general")[:80]
+    if target_project and target_project != "general":
+        if not await banco.verificar_propriedade_projeto(target_project, user_email):
+            raise HTTPException(status_code=403, detail="Acesso negado: projeto pertence a outra conta.")
+
     try:
         memoria = await banco.criar_memoria_projeto(
-            project_id=(request.project_id or "general")[:80],
+            project_id=target_project,
             title=title,
             content=content,
             tags=(request.tags or "")[:300],
@@ -872,24 +2118,150 @@ async def listar_conversas(project_id: Optional[str] = None, usuario = Depends(o
     if not usuario:
         return {"conversas": []}
 
+    # P0 Projetos (Ciclo 035): Rejeita explicitamente wildcards 'all' ou '*' em endpoints normais de usuario
+    if project_id and project_id.strip() in ("all", "*"):
+        raise HTTPException(
+            status_code=400,
+            detail="Wildcards 'all' ou '*' sao proibidos em consultas de usuario. Use o endpoint administrativo /admin/conversas/global."
+        )
+
     try:
         return {
             "conversas": await banco.listar_conversas_usuario(usuario["email"], limite=50, project_id=project_id)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/historico/{session_id}")
-async def historico(session_id: str, usuario = Depends(obter_usuario_google)):
-    """Recupera historico de uma conversa"""
+async def historico(
+    session_id: str,
+    project_id: Optional[str] = None,
+    usuario = Depends(obter_usuario_google)
+):
+    """Recupera historico de uma conversa com verificacao estritamente READ-ONLY (P0/P1 - Ciclos 035/036/037)"""
+    if not usuario or not usuario.get("email"):
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao necessaria para recuperacao de historico de conversa. Posse da sessao requer identidade verificada."
+        )
     try:
-        mensagens = await banco.carregar_mensagens(session_id, limite=100, user_email=usuario["email"] if usuario else None)
+        user_email = usuario["email"].strip().lower()
+        requested_proj = (project_id or "").strip()
+        if requested_proj in ("all", "*"):
+            requested_proj = ""
+
+        # P1 Leitura Sem Efeito Colateral (Ciclo 037):
+        # Utiliza verificacao puramente read-only. Jamais insere linhas na tabela sessoes durante GET.
+        existe, sess_proj, autorizado = await banco.verificar_propriedade_sessao_readonly(
+            session_id=session_id,
+            user_email=user_email,
+            project_id=requested_proj if requested_proj else None
+        )
+
+        if not existe:
+            raise HTTPException(
+                status_code=404,
+                detail="Sessao nao encontrada."
+            )
+
+        if not autorizado:
+            raise HTTPException(
+                status_code=403,
+                detail="Acesso negado: a sessao informada pertence a outro usuario ou projeto."
+            )
+
+        effective_proj = sess_proj or "general"
+        mensagens = await banco.carregar_mensagens(
+            session_id=session_id,
+            limite=100,
+            user_email=user_email,
+            project_id=effective_proj
+        )
         return {
             "session_id": session_id,
+            "project_id": effective_proj,
             "quantidade": len(mensagens),
             "mensagens": mensagens
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/conversas/global")
+async def admin_listar_conversas_global(
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    filter_user_email: Optional[str] = None,
+    filter_project_id: Optional[str] = None,
+    usuario = Depends(obter_admin_google)
+):
+    """Endpoint administrativo exclusivo para consulta global cross-project com autorizacao administrativa e auditoria (P0 - Ciclos 035/036)"""
+    if not usuario:
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao administrativa necessaria para consulta global cross-project."
+        )
+    admin_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    if not admin_email or not admin_email.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Identidade do administrador invalida."
+        )
+    try:
+        corr_id = str(uuid.uuid4())
+        # P0 Auditoria Fail-Closed (Ciclo 036): O evento de auditoria e registrado ANTES da entrega de qualquer dado.
+        # Caso a persistencia falhe, a requisicao e sumariamente abortada com 500 sem retorno de dados.
+        await banco.registrar_evento_auditoria(
+            action="ADMIN_GLOBAL_CONVERSAS_ACCESS_REQUESTED",
+            actor=admin_email,
+            details={
+                "limite": limite,
+                "offset": offset,
+                "filter_user_email": filter_user_email,
+                "filter_project_id": filter_project_id,
+            },
+            correlation_id=corr_id
+        )
+
+        conversas, total = await banco.admin_listar_conversas_globais(
+            actor_email=admin_email,
+            limite=limite,
+            offset=offset,
+            filter_user_email=filter_user_email,
+            filter_project_id=filter_project_id
+        )
+
+        await banco.registrar_evento_auditoria(
+            action="ADMIN_GLOBAL_CONVERSAS_VIEWED",
+            actor=admin_email,
+            details={
+                "limite": limite,
+                "offset": offset,
+                "filter_user_email": filter_user_email,
+                "filter_project_id": filter_project_id,
+                "returned_count": len(conversas),
+                "total": total
+            },
+            correlation_id=corr_id
+        )
+
+        return {
+            "ok": True,
+            "admin": admin_email,
+            "total": total,
+            "limite": limite,
+            "offset": offset,
+            "conversas": conversas
+        }
+    except HTTPException:
+        raise
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -912,13 +2284,47 @@ async def renomear_conversa(session_id: str, request: RenomearConversaRequest, u
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/conversa/{session_id}/projeto")
-async def mover_conversa_projeto(session_id: str, request: MoverConversaProjetoRequest, usuario = Depends(obter_usuario_google)):
-    """Move uma conversa para outro projeto"""
+async def mover_conversa_projeto(
+    session_id: str,
+    request: MoverConversaProjetoRequest,
+    usuario = Depends(obter_usuario_google)
+):
+    """Move uma conversa para outro projeto com controle de acesso rigoroso e fail-closed (P0 - Ciclos 036/037)"""
+    if not usuario or not usuario.get("email"):
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao necessaria para mover conversas entre projetos."
+        )
+    user_email = usuario["email"].strip().lower()
+    if not session_id or not session_id.strip():
+        raise HTTPException(status_code=400, detail="session_id obrigatorio.")
+
+    target_project = (request.project_id or "general").strip()
+    if target_project in ("all", "*"):
+        raise HTTPException(status_code=400, detail="Wildcards 'all' ou '*' sao proibidos como projeto de destino.")
+
     try:
-        await banco.mover_conversa_projeto(session_id, request.project_id, user_email=usuario["email"] if usuario else None)
-        return {"status": "movida", "session_id": session_id, "project_id": request.project_id}
+        await banco.mover_conversa_projeto(
+            session_id=session_id.strip(),
+            project_id=target_project,
+            user_email=user_email
+        )
+        return {
+            "status": "movida",
+            "session_id": session_id.strip(),
+            "project_id": target_project
+        }
+    except LookupError as le:
+        raise HTTPException(status_code=404, detail=str(le))
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Erro ao mover conversa de projeto: {e}")
+        raise HTTPException(status_code=500, detail="Falha interna ao mover conversa de projeto.")
 
 @app.get("/projetos")
 async def listar_projetos(usuario = Depends(obter_usuario_google)):
@@ -963,6 +2369,36 @@ async def indexar_site(request: IndexarRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/audit-log")
+async def admin_audit_log(
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    usuario = Depends(obter_admin_google)
+):
+    """Retorna a trilha de auditoria administrativa real e persistida (sem segredos, tokens ou dados sensiveis)."""
+    admin_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    try:
+        eventos, total = await banco.listar_eventos_auditoria(limite=limite, offset=offset)
+        await banco.registrar_evento_auditoria(
+            action="ADMIN_AUDIT_LOG_VIEWED",
+            actor=admin_email,
+            details={"limite": limite, "offset": offset, "returned_count": len(eventos)},
+            correlation_id=str(uuid.uuid4())
+        )
+        corr_id = str(uuid.uuid4())
+        return {
+            "ok": True,
+            "admin": admin_email,
+            "total_eventos": total,
+            "limite": limite,
+            "offset": offset,
+            "correlation_id": corr_id,
+            "eventos": eventos
+        }
+    except Exception as err:
+        print(f"[ERROR] Falha ao processar trilha de auditoria administrativa: {_sanitize_log_message(err)}")
+        raise HTTPException(status_code=503, detail="Servico de auditoria temporariamente indisponivel.") from None
 
 @app.get("/saude")
 async def verificar_saude():
