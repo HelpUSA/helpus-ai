@@ -2150,6 +2150,28 @@ asyncio.run(main())
                 victim_email = f"victim_c36_{uuid.uuid4().hex[:8]}@helpus.com"
                 attacker_email = f"attacker_c36_{uuid.uuid4().hex[:8]}@helpus.com"
 
+                # Garante que a tabela projetos existe e os projetos 'finance' e 'hr' pertencem a vitima
+                async with b.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute("""
+                            CREATE TABLE IF NOT EXISTS projetos (
+                                id SERIAL PRIMARY KEY,
+                                project_id TEXT UNIQUE NOT NULL,
+                                nome TEXT NOT NULL,
+                                descricao TEXT DEFAULT '',
+                                instrucoes TEXT DEFAULT '',
+                                user_email TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            );
+                            CREATE INDEX IF NOT EXISTS idx_projetos_user_email ON projetos(LOWER(user_email));
+                        """)
+                        await cur.execute(
+                            "INSERT INTO projetos (project_id, nome, user_email) VALUES (%s, %s, %s), (%s, %s, %s) ON CONFLICT (project_id) DO UPDATE SET user_email = EXCLUDED.user_email",
+                            ("finance", "Financas", victim_email, "hr", "Recursos Humanos", victim_email)
+                        )
+                        await conn.commit()
+
                 # 1. Cria conversa da vitima no projeto 'finance'
                 await b.salvar_mensagem(victim_sid, "user", "Dados financeiros confidenciais", user_email=victim_email, project_id="finance")
                 await b.salvar_mensagem(victim_sid, "assistant", "Lucro liquido: R$ 500.000", user_email=victim_email, project_id="finance")
@@ -2358,6 +2380,12 @@ asyncio.run(main())
                     res_admin_anon = await client.get("/admin/conversas/global")
                     self.assertEqual(res_admin_anon.status_code, 401)
 
+                    # (h2) GET /admin/conversas/global com usuario autenticado NAO-ADMIN -> HTTP 403 Forbidden (P1 - Ciclo 037)
+                    b_main.app.dependency_overrides[obter_admin_google] = lambda: {"email": victim_email, "name": "Victim", "role": "user"}
+                    res_admin_non_admin = await client.get("/admin/conversas/global")
+                    self.assertEqual(res_admin_non_admin.status_code, 403)
+                    self.assertIn("Acesso negado", res_admin_non_admin.json()["detail"])
+
                     # (i) GET /admin/conversas/global com admin autorizado -> HTTP 200 com total e conversas cross-project
                     admin_actor_web = f"superadmin_c36_{uuid.uuid4().hex[:8]}@helpus.com"
                     config.ADMIN_EMAILS = [admin_actor_web]
@@ -2372,15 +2400,122 @@ asyncio.run(main())
                     self.assertIn(sid_hr, admin_returned_sids)
                     self.assertIn(sid_to_move, admin_returned_sids)
 
-                    # (j) GET /admin/conversas/global com falha simulada de persistencia de auditoria -> HTTP 500 FAIL-CLOSED (P0 - Ciclo 036)
-                    orig_audit = b.registrar_evento_auditoria
-                    async def broken_audit(*args, **kwargs):
-                        raise RuntimeError("Simulacao de falha na persistencia de auditoria")
-                    b.registrar_evento_auditoria = broken_audit
-                    res_admin_fail = await client.get(f"/admin/conversas/global?filter_user_email={victim_email}")
-                    self.assertEqual(res_admin_fail.status_code, 500)
-                    self.assertNotIn("conversas", res_admin_fail.json())
-                    b.registrar_evento_auditoria = orig_audit
+                    # (j) GET /admin/conversas/global com falha REAL de INSERT/COMMIT no PostgreSQL 18 (P1 - Ciclo 037)
+                    # Simula indisponibilidade/falha fisica na tabela de auditoria sem mockar metodo Python
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("ALTER TABLE admin_audit_events RENAME TO admin_audit_events_c37_temp;")
+                            await conn.commit()
+
+                    try:
+                        res_admin_real_fail = await client.get(f"/admin/conversas/global?filter_user_email={victim_email}")
+                        self.assertEqual(res_admin_real_fail.status_code, 500)
+                        self.assertNotIn("conversas", res_admin_real_fail.json())
+                    finally:
+                        async with b.pool.connection() as conn:
+                            async with conn.cursor() as cur:
+                                await cur.execute("ALTER TABLE admin_audit_events_c37_temp RENAME TO admin_audit_events;")
+                                await conn.commit()
+
+                    # 7. Testes de Leitura Estritamente Read-Only e Ausencia de Registros Orfaos (P1 - Ciclo 037):
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": victim_email, "name": "Victim", "role": "user"}
+                    phantom_sid = f"sess_phantom_{uuid.uuid4().hex[:8]}"
+                    res_phantom = await client.get(f"/historico/{phantom_sid}")
+                    self.assertEqual(res_phantom.status_code, 404)
+                    self.assertIn("Sessao nao encontrada", res_phantom.json()["detail"])
+
+                    # Comprova no PostgreSQL que NENHUMA linha orfa foi inserida em sessoes
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("SELECT COUNT(*) FROM sessoes WHERE session_id = %s", (phantom_sid,))
+                            cnt_orphan = (await cur.fetchone())[0]
+                            self.assertEqual(cnt_orphan, 0, "Consultas GET a sessoes inexistentes JAMAIS devem criar registros orfaos em sessoes")
+
+                    # 8. Testes Rigorosos de Movimentacao Segura de Conversas entre Projetos (P0 - Ciclo 037):
+                    # (a) Criacao de projetos no PostgreSQL
+                    proj_victim_allowed = f"proj_vic_{uuid.uuid4().hex[:6]}"
+                    proj_other_account = f"proj_other_{uuid.uuid4().hex[:6]}"
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(
+                                "INSERT INTO projetos (project_id, nome, user_email) VALUES (%s, %s, %s)",
+                                (proj_victim_allowed, "Projeto Vitima", victim_email)
+                            )
+                            await cur.execute(
+                                "INSERT INTO projetos (project_id, nome, user_email) VALUES (%s, %s, %s)",
+                                (proj_other_account, "Projeto de Terceiro", "terceiro@helpus.com")
+                            )
+                            await conn.commit()
+
+                    # (b) Movimentacao sem autenticacao -> HTTP 401
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: None
+                    res_mov_anon = await client.put(f"/conversa/{victim_sid}/projeto", json={"project_id": "general"})
+                    self.assertEqual(res_mov_anon.status_code, 401)
+
+                    # (c) Tentativa de mover para projeto pertencente a outra conta -> HTTP 403 Forbidden
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": victim_email, "name": "Victim", "role": "user"}
+                    res_mov_third_party = await client.put(f"/conversa/{victim_sid}/projeto", json={"project_id": proj_other_account})
+                    self.assertEqual(res_mov_third_party.status_code, 403)
+                    self.assertIn("nao pertence ao usuario", res_mov_third_party.json()["detail"])
+
+                    # (d) Adversario tentando mover conversa da vitima -> HTTP 403 Forbidden
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "adversary@helpus.com", "name": "Adversary", "role": "user"}
+                    res_mov_adversary = await client.put(f"/conversa/{victim_sid}/projeto", json={"project_id": "general"})
+                    self.assertEqual(res_mov_adversary.status_code, 403)
+                    self.assertIn("pertence a outro usuario", res_mov_adversary.json()["detail"])
+
+                    # (e) Movimentacao de sessao inexistente -> HTTP 404 Not Found
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": victim_email, "name": "Victim", "role": "user"}
+                    res_mov_404 = await client.put(f"/conversa/sess_inexistente_c37/projeto", json={"project_id": "general"})
+                    self.assertEqual(res_mov_404.status_code, 404)
+
+                    # (f) Movimentacao legitima para projeto autorizado -> HTTP 200 OK
+                    res_mov_ok = await client.put(f"/conversa/{victim_sid}/projeto", json={"project_id": proj_victim_allowed})
+                    self.assertEqual(res_mov_ok.status_code, 200)
+                    self.assertEqual(res_mov_ok.json()["status"], "movida")
+                    self.assertEqual(res_mov_ok.json()["project_id"], proj_victim_allowed)
+
+                    # Comprova atomicidade no PostgreSQL: conversas e sessoes atualizados
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("SELECT project_id FROM sessoes WHERE session_id = %s", (victim_sid,))
+                            sess_p = (await cur.fetchone())[0]
+                            self.assertEqual(sess_p, proj_victim_allowed)
+
+                            await cur.execute("SELECT DISTINCT project_id FROM conversas WHERE session_id = %s", (victim_sid,))
+                            conv_p = (await cur.fetchone())[0]
+                            self.assertEqual(conv_p, proj_victim_allowed)
+
+                    # 9. Testes de Consistencia com Registros Legados (project_id NULL) (P1 - Ciclo 037):
+                    sid_legacy_null = f"sess_legacy_null_{uuid.uuid4().hex[:8]}"
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(
+                                "INSERT INTO conversas (session_id, role, content, user_email, project_id) VALUES (%s, %s, %s, %s, NULL)",
+                                (sid_legacy_null, "user", "Mensagem legada nula", victim_email)
+                            )
+                            await cur.execute(
+                                "INSERT INTO sessoes (session_id, user_email, project_id) VALUES (%s, %s, NULL)",
+                                (sid_legacy_null, victim_email)
+                            )
+                            await conn.commit()
+
+                    # Consulta read-only resolve para 'general' sem falhar
+                    res_legacy_hist = await client.get(f"/historico/{sid_legacy_null}")
+                    self.assertEqual(res_legacy_hist.status_code, 200)
+                    self.assertEqual(res_legacy_hist.json()["project_id"], "general")
+
+                    # Movimentacao segura de conversa legada para projeto proprio
+                    res_mov_legacy = await client.put(f"/conversa/{sid_legacy_null}/projeto", json={"project_id": proj_victim_allowed})
+                    self.assertEqual(res_mov_legacy.status_code, 200)
+
+                    # Comprova sincronizacao perfeita no PostgreSQL
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("SELECT project_id FROM sessoes WHERE session_id = %s", (sid_legacy_null,))
+                            self.assertEqual((await cur.fetchone())[0], proj_victim_allowed)
+                            await cur.execute("SELECT DISTINCT project_id FROM conversas WHERE session_id = %s", (sid_legacy_null,))
+                            self.assertEqual((await cur.fetchone())[0], proj_victim_allowed)
 
             finally:
                 b_main.banco = old_banco

@@ -1374,6 +1374,124 @@ class BancoDados:
         # Sem banco configurado e sem teste explicito: fail-closed estrito
         return False
 
+    async def verificar_propriedade_sessao_readonly(
+        self,
+        session_id: str,
+        user_email: Optional[str],
+        project_id: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], bool]:
+        """
+        Verificacao estritamente READ-ONLY de posse de sessao e compatibilidade de projeto.
+        NUNCA executa INSERT ou UPDATE no banco de dados (P1 - Ciclos 036/037).
+        Retorna (existe: bool, projeto_registrado: Optional[str], autorizado: bool).
+        """
+        if not session_id:
+            return False, None, False
+
+        email_norm = user_email.strip().lower() if user_email else None
+        proj_filter = (project_id or "").strip()[:80]
+        if proj_filter in ("all", "*"):
+            proj_filter = ""
+
+        # 1. Se PostgreSQL estiver disponivel
+        if self.pool is not None:
+            try:
+                async with self.pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        # Busca primeiro em sessoes
+                        await cur.execute(
+                            "SELECT user_email, project_id FROM sessoes WHERE session_id = %s LIMIT 1",
+                            (session_id,)
+                        )
+                        row = await cur.fetchone()
+                        if row:
+                            existing_email = (row[0] or "").strip().lower() if row[0] else None
+                            existing_proj = (row[1] or "general").strip()[:80]
+                            if existing_proj in ("all", "*", ""):
+                                existing_proj = "general"
+                            
+                            is_owner = (existing_email == email_norm) if (email_norm or existing_email) else False
+                            if proj_filter:
+                                proj_matches = (existing_proj == proj_filter)
+                            else:
+                                proj_matches = True
+                            
+                            return True, existing_proj, (is_owner and proj_matches)
+
+                        # Se nao achou em sessoes, busca em conversas (sem criar em sessoes)
+                        await cur.execute(
+                            """
+                            SELECT user_email, COALESCE(NULLIF(project_id, ''), 'general')
+                            FROM conversas
+                            WHERE session_id = %s
+                            ORDER BY id ASC
+                            LIMIT 1
+                            """,
+                            (session_id,)
+                        )
+                        row_conv = await cur.fetchone()
+                        if row_conv:
+                            existing_email = (row_conv[0] or "").strip().lower() if row_conv[0] else None
+                            existing_proj = (row_conv[1] or "general").strip()[:80]
+                            if existing_proj in ("all", "*", ""):
+                                existing_proj = "general"
+                            
+                            is_owner = (existing_email == email_norm) if (email_norm or existing_email) else False
+                            if proj_filter:
+                                proj_matches = (existing_proj == proj_filter)
+                            else:
+                                proj_matches = True
+                            
+                            return True, existing_proj, (is_owner and proj_matches)
+
+                        # Sessao nao encontrada nem em sessoes nem em conversas
+                        return False, None, False
+            except Exception as e:
+                _log_db_error("verificar_propriedade_sessao_readonly", e)
+                return False, None, False
+
+        # 2. Se banco configurado mas pool indisponivel -> fail-closed
+        if getattr(self, "database_url", None) or os.getenv("DATABASE_URL"):
+            return False, None, False
+
+        # 3. Em memoria para testes
+        if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
+            existing_email = None
+            existing_proj = "general"
+            found = False
+            if session_id in self._sessoes_memoria:
+                stored = self._sessoes_memoria[session_id]
+                if isinstance(stored, tuple):
+                    existing_email, existing_proj = stored
+                else:
+                    existing_email = stored
+                found = True
+            else:
+                for m in self._conversas_memoria:
+                    if m.get("session_id") == session_id:
+                        existing_email = m.get("user_email")
+                        existing_proj = m.get("project_id") or "general"
+                        found = True
+                        break
+
+            if not found:
+                return False, None, False
+
+            existing_email = (existing_email or "").strip().lower() if existing_email else None
+            existing_proj = (existing_proj or "general").strip()[:80]
+            if existing_proj in ("all", "*", ""):
+                existing_proj = "general"
+
+            is_owner = (existing_email == email_norm) if (email_norm or existing_email) else False
+            if proj_filter:
+                proj_matches = (existing_proj == proj_filter)
+            else:
+                proj_matches = True
+
+            return True, existing_proj, (is_owner and proj_matches)
+
+        return False, None, False
+
     async def verificar_propriedade_projeto(
         self,
         project_id: str,
@@ -1888,51 +2006,133 @@ class BancoDados:
         except Exception as e:
             _log_db_error("renomear_conversa", e)
 
-    async def mover_conversa_projeto(self, session_id: str, project_id: str, user_email: Optional[str] = None):
+    async def mover_conversa_projeto(
+        self,
+        session_id: str,
+        project_id: str,
+        user_email: Optional[str] = None
+    ) -> bool:
+        """
+        Move uma conversa para outro projeto com verificacao estrita de posse,
+        autorizacao do projeto de destino e transacao atomica com fail-closed (P0 - Ciclos 036/037).
+        """
+        if not session_id or not session_id.strip():
+            raise ValueError("session_id obrigatorio para mover conversa.")
+        if not user_email or not user_email.strip():
+            raise PermissionError("Autenticacao necessaria: operacoes anonimas sao proibidas para mover projeto.")
+
+        email_norm = user_email.strip().lower()
         target_proj = (project_id or "general").strip()[:80]
-        if target_proj in ("all", "*", ""):
+        if target_proj in ("all", "*"):
+            raise ValueError("Wildcards 'all' ou '*' sao proibidos como projeto de destino.")
+        if not target_proj:
             target_proj = "general"
 
-        if not await self._garantir_pool() or self.pool is None:
-            if os.getenv("HELPUS_TEST_MODE") == "1":
-                email_norm = user_email.strip().lower() if user_email else None
-                for m in self._conversas_memoria:
-                    if m.get("session_id") == session_id:
-                        m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
-                        if m_email == email_norm:
-                            m["project_id"] = target_proj
-                if session_id in self._sessoes_memoria:
-                    stored = self._sessoes_memoria[session_id]
-                    st_email = stored[0] if isinstance(stored, tuple) else stored
-                    if st_email == email_norm:
-                        self._sessoes_memoria[session_id] = (st_email, target_proj)
-            return
+        # 1. Valida se o usuario tem autorizacao para o projeto de destino
+        autorizado_destino = await self.verificar_propriedade_projeto(target_proj, email_norm)
+        if not autorizado_destino:
+            raise PermissionError(f"Acesso negado: o projeto de destino '{target_proj}' nao pertence ao usuario.")
 
+        is_deploy = bool(
+            os.getenv("VERCEL")
+            or os.getenv("RAILWAY_ENVIRONMENT")
+            or os.getenv("RAILWAY_PROJECT_ID")
+            or os.getenv("RENDER")
+            or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+        )
+
+        # 2. Execucao em PostgreSQL
+        if not await self._garantir_pool() or self.pool is None:
+            if is_deploy or os.getenv("HELPUS_TEST_MODE") != "1" or os.getenv("HELPUS_REQUIRE_POSTGRES") == "1":
+                raise RuntimeError("Banco de dados indisponivel para mover conversa de projeto.")
+
+            # Fallback seguro para modo de testes em memoria
+            found = False
+            # Verifica posse em sessoes_memoria
+            if session_id in self._sessoes_memoria:
+                stored = self._sessoes_memoria[session_id]
+                st_email = stored[0] if isinstance(stored, tuple) else stored
+                st_email_norm = (st_email or "").strip().lower() if st_email else None
+                if st_email_norm != email_norm:
+                    raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
+                self._sessoes_memoria[session_id] = (email_norm, target_proj)
+                found = True
+
+            # Atualiza conversas_memoria
+            conv_found = False
+            for m in self._conversas_memoria:
+                if m.get("session_id") == session_id:
+                    m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
+                    if m_email != email_norm:
+                        raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
+                    m["project_id"] = target_proj
+                    conv_found = True
+
+            if not found and not conv_found:
+                raise LookupError("Sessao nao encontrada para o usuario.")
+
+            if not found and conv_found:
+                self._sessoes_memoria[session_id] = (email_norm, target_proj)
+            return True
+
+        # 3. Transacao atomica com rollback no PostgreSQL real
         try:
             async with self.pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    if user_email and user_email.strip():
-                        email_norm = user_email.strip().lower()
+                async with conn.transaction():
+                    async with conn.cursor() as cur:
+                        # (a) Verifica se a sessao existe em sessoes ou conversas e valida a posse
+                        await cur.execute(
+                            "SELECT user_email, project_id FROM sessoes WHERE session_id = %s FOR UPDATE",
+                            (session_id,)
+                        )
+                        row_sess = await cur.fetchone()
+
+                        await cur.execute(
+                            "SELECT user_email, project_id FROM conversas WHERE session_id = %s LIMIT 1",
+                            (session_id,)
+                        )
+                        row_conv = await cur.fetchone()
+
+                        if not row_sess and not row_conv:
+                            raise LookupError("Sessao nao encontrada.")
+
+                        sess_owner = (row_sess[0] or "").strip().lower() if (row_sess and row_sess[0]) else None
+                        conv_owner = (row_conv[0] or "").strip().lower() if (row_conv and row_conv[0]) else None
+                        owner = sess_owner or conv_owner
+
+                        if owner != email_norm:
+                            raise PermissionError("Acesso negado: a sessao informada pertence a outro usuario.")
+
+                        # (b) Atualiza conversas
                         await cur.execute(
                             "UPDATE conversas SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
                             (target_proj, session_id, email_norm)
                         )
+                        # (c) Atualiza ou insere sessoes
                         await cur.execute(
-                            "UPDATE sessoes SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
-                            (target_proj, session_id, email_norm)
+                            """
+                            INSERT INTO sessoes (session_id, user_email, project_id, updated_at)
+                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                            ON CONFLICT (session_id) DO UPDATE SET
+                                project_id = EXCLUDED.project_id,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE LOWER(sessoes.user_email) = %s
+                            """,
+                            (session_id, email_norm, target_proj, email_norm)
                         )
-                    else:
-                        await cur.execute(
-                            "UPDATE conversas SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
-                            (target_proj, session_id)
-                        )
-                        await cur.execute(
-                            "UPDATE sessoes SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
-                            (target_proj, session_id)
-                        )
-                    await conn.commit()
+
+            # Sincroniza memoria transitoria se existir
+            if session_id in self._sessoes_memoria:
+                self._sessoes_memoria[session_id] = (email_norm, target_proj)
+            for m in self._conversas_memoria:
+                if m.get("session_id") == session_id and (m.get("user_email") or "").strip().lower() == email_norm:
+                    m["project_id"] = target_proj
+            return True
+        except (LookupError, PermissionError, ValueError):
+            raise
         except Exception as e:
-            _log_db_error("mover_conversa", e)
+            _log_db_error("mover_conversa_projeto", e)
+            raise RuntimeError(f"Falha de infraestrutura ao mover conversa no PostgreSQL: {e}")
 
     async def obter_projeto_sessao(self, session_id: str, user_email: Optional[str] = None) -> Optional[str]:
         """Recupera o project_id vinculado a uma sessao para um determinado usuario."""

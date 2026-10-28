@@ -2141,7 +2141,7 @@ async def historico(
     project_id: Optional[str] = None,
     usuario = Depends(obter_usuario_google)
 ):
-    """Recupera historico de uma conversa com resolucao de projeto e comprovacao de posse (P0/P1 - Ciclos 035/036)"""
+    """Recupera historico de uma conversa com verificacao estritamente READ-ONLY (P0/P1 - Ciclos 035/036/037)"""
     if not usuario or not usuario.get("email"):
         raise HTTPException(
             status_code=401,
@@ -2149,31 +2149,40 @@ async def historico(
         )
     try:
         user_email = usuario["email"].strip().lower()
+        requested_proj = (project_id or "").strip()
+        if requested_proj in ("all", "*"):
+            requested_proj = ""
 
-        # P1 Funcionalidade & Resolucao de Projeto (Ciclo 036):
-        # Se project_id nao foi fornecido pelo cliente, auto-resolve o projeto registrado da sessao.
-        resolved_proj = (project_id or "").strip()
-        if not resolved_proj or resolved_proj in ("all", "*"):
-            sess_proj = await banco.obter_projeto_sessao(session_id, user_email)
-            resolved_proj = sess_proj or "general"
-        else:
-            # Se fornecido explicitamente, valida propriedade da sessao contra o projeto solicitado
-            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email, resolved_proj)
-            if not eh_dono:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Acesso negado: a sessao informada pertence a outro projeto ou usuario."
-                )
+        # P1 Leitura Sem Efeito Colateral (Ciclo 037):
+        # Utiliza verificacao puramente read-only. Jamais insere linhas na tabela sessoes durante GET.
+        existe, sess_proj, autorizado = await banco.verificar_propriedade_sessao_readonly(
+            session_id=session_id,
+            user_email=user_email,
+            project_id=requested_proj if requested_proj else None
+        )
 
+        if not existe:
+            raise HTTPException(
+                status_code=404,
+                detail="Sessao nao encontrada."
+            )
+
+        if not autorizado:
+            raise HTTPException(
+                status_code=403,
+                detail="Acesso negado: a sessao informada pertence a outro usuario ou projeto."
+            )
+
+        effective_proj = sess_proj or "general"
         mensagens = await banco.carregar_mensagens(
             session_id=session_id,
             limite=100,
             user_email=user_email,
-            project_id=resolved_proj
+            project_id=effective_proj
         )
         return {
             "session_id": session_id,
-            "project_id": resolved_proj,
+            "project_id": effective_proj,
             "quantidade": len(mensagens),
             "mensagens": mensagens
         }
@@ -2275,13 +2284,47 @@ async def renomear_conversa(session_id: str, request: RenomearConversaRequest, u
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/conversa/{session_id}/projeto")
-async def mover_conversa_projeto(session_id: str, request: MoverConversaProjetoRequest, usuario = Depends(obter_usuario_google)):
-    """Move uma conversa para outro projeto"""
+async def mover_conversa_projeto(
+    session_id: str,
+    request: MoverConversaProjetoRequest,
+    usuario = Depends(obter_usuario_google)
+):
+    """Move uma conversa para outro projeto com controle de acesso rigoroso e fail-closed (P0 - Ciclos 036/037)"""
+    if not usuario or not usuario.get("email"):
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao necessaria para mover conversas entre projetos."
+        )
+    user_email = usuario["email"].strip().lower()
+    if not session_id or not session_id.strip():
+        raise HTTPException(status_code=400, detail="session_id obrigatorio.")
+
+    target_project = (request.project_id or "general").strip()
+    if target_project in ("all", "*"):
+        raise HTTPException(status_code=400, detail="Wildcards 'all' ou '*' sao proibidos como projeto de destino.")
+
     try:
-        await banco.mover_conversa_projeto(session_id, request.project_id, user_email=usuario["email"] if usuario else None)
-        return {"status": "movida", "session_id": session_id, "project_id": request.project_id}
+        await banco.mover_conversa_projeto(
+            session_id=session_id.strip(),
+            project_id=target_project,
+            user_email=user_email
+        )
+        return {
+            "status": "movida",
+            "session_id": session_id.strip(),
+            "project_id": target_project
+        }
+    except LookupError as le:
+        raise HTTPException(status_code=404, detail=str(le))
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Erro ao mover conversa de projeto: {e}")
+        raise HTTPException(status_code=500, detail="Falha interna ao mover conversa de projeto.")
 
 @app.get("/projetos")
 async def listar_projetos(usuario = Depends(obter_usuario_google)):
