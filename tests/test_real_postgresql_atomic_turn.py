@@ -328,9 +328,9 @@ class RealPostgresqlAtomicTurnTests(unittest.TestCase):
         self.run_async(_test())
 
     def test_real_postgresql_commit_ambiguity_diagnostic(self):
-        """P0 Ambiguidade de Commit & Reconciliação (Ciclo 028): Distingue categoricamente KNOWN_COMMITTED,
-        KNOWN_ABORTED e UNKNOWN. Comprova que in_progress dentro da lease é classificado como UNKNOWN
-        (nunca como abort confirmado) e valida reconciliação read-only antes de nova inferência."""
+        """P0 Ambiguidade de Commit & Reconciliação (Ciclos 028/029): Distingue categoricamente KNOWN_COMMITTED,
+        NO_PRIOR_CLAIM e UNKNOWN. Comprova que in_progress dentro da lease é classificado como UNKNOWN
+        (nunca como abort confirmado) e ausência de registro é NO_PRIOR_CLAIM (sem garantia de abort externo)."""
         self._require_pg()
         from backend.banco import BancoDados
 
@@ -351,21 +351,21 @@ class RealPostgresqlAtomicTurnTests(unittest.TestCase):
             await b.persist_and_complete_turn(
                 sess, "Resposta confirmada", key_committed, owner, "ambig@helpus.com", "general", req_hash, {"resposta": "Resposta confirmada"}
             )
-            cat1, payload1 = await b.reconcile_idempotency_turn(key_committed, "ambig@helpus.com", "general", req_hash)
+            cat1, payload1 = await b.reconcile_idempotency_turn(key_committed, "ambig@helpus.com", "general", req_hash, session_id=sess)
             self.assertEqual(cat1, "KNOWN_COMMITTED")
             self.assertIsNotNone(payload1)
             self.assertEqual(payload1.get("resposta"), "Resposta confirmada")
 
             # Cenário 2: Turno em andamento com heartbeat ativo (UNKNOWN — ambíguo, NUNCA abort confirmado!)
             await b.claim_turn_ledger(key_in_progress, owner, sess, "ambig@helpus.com", "general", req_hash)
-            cat2, payload2 = await b.reconcile_idempotency_turn(key_in_progress, "ambig@helpus.com", "general", req_hash)
+            cat2, payload2 = await b.reconcile_idempotency_turn(key_in_progress, "ambig@helpus.com", "general", req_hash, session_id=sess)
             self.assertEqual(cat2, "UNKNOWN", "Turno in_progress dentro do lease deve ser UNKNOWN")
-            self.assertNotEqual(cat2, "KNOWN_ABORTED", "in_progress NUNCA deve ser classificado como abort!")
+            self.assertNotEqual(cat2, "NO_PRIOR_CLAIM", "in_progress NUNCA deve ser classificado como ausente!")
             self.assertIsNone(payload2)
 
-            # Cenário 3: Chave inexistente / abort confirmado sem linhas no ledger (KNOWN_ABORTED)
-            cat3, payload3 = await b.reconcile_idempotency_turn(key_aborted, "ambig@helpus.com", "general", req_hash)
-            self.assertEqual(cat3, "KNOWN_ABORTED")
+            # Cenário 3: Chave inexistente / ausência no ledger local (NO_PRIOR_CLAIM - Ciclo 029)
+            cat3, payload3 = await b.reconcile_idempotency_turn(key_aborted, "ambig@helpus.com", "general", req_hash, session_id=sess)
+            self.assertEqual(cat3, "NO_PRIOR_CLAIM")
             self.assertIsNone(payload3)
 
             # Cenário 4: Turno in_progress com lease expirada (LEASE_EXPIRED_PENDING_TAKEOVER)
@@ -752,6 +752,119 @@ asyncio.run(main())
             await b_recovery.pool.close()
 
         self.run_async(_test_recovery())
+
+    def test_real_postgresql_http_sse_stream_reconcile_and_replay_mock_ai_only(self):
+        """P0 HTTP/SSE & Reconciliação (Ciclo 029): Valida fluxo real de /chat/stream conectado ao PostgreSQL 18
+        com mock estrito APENAS do provedor de IA (pensar_stream). Comprova:
+        1. Execução do stream e persistência atômica com 1 invocação da IA (call_count == 1).
+        2. Replay idempotente pós-reconciliação via KNOWN_COMMITTED sem re-inferência (call_count permanece 1).
+        3. Ausência de linhas duplicadas no PostgreSQL (conversas tem exatamente 1 row assistant).
+        4. Bloqueio seguro de turnos em andamento (UNKNOWN -> 409 Conflict).
+        5. Isolamento estrito de usuário/tenant e hash da requisição (divergência -> 403 Forbidden)."""
+        self._require_pg()
+        import httpx
+        import backend.main as b_main
+        from backend.banco import BancoDados
+        from auth import obter_usuario_google
+
+        async def _test():
+            os.environ['DATABASE_URL'] = EPHEMERAL_PG_URL
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            old_banco = b_main.banco
+            b_main.banco = b
+
+            class MockCerebroStream:
+                def __init__(self):
+                    self.call_count = 0
+                    self.nome_modelo = "gemini-2.0-flash"
+                    self.provider = "mock_provider"
+                    self.last_provider_used = "mock_provider"
+                    self.last_fallback_reason = None
+
+                async def pensar_stream(self, pergunta, image_base64=None, image_url=None):
+                    self.call_count += 1
+                    yield "Chunk 1: "
+                    yield f"Resposta gerada para {pergunta}."
+
+            mock_ai = MockCerebroStream()
+            old_get_cerebro = b_main.get_cerebro
+            b_main.get_cerebro = lambda: mock_ai
+
+            user_email = "superadmin@helpus.com"
+            test_user = {"email": user_email, "name": "SuperAdmin", "role": "admin"}
+            b_main.app.dependency_overrides[obter_usuario_google] = lambda: test_user
+
+            sess_id = f"sess_http_sse_{uuid.uuid4().hex[:8]}"
+            client_req_id = f"req_http_sse_{uuid.uuid4().hex[:8]}"
+            payload = {
+                "mensagem": "Verificação de idempotência e reconciliação SSE",
+                "session_id": sess_id,
+                "client_request_id": client_req_id,
+                "model": "gemini-2.0-flash"
+            }
+
+            transport = httpx.ASGITransport(app=b_main.app)
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    # 1. Primeira requisição: streaming completo com persistência durável
+                    async with client.stream("POST", "/chat/stream", json=payload) as r1:
+                        self.assertEqual(r1.status_code, 200)
+                        body1 = (await r1.aread()).decode("utf-8")
+                        self.assertIn("Resposta gerada para", body1)
+                        self.assertIn("[DONE]", body1)
+                    self.assertEqual(mock_ai.call_count, 1, "A IA deve ser invocada exatamente 1 vez no primeiro envio")
+
+                    # Limpa cache local em memória para garantir que o replay comprove reconciliação no PostgreSQL
+                    b_main._idempotency_cache.clear()
+
+                    # 2. Segunda requisição: replay imediato via reconciliação read-only no PostgreSQL
+                    payload_retry = dict(payload)
+                    payload_retry["is_retry"] = True
+                    async with client.stream("POST", "/chat/stream", json=payload_retry) as r2:
+                        self.assertEqual(r2.status_code, 200)
+                        body2 = (await r2.aread()).decode("utf-8")
+                        self.assertIn('"cached": true', body2)
+                        self.assertIn("Resposta gerada para", body2)
+                    self.assertEqual(mock_ai.call_count, 1, "A IA NÃO deve sofrer re-inferência em replay idempotente")
+
+                    # 3. Comprova ausência absoluta de linhas duplicadas no PostgreSQL
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(
+                                "SELECT COUNT(*) FROM conversas WHERE session_id = %s AND role = 'assistant';",
+                                (sess_id,)
+                            )
+                            cnt = (await cur.fetchone())[0]
+                            self.assertEqual(cnt, 1, "Deve existir exatamente UMA mensagem de assistant persistida no PostgreSQL")
+
+                    # 4. Bloqueio seguro de estado UNKNOWN (in-progress ativo)
+                    unknown_sess = f"sess_unknown_{uuid.uuid4().hex[:8]}"
+                    unknown_req_id = f"req_unknown_{uuid.uuid4().hex[:8]}"
+                    unknown_payload = {
+                        "mensagem": "Pergunta em andamento",
+                        "session_id": unknown_sess,
+                        "client_request_id": unknown_req_id,
+                        "model": "gemini-2.0-flash"
+                    }
+                    unknown_key = b_main._gerar_chave_idempotencia(user_email, unknown_sess, unknown_req_id, unknown_payload["mensagem"])
+                    req_h = hashlib.sha256(unknown_payload["mensagem"].encode("utf-8")).hexdigest()
+                    await b.claim_turn_ledger(unknown_key, "other_worker", unknown_sess, user_email, "general", req_h)
+
+                    r_unknown = await client.post("/chat/stream", json=unknown_payload)
+                    self.assertEqual(r_unknown.status_code, 409, "Turno em estado UNKNOWN deve ser bloqueado com 409 Conflict")
+
+                    # 5. Tentativa de invasão / isolamento de tenant divergente -> 403 Forbidden
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": "attacker@helpus.com", "name": "Attacker", "role": "user"}
+                    r_attack = await client.post("/chat/stream", json=payload)
+                    self.assertEqual(r_attack.status_code, 403, "Requisição com escopo divergente deve retornar 403 Forbidden")
+            finally:
+                b_main.get_cerebro = old_get_cerebro
+                b_main.banco = old_banco
+                b_main.app.dependency_overrides.clear()
+                await b.fechar()
+
+        self.run_async(_test())
 
 
 if __name__ == "__main__":

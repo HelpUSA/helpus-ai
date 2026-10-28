@@ -1072,8 +1072,48 @@ async def chat(request: MensagemRequest, usuario = Depends(obter_usuario_google)
     validar_url_remota(request.image_url)
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
+    req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest() if idempotency_key else None
     is_claimed = False
     owner_token = None
+
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclo 029): Reconcilia estado persistente antes de inferencia ou claim
+    if idempotency_key and banco:
+        try:
+            reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
+                idempotency_key=idempotency_key,
+                user_email=user_email,
+                project_id=project_id,
+                request_payload_hash=req_hash,
+                session_id=session_id
+            )
+            if reconcile_status == "KNOWN_COMMITTED":
+                if cached_payload:
+                    _idempotency_cache[idempotency_key] = {
+                        "status": "completed",
+                        "response": cached_payload,
+                        "completed_at": time.time(),
+                        "timestamp": time.time(),
+                    }
+                    return MensagemResponse(**cached_payload)
+            elif reconcile_status == "UNKNOWN":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Requisicao identica em processamento ativo ou estado ambiguo no ledger persistente."
+                )
+            elif reconcile_status == "LEASE_EXPIRED_PENDING_TAKEOVER" and not request.is_retry:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Turno pendente com lease expirada; novo envio deve especificar retry para takeover transacional."
+                )
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            if getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"):
+                _log_db_error("reconcile_chat_preflight", e)
+                raise HTTPException(status_code=503, detail="Servico de reconciliacao temporariamente indisponivel.")
+
     if idempotency_key:
         should_run, cached_resp, owner_token = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
         if not should_run and cached_resp:
@@ -1372,6 +1412,50 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest() if idempotency_key else None
     is_stream_claimed = False
     owner_token = None
+
+    # P0 RECONCILIACAO READ-ONLY PREVIA (Ciclo 029): Reconcilia estado persistente antes de inferencia ou claim
+    if idempotency_key and banco:
+        try:
+            reconcile_status, cached_payload = await banco.reconcile_idempotency_turn(
+                idempotency_key=idempotency_key,
+                user_email=user_email,
+                project_id=project_id,
+                request_payload_hash=req_hash,
+                session_id=session_id
+            )
+            if reconcile_status == "KNOWN_COMMITTED":
+                if cached_payload:
+                    _idempotency_cache[idempotency_key] = {
+                        "status": "completed",
+                        "response": cached_payload,
+                        "completed_at": time.time(),
+                        "timestamp": time.time(),
+                    }
+                    async def replay_reconciled_stream():
+                        text_content = cached_payload.get("resposta", "")
+                        yield f"data: {json.dumps({'content': text_content, 'text': text_content, 'session_id': session_id, 'model_requested': cached_payload.get('model_requested'), 'model_used': cached_payload.get('model_used'), 'provider_used': cached_payload.get('provider_used'), 'fallback_reason': cached_payload.get('fallback_reason'), 'cached': True}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(replay_reconciled_stream(), media_type="text/event-stream")
+            elif reconcile_status == "UNKNOWN":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Requisicao identica em processamento ativo ou estado ambiguo no ledger persistente."
+                )
+            elif reconcile_status == "LEASE_EXPIRED_PENDING_TAKEOVER" and not request.is_retry:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Turno pendente com lease expirada; novo envio deve especificar retry para takeover transacional."
+                )
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            if getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"):
+                _log_db_error("reconcile_stream_preflight", e)
+                raise HTTPException(status_code=503, detail="Servico de reconciliacao temporariamente indisponivel.")
+
     if idempotency_key:
         should_run, cached_resp, owner_token = claim_or_get_idempotent_request(idempotency_key, is_retry=request.is_retry)
         if not should_run and cached_resp:

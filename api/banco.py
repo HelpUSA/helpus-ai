@@ -536,7 +536,8 @@ class BancoDados:
                         idempotency_key=idempotency_key,
                         user_email=email_norm,
                         project_id=proj_norm,
-                        request_payload_hash=request_payload_hash
+                        request_payload_hash=request_payload_hash,
+                        session_id=session_id
                     )
                     if reconcile_status == "KNOWN_COMMITTED":
                         return False, payload, None
@@ -554,18 +555,19 @@ class BancoDados:
         user_email: Optional[str] = None,
         project_id: Optional[str] = None,
         request_payload_hash: Optional[str] = None,
-        lease_seconds: float = 15.0
+        lease_seconds: float = 15.0,
+        session_id: Optional[str] = None
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclo 028).
+        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029).
         
         Retorna uma tupla (classification, cached_payload):
         - 'KNOWN_COMMITTED': Turno gravado e concluido no PostgreSQL com payload disponivel. Seguro para replay.
         - 'UNKNOWN': Turno em andamento dentro do periodo de lease. Conexao caiu ou commit em curso. NUNCA classificar como abort!
         - 'LEASE_EXPIRED_PENDING_TAKEOVER': Turno em andamento com lease expirada sem conclusao.
-        - 'KNOWN_ABORTED': Nenhum registro de ledger existente para a chave. Abort confirmado.
+        - 'NO_PRIOR_CLAIM': Nenhum registro de ledger existente para a chave local. Ausencia de registro nao prova abort de efeitos externos.
         """
         if not idempotency_key:
-            return "KNOWN_ABORTED", None
+            return "NO_PRIOR_CLAIM", None
 
         email_norm = (user_email or "").strip().lower() if user_email else None
         proj_norm = project_id or "general"
@@ -573,14 +575,27 @@ class BancoDados:
         if not self.pool:
             entry = self._ledger_memoria.get(idempotency_key)
             if not entry:
-                return "KNOWN_ABORTED", None
+                return "NO_PRIOR_CLAIM", None
+            if session_id and entry.get("session_id") != session_id:
+                raise PermissionError("Escopo de sessao divergente na reconciliacao.")
+            if user_email and (entry.get("user_email") or "").strip().lower() != email_norm:
+                raise PermissionError("Escopo de usuario divergente na reconciliacao.")
+            if project_id and (entry.get("project_id") or "general") != proj_norm:
+                raise PermissionError("Escopo de projeto divergente na reconciliacao.")
+            if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
+                raise PermissionError("Hash de payload divergente na reconciliacao.")
+
             status = entry.get("status")
             if status == "completed":
                 return "KNOWN_COMMITTED", entry.get("response_payload")
-            age = time.time() - entry.get("last_heartbeat", entry.get("created_at", time.time()))
-            if age < lease_seconds:
-                return "UNKNOWN", None
-            return "LEASE_EXPIRED_PENDING_TAKEOVER", None
+            if status == "in_progress":
+                age = time.time() - entry.get("last_heartbeat", entry.get("created_at", time.time()))
+                if age < lease_seconds:
+                    return "UNKNOWN", None
+                return "LEASE_EXPIRED_PENDING_TAKEOVER", None
+            if status in ("failed", "released", "aborted"):
+                return "NO_PRIOR_CLAIM", None
+            return "UNKNOWN", None
 
         try:
             async with self.pool.connection() as conn:
@@ -597,11 +612,13 @@ class BancoDados:
                     )
                     row = await cur.fetchone()
                     if not row:
-                        return "KNOWN_ABORTED", None
+                        return "NO_PRIOR_CLAIM", None
                     status, resp_payload, heartbeat_age, db_sess, db_email, db_proj, db_hash = row
                     
                     db_email_norm = (db_email or "").strip().lower() if db_email else None
                     db_proj_norm = db_proj or "general"
+                    if session_id and db_sess != session_id:
+                        raise PermissionError("Escopo de sessao divergente na reconciliacao.")
                     if user_email and db_email_norm != email_norm:
                         raise PermissionError("Escopo de usuario divergente na reconciliacao.")
                     if project_id and db_proj_norm != proj_norm:
@@ -616,6 +633,8 @@ class BancoDados:
                         if heartbeat_age is not None and heartbeat_age < lease_seconds:
                             return "UNKNOWN", None
                         return "LEASE_EXPIRED_PENDING_TAKEOVER", None
+                    if status in ("failed", "released", "aborted"):
+                        return "NO_PRIOR_CLAIM", None
                     return "UNKNOWN", None
         except Exception as e:
             _log_db_error("reconcile_idempotency_turn", e)
