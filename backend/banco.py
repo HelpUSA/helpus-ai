@@ -638,9 +638,15 @@ class BancoDados:
             "cached": True
         }
 
-        # 1. Modo em Memoria / Sem Pool (Somente autorizado em ambiente de teste formal HELPUS_TEST_MODE=1)
+        # 1. Modo em Memoria / Sem Pool (Somente autorizado em ambiente de teste formal HELPUS_TEST_MODE=1 e fora de deploy)
         if not self.pool:
-            if os.getenv("HELPUS_TEST_MODE") != "1":
+            is_deploy = bool(
+                os.getenv("VERCEL")
+                or os.getenv("RAILWAY_ENVIRONMENT")
+                or os.getenv("RAILWAY_PROJECT_ID")
+                or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+            )
+            if is_deploy or os.getenv("HELPUS_TEST_MODE") != "1":
                 raise RuntimeError("Persistencia duravel obrigatoria: pool de banco de dados indisponivel (fail-closed).")
             entry = self._ledger_memoria.get(idempotency_key)
             if entry:

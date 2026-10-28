@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
     """Inicializa e finaliza os servicos"""
     global cerebro, buscador
 
-    # P0/P1 MULTIWORKER (Ciclo 026): Inspeciona WORKERS, WEB_CONCURRENCY e SERVER_REPLICAS separadamente.
+    # P0/P1 MULTIWORKER (Ciclo 026 / 027): Inspeciona WORKERS, WEB_CONCURRENCY e SERVER_REPLICAS separadamente.
     # Enquanto claim/heartbeat/complete/release operarem localmente no processo, a execucao
     # permanece estritamente restrita a 1 worker (MAX_OPERATIONAL_WORKERS = 1).
     for var_name in ("WORKERS", "WEB_CONCURRENCY", "SERVER_REPLICAS"):
@@ -97,14 +97,29 @@ async def lifespan(app: FastAPI):
         if raw_val is not None and str(raw_val).strip() != "":
             try:
                 val = int(str(raw_val).strip())
-                if val > 1:
+                if val != 1:
                     raise RuntimeError(
                         f"Incompatibilidade operacional critica: {var_name}={val} foi solicitado, "
                         "mas a arquitetura operacional atual esta estritamente restrita a 1 worker local (MAX_OPERATIONAL_WORKERS = 1). "
+                        "Configuracoes com menos de 1 ou mais de 1 worker sao invalidas. "
                         "Ajuste WORKERS=1, WEB_CONCURRENCY=1 e SERVER_REPLICAS=1."
                     )
             except ValueError:
                 raise RuntimeError(f"Configuracao invalida para {var_name}: '{raw_val}'. Deve ser um numero inteiro.")
+
+    # P0 SEGURANCA (Ciclo 027): Bloqueia sumariamente HELPUS_TEST_MODE=1 em ambientes de deploy
+    if os.getenv("HELPUS_TEST_MODE") == "1":
+        is_deploy = bool(
+            os.getenv("VERCEL")
+            or os.getenv("RAILWAY_ENVIRONMENT")
+            or os.getenv("RAILWAY_PROJECT_ID")
+            or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+        )
+        if is_deploy:
+            raise RuntimeError(
+                "Violacao de seguranca critica: HELPUS_TEST_MODE=1 e terminantemente proibido em ambientes de deploy "
+                "(producao, staging, Railway ou Vercel). Persistencia duravel real e fail-closed sao obrigatorios."
+            )
 
     print("=" * 60)
     print("[INFO] INICIANDO HelpUS")

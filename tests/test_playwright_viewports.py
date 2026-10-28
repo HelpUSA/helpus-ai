@@ -63,6 +63,7 @@ class MockSSEHandler(BaseHTTPRequestHandler):
 
 """Real browser Playwright end-to-end tests across 360px, 768px, and 1280px viewports."""
 import unittest
+import sys
 import subprocess
 import time
 import urllib.request
@@ -97,6 +98,12 @@ class PlaywrightViewportTests(unittest.TestCase):
         if not ready:
             cls.proc.terminate()
             raise RuntimeError("Next.js frontend server failed to start within timeout.")
+        if sys.platform == "win32":
+            try:
+                import asyncio
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            except Exception:
+                pass
         cls.playwright = sync_playwright().start()
         cls.mock_sse_port = 3099
         cls.sse_server = ThreadingHTTPServer(("127.0.0.1", cls.mock_sse_port), MockSSEHandler)
@@ -347,6 +354,210 @@ class PlaywrightViewportTests(unittest.TestCase):
         shot_path = SCREENSHOTS_DIR / "viewport_sse_abort_and_retry.png"
         page.screenshot(path=str(shot_path))
         self.assertTrue(shot_path.exists())
+        page.close()
+
+    def test_playwright_conversation_rename_and_delete(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        # Inicializa localStorage com conversa local pré-existente
+        page.add_init_script("""
+            localStorage.setItem('helpus_conversas_locais', JSON.stringify([
+                {
+                    session_id: 'sess_pw_test1',
+                    titulo: 'Conversa Original Playwright',
+                    updated_at: new Date().toISOString(),
+                    total_mensagens: 2
+                }
+            ]));
+        """)
+        # Mock de atualizacao de conversa
+        page.route("**/conversa/**", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"status": "ok"}'
+        ))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        # 1. Verifica exibição da conversa na barra lateral
+        item = page.locator("text=Conversa Original Playwright").first
+        self.assertTrue(item.is_visible(), "Conversa pré-existente deve ser exibida na sidebar")
+
+        # 2. Aciona botão de renomear (hover no container para revelar ações)
+        item.hover()
+        btn_rename = page.locator("button[title='Renomear']").first
+        btn_rename.click()
+
+        # 3. Digita novo título no campo de edição e confirma com Enter
+        page.wait_for_selector("input[data-testid='input-rename-conversa']", timeout=5000)
+        input_edit = page.locator("input[data-testid='input-rename-conversa']").first
+        self.assertTrue(input_edit.is_visible(), "Campo de renomeação inline deve aparecer")
+        input_edit.fill("Conversa Renomeada com Sucesso")
+        input_edit.press("Enter")
+
+        # 4. Verifica que o novo título foi atualizado no DOM
+        page.wait_for_selector("text=Conversa Renomeada com Sucesso", timeout=5000)
+        self.assertTrue(page.locator("text=Conversa Renomeada com Sucesso").first.is_visible())
+
+        # 5. Aciona exclusão da conversa (hover no container atualizado)
+        item_renamed = page.locator("text=Conversa Renomeada com Sucesso").first
+        item_renamed.hover()
+        btn_delete = page.locator("button[title='Excluir']").first
+        btn_delete.click()
+
+        # 6. Verifica que a conversa foi removida do DOM
+        page.wait_for_selector("text=Conversa Renomeada com Sucesso", state="detached", timeout=5000)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_conversation_rename_delete.png"
+        page.screenshot(path=str(shot_path))
+        page.close()
+
+    def test_playwright_copy_link_and_load_history(self):
+        context = self.browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            permissions=["clipboard-read", "clipboard-write"]
+        )
+        page = context.new_page()
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+            localStorage.setItem('helpus_conversas_locais', JSON.stringify([
+                {{
+                    session_id: 'sess_pw_link_test',
+                    titulo: 'Conversa Link e Historico',
+                    updated_at: new Date().toISOString(),
+                    total_mensagens: 4
+                }}
+            ]));
+            localStorage.setItem('helpus_msgs_sess_pw_link_test', JSON.stringify([
+                {{"role": "user", "content": "Mensagem historica do usuario"}},
+                {{"role": "assistant", "content": "Resposta historica do assistente"}}
+            ]));
+        """)
+        # Mock do endpoint de histórico de mensagens para carregar histórico
+        hist_body = '{"session_id": "sess_pw_link_test", "titulo": "Conversa Link e Historico", "mensagens": [{"role": "user", "content": "Mensagem historica do usuario"}, {"role": "assistant", "content": "Resposta historica do assistente"}]}'
+        page.route("**/historico/sess_pw_link_test", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=hist_body
+        ))
+        page.route("**/conversa/sess_pw_link_test", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=hist_body
+        ))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        # 1. Clica no botão Copiar link da conversa na sidebar (com hover)
+        item = page.locator("text=Conversa Link e Historico").first
+        self.assertTrue(item.is_visible())
+        item.hover()
+        btn_copy = page.locator("button[title='Copiar link']").first
+        self.assertTrue(btn_copy.is_visible(), "Botão Copiar link deve estar presente no item da conversa")
+        btn_copy.click()
+
+        # 2. Clica na conversa para carregar o histórico
+        item.click()
+
+        # 3. Verifica renderização do histórico no corpo do chat
+        page.wait_for_selector("text=Resposta historica do assistente", timeout=6000)
+        self.assertTrue(page.locator("text=Resposta historica do assistente").first.is_visible())
+
+        shot_path = SCREENSHOTS_DIR / "viewport_copy_link_and_history.png"
+        page.screenshot(path=str(shot_path))
+        context.close()
+
+    def test_playwright_persistence_failure_error_handling(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+        """)
+        # Rota de stream e rota de chat retornam erro 500 para simular falha de persistência fail-closed
+        page.route("**/chat/stream", lambda route: route.fulfill(
+            status=500,
+            content_type="application/json",
+            body='{"detail": "Falha de persistencia duravel (fail-closed)"}'
+        ))
+        page.route("**/chat", lambda route: route.fulfill(
+            status=500,
+            content_type="application/json",
+            body='{"detail": "Falha de persistencia duravel (fail-closed)"}'
+        ))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+        textarea.fill("Pergunta simulando erro no servidor")
+        btn_enviar = page.locator("button[title='Enviar']").first
+        if btn_enviar.is_visible():
+            btn_enviar.click()
+        else:
+            page.keyboard.press("Enter")
+
+        # Verifica presença de mensagem de erro amigável e botão Tentar novamente
+        page.wait_for_selector("text=Desculpe, ocorreu uma instabilidade momentânea ao processar sua solicitação.", timeout=8000)
+        page.wait_for_selector("text=Tentar novamente", timeout=6000)
+        self.assertTrue(page.locator("text=Tentar novamente").first.is_visible())
+
+        shot_path = SCREENSHOTS_DIR / "viewport_persistence_failure.png"
+        page.screenshot(path=str(shot_path))
+        page.close()
+
+    def test_playwright_scroll_to_bottom_floating_button(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        # Cria mensagens longas suficientes para causar scroll vertical
+        long_messages = []
+        for i in range(12):
+            long_messages.append({"role": "user", "content": f"Pergunta número {i} para teste de viewport longo."})
+            long_messages.append({"role": "assistant", "content": f"Resposta longa {i}: " + ("conteudo repetido " * 30)})
+
+        import json
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+            localStorage.setItem('helpus_conversas_locais', JSON.stringify([
+                {{
+                    session_id: 'sess_pw_scroll',
+                    titulo: 'Conversa Longa Scroll',
+                    updated_at: new Date().toISOString(),
+                    total_mensagens: 24
+                }}
+            ]));
+            localStorage.setItem('helpus_msgs_sess_pw_scroll', JSON.stringify({json.dumps(long_messages)}));
+        """)
+        scroll_body = json.dumps({"session_id": "sess_pw_scroll", "titulo": "Conversa Longa Scroll", "mensagens": long_messages})
+        page.route("**/historico/sess_pw_scroll", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=scroll_body
+        ))
+        page.route("**/conversa/sess_pw_scroll", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=scroll_body
+        ))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        # Abre conversa longa
+        page.locator("text=Conversa Longa Scroll").first.click()
+        page.wait_for_selector("text=Pergunta número 11", timeout=6000)
+
+        # Rola para o topo do container do chat e dispara evento de scroll
+        page.evaluate("""() => {
+            const el = document.querySelector('.overflow-y-auto');
+            if (el) {
+                el.scrollTop = 0;
+                el.dispatchEvent(new Event('scroll'));
+            }
+        }""")
+
+        # Verifica se botão Ir para o fim aparece e pode ser acionado
+        page.wait_for_selector("button[title='Ir para o fim']", timeout=6000)
+        btn_scroll = page.locator("button[title='Ir para o fim']").first
+        self.assertTrue(btn_scroll.is_visible())
+        btn_scroll.click(force=True)
+
+        shot_path = SCREENSHOTS_DIR / "viewport_scroll_to_bottom.png"
+        page.screenshot(path=str(shot_path))
         page.close()
 
 if __name__ == "__main__":

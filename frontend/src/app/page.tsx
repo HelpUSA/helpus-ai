@@ -1286,10 +1286,11 @@ export default function HelpUSGeminiApp() {
                         <div key={conv.session_id} className="flex items-center gap-1 rounded-xl bg-[#282a2c] p-1 text-xs">
                           <input
                             type="text"
+                            data-testid="input-rename-conversa"
                             value={editingTitle}
                             onChange={(e) => setEditingTitle(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') salvarRenomeacao(conv.session_id)
+                              if (e.key === 'Enter') salvarRenomeacao(conv.session_id, (e.target as HTMLInputElement).value)
                               if (e.key === 'Escape') setEditingSessionId(null)
                             }}
                             className="flex-1 rounded-lg bg-[#131314] px-2 py-1 text-xs text-white border border-[#7fcfff] outline-none"
