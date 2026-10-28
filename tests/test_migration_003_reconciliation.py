@@ -89,7 +89,7 @@ class Migration003ReconciliationTests(unittest.TestCase):
             
             # Tabelas presentes, mas nenhuma migration registrada
             mock_cur.fetchall.side_effect = [
-                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",)],
+                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",), ("turn_idempotency_ledger",)],
                 [] # schema_migrations vazio!
             ]
             
@@ -127,6 +127,100 @@ class Migration003ReconciliationTests(unittest.TestCase):
         self.assertIn("WHERE turn_idempotency_key IS NOT NULL AND role = 'assistant'", sql_content)
         self.assertIn("'005_conversas_turn_idempotency_key'", sql_content)
         self.assertIn("DROP INDEX IF EXISTS uq_conversas_turn_assistant", sql_content)
+
+    def test_schema_verification_fails_closed_when_turn_idempotency_table_missing(self):
+        """Garante que criar_tabelas em modo persistente levanta RuntimeError se turn_idempotency_ledger estiver ausente."""
+        import asyncio
+        from backend.banco import BancoDados
+        
+        banco_test = BancoDados()
+        banco_test.database_url = "postgresql://user:pass@localhost:5432/helpus_test"
+        
+        with patch.object(banco_test, "pool") as mock_pool:
+            mock_conn = MagicMock()
+            mock_cur = AsyncMock()
+            mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+            mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
+            mock_conn.cursor.return_value.__aexit__.return_value = None
+            
+            # turn_idempotency_ledger ausente
+            mock_cur.fetchall.return_value = [
+                ("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",)
+            ]
+            
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(banco_test.criar_tabelas())
+            
+            self.assertIn("Tabelas obrigatorias ausentes no banco persistente", str(ctx.exception))
+            self.assertIn("turn_idempotency_ledger", str(ctx.exception))
+
+    def test_schema_verification_fails_closed_when_migration_005_missing(self):
+        """Garante que criar_tabelas em modo persistente levanta RuntimeError se migration 005 estiver ausente."""
+        import asyncio
+        from backend.banco import BancoDados
+        
+        banco_test = BancoDados()
+        banco_test.database_url = "postgresql://user:pass@localhost:5432/helpus_test"
+        
+        with patch.object(banco_test, "pool") as mock_pool:
+            mock_conn = MagicMock()
+            mock_cur = AsyncMock()
+            mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+            mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
+            mock_conn.cursor.return_value.__aexit__.return_value = None
+            
+            mock_cur.fetchall.side_effect = [
+                # Tabelas todas presentes
+                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",), ("turn_idempotency_ledger",)],
+                # Migrations 003 e 004 presentes, mas 005 ausente!
+                [("003_sessoes_schema_and_diagnostic",), ("004_turn_idempotency_ledger",)]
+            ]
+            
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(banco_test.criar_tabelas())
+            
+            self.assertIn("Migracoes nominais obrigatorias ausentes no banco persistente", str(ctx.exception))
+            self.assertIn("005_conversas_turn_idempotency_key", str(ctx.exception))
+
+    def test_persist_and_complete_turn_atomic_transaction_rollback_on_failure(self):
+        """Valida que persist_and_complete_turn executa sob UMA conexao e conn.transaction(),
+        realizando rollback total em caso de excecao."""
+        import asyncio
+        from backend.banco import BancoDados
+        
+        banco_test = BancoDados()
+        banco_test.database_url = "postgresql://user:pass@localhost:5432/helpus_test"
+        
+        with patch.object(banco_test, "pool") as mock_pool:
+            mock_conn = MagicMock()
+            mock_tx = MagicMock()
+            mock_cur = AsyncMock()
+            
+            mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+            mock_conn.transaction.return_value.__aenter__.return_value = mock_tx
+            mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
+            
+            # Simula CAS match no SELECT FOR UPDATE
+            mock_cur.fetchone.side_effect = [
+                ("token_xyz", "in_progress", "sess_1", "u@h.com", "general", "hash123"), # SELECT FOR UPDATE ledger
+                None, # Nenhum registro existente em conversas
+                (42,) # RETURNING id do INSERT
+            ]
+            mock_cur.rowcount = 1
+            
+            ok = asyncio.run(banco_test.persist_and_complete_turn(
+                session_id="sess_1",
+                content="Resposta atômica",
+                idempotency_key="key_1",
+                owner_token="token_xyz",
+                user_email="u@h.com",
+                project_id="general",
+                request_payload_hash="hash123"
+            ))
+            self.assertTrue(ok)
+            # Verifica que conn.transaction() foi invocado exatamente uma vez
+            mock_conn.transaction.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

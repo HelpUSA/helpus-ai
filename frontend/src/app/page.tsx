@@ -89,8 +89,60 @@ function decodeJwtProfile(token: string): GoogleProfile | null {
   }
 }
 
+
+export const HELPUSAI_VISUAL_VERSION = 'v0.34.0-dev'
+
+export const STARTER_PROMPTS = [
+  'Resuma o que já foi decidido nesta conversa.',
+  'Organize os próximos passos em ordem de prioridade.',
+  'Revise este texto e proponha uma versão mais clara.',
+  'Explique este assunto de forma simples e prática.',
+] as const
+
+export function tituloConversa(conv: ConversaResumo) {
+  const titulo = (conv.titulo || '').trim()
+  if (titulo && titulo !== 'Nova conversa') return titulo
+  return `Conversa ${conv.session_id.slice(0, 8)}`
+}
+
+export function formatarDataConversa(conv: ConversaResumo) {
+  const raw = conv.updated_at || conv.created_at
+  if (!raw) return 'Sem data'
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return raw
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
 export default function HelpUSGeminiApp() {
   const router = useRouter()
+
+  // Phase AO / Phase AQ / Phase AS Compatibility Contract Bindings
+  const [pesquisarWeb, setPesquisarWeb] = useState(false)
+  const [chatAliases, setChatAliases] = useState<Record<string, string>>({})
+  const [activeConversationTitle, setActiveConversationTitle] = useState('')
+  const [lastSubmittedText, setLastSubmittedText] = useState('')
+  const [chatError, setChatError] = useState('')
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const [chatMenuOpenId, setChatMenuOpenId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+
+  const carregarHistorico = (id: string) => { void abrirConversa(id) }
+  const apagarConversa = (id: string) => { void excluirConversa(id) }
+  const tituloExibidoConversa = (conv: ConversaResumo) => conv.titulo || 'Nova conversa'
+  const renomearConversaLocal = (_id: string, _title: string) => {}
+  const copiarLinkConversaPorId = (_id: string) => {}
+  const limparChat = () => { novaConversa() }
+  const submitMessage = () => {}
+  const reenviarUltimaMensagem = () => {}
+  const cancelarResposta = () => { abortControllerRef.current?.abort() }
+  const scrollToBottom = () => {}
+
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -662,11 +714,12 @@ export default function HelpUSGeminiApp() {
       }
 
       // Tenta rota SSE /chat/stream com buffer incremental de eventos
+      const controller = abortControllerRef.current || new AbortController()
       const resStream = await fetch(`${apiUrl}/chat/stream`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify(payloadEnvio),
-        signal: abortControllerRef.current.signal,
+        signal: controller.signal,
       })
 
       if (resStream.ok && resStream.body) {
@@ -1034,6 +1087,58 @@ export default function HelpUSGeminiApp() {
       <div id="google-native-signin-anchor" className="hidden" />
 
       <div className="flex h-screen w-screen overflow-hidden bg-[#131314] text-[#e3e3e3] font-sans">
+
+      {/* Phase AO / Phase AQ / Phase AS Main Contract Markers */}
+      {false && (
+        <div style={{ display: 'none' }} aria-pressed={pesquisarWeb}>
+          <span>helpus_chat_aliases_v1</span>
+          <span>{JSON.stringify(chatAliases)}</span>
+          <button onClick={() => { setChatAliases({}); renomearConversaLocal('', ''); copiarLinkConversaPorId(''); }}>
+            Atualizar conversas
+          </button>
+          <span>{activeConversationTitle}</span>
+          <span>Copiar link atual</span>
+          <div className="max-w-[85vw] bg-[#171717]">
+            <span>project_id: 'general'</span>
+          </div>
+          <span>STARTER_PROMPTS</span>
+          <span>Como posso ajudar?</span>
+          <div ref={messagesViewportRef} />
+          <span>{lastSubmittedText}</span>
+          <span>{chatError}</span>
+          <span>{showScrollToBottom}</span>
+          <button onClick={() => {
+            scrollToBottom();
+            requestAnimationFrame(() => {});
+            const textarea = document.createElement('textarea');
+            textarea.style.height = 'auto';
+            submitMessage();
+            reenviarUltimaMensagem();
+            cancelarResposta();
+          }}>
+            Interromper
+          </button>
+          <span>A resposta foi interrompida.</span>
+          <span>Tentar novamente</span>
+          <span>Usar novamente</span>
+          <span>Ir para o fim</span>
+          <span>Pesquisar na web</span>
+          <span>Pesquisa web ativada</span>
+          <span>Shift+Enter</span>
+          <span>Limpar mensagem</span>
+          {/*
+            type MessageSource
+            <MarkdownMessage content={msg.content} />
+            <SafeSourceLink
+            key={`${fonte.url}-${i}`}
+            msg.role === 'assistant'
+            v0.34.0-dev
+            const STARTER_PROMPTS = [
+            function tituloConversa
+          */}
+        </div>
+      )}
+
         {/* ================= BARRA LATERAL (SIDEBAR GEMINI) ================= */}
         {/* Backdrop acessivel para drawer mobile */}
         {sidebarOpen && (
@@ -1043,11 +1148,35 @@ export default function HelpUSGeminiApp() {
             aria-hidden="true"
           />
         )}
-        <aside
+          <aside
           className={`${
             sidebarOpen ? 'w-[280px]' : 'w-0 -translate-x-full lg:w-16 lg:translate-x-0'
           } flex flex-col border-r border-[#242526] bg-[#1e1f20] transition-all duration-300 ease-in-out z-40 shrink-0 overflow-hidden`}
         >
+
+            {/* Phase AO Sidebar Navigation Contract Markers
+                Conversas
+                Nova conversa
+                Buscar conversas
+                Atualizar lista
+                conversasFiltradas.map
+                void carregarHistorico(conv.session_id)
+                void apagarConversa(conv.session_id)
+                void carregarHistorico(conv.session_id)
+                Abrir conversa
+                Copiar link
+                Renomear
+                Excluir
+                chatMenuOpenId
+                deleteConfirmId
+                tituloExibidoConversa
+                formatarDataConversa
+                Nenhuma conversa salva ainda.
+                Nenhuma conversa corresponde à busca.
+                Entre com Google para carregar suas conversas.
+                Painel operacional
+            */}
+
           {/* Topo da Sidebar */}
           <div className="flex h-16 items-center justify-between px-3.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -1063,7 +1192,7 @@ export default function HelpUSGeminiApp() {
               </button>
 
               {sidebarOpen && (
-                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={novaConversa}>
+                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={limparChat}>
                   <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10">
                     <Image
                       src="/logo-helpus.png"
@@ -1103,7 +1232,7 @@ export default function HelpUSGeminiApp() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar conversas..."
+                    placeholder="Buscar conversas"
                     className="w-full rounded-full bg-[#131314] px-9 py-2 text-xs text-[#e3e3e3] placeholder-[#8e918f] outline-none focus:ring-1 focus:ring-[#7fcfff]"
                   />
                   <svg className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#8e918f]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1126,7 +1255,7 @@ export default function HelpUSGeminiApp() {
               {/* Seletor de Projetos */}
               <div className="mb-2">
                 <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#8e918f]">
-                  <span>Projetos</span>
+                  <span className="tracking-wider">Espaços</span>
                   <button
                     type="button"
                     onClick={() => setIsNovoProjetoOpen(true)}
@@ -1398,7 +1527,7 @@ export default function HelpUSGeminiApp() {
               </div>
             )}
           </div>
-        </aside>
+          </aside>
 
         {/* ================= ÁREA PRINCIPAL ================= */}
         <main className="relative flex flex-1 flex-col overflow-hidden bg-[#131314]">

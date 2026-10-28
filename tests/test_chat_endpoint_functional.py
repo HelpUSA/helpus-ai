@@ -585,8 +585,9 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             mock_conn.cursor.return_value.__aexit__.return_value = None
             # Simula todas as tabelas obrigatorias presentes e versao nominal aplicada
             mock_cur.fetchall.side_effect = [
-                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",)],
-                [("003_sessoes_schema_and_diagnostic",)]
+                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",), ("turn_idempotency_ledger",)],
+                [("003_sessoes_schema_and_diagnostic",), ("004_turn_idempotency_ledger",), ("005_conversas_turn_idempotency_key",)],
+                [("turn_idempotency_key",)]
             ]
             
             asyncio.run(banco_test.criar_tabelas())
@@ -755,7 +756,7 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
             
             # Tabelas estao presentes
             mock_cur.fetchall.side_effect = [
-                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",)],
+                [("conversas",), ("admin_audit_events",), ("schema_migrations",), ("sessoes",), ("turn_idempotency_ledger",)],
                 [("001_old_migration",)]  # Faltando '003_sessoes_schema_and_diagnostic'
             ]
             

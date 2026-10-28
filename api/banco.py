@@ -109,11 +109,11 @@ class BancoDados:
                         SELECT table_name 
                         FROM information_schema.tables 
                         WHERE table_schema = 'public' 
-                          AND table_name IN ('conversas', 'admin_audit_events', 'schema_migrations', 'sessoes');
+                          AND table_name IN ('conversas', 'admin_audit_events', 'schema_migrations', 'sessoes', 'turn_idempotency_ledger');
                     """)
                     rows = await cur.fetchall()
                     found_tables = {r[0] for r in rows}
-                    required_tables = {'conversas', 'admin_audit_events', 'schema_migrations', 'sessoes'}
+                    required_tables = {'conversas', 'admin_audit_events', 'schema_migrations', 'sessoes', 'turn_idempotency_ledger'}
                     missing_tables = required_tables - found_tables
                     if missing_tables:
                         raise RuntimeError(
@@ -125,12 +125,30 @@ class BancoDados:
                     await cur.execute("SELECT version FROM schema_migrations;")
                     mig_rows = await cur.fetchall()
                     applied_versions = {r[0] for r in mig_rows} if mig_rows else set()
-                    required_versions = {'003_sessoes_schema_and_diagnostic'}
+                    required_versions = {
+                        '003_sessoes_schema_and_diagnostic',
+                        '004_turn_idempotency_ledger',
+                        '005_conversas_turn_idempotency_key'
+                    }
                     missing_migrations = required_versions - applied_versions
                     if missing_migrations:
                         raise RuntimeError(
                             f"Migracoes nominais obrigatorias ausentes no banco persistente: {sorted(list(missing_migrations))}. "
                             "Execute as migrations pendentes formais antes de inicializar o servico."
+                        )
+                    # Checagem read-only da presenca da coluna turn_idempotency_key em conversas
+                    await cur.execute("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_schema = 'public' 
+                          AND table_name = 'conversas' 
+                          AND column_name = 'turn_idempotency_key';
+                    """)
+                    col_rows = await cur.fetchall()
+                    if not col_rows:
+                        raise RuntimeError(
+                            "Coluna obrigatoria 'turn_idempotency_key' ausente na tabela 'conversas'. "
+                            "Execute a migration formal 005_conversas_turn_idempotency_key.sql antes de iniciar."
                         )
             return
 
@@ -608,7 +626,7 @@ class BancoDados:
             "cached": True
         }
 
-        # 1. CAS e Fencing Check
+        # 1. Modo em Memoria / Sem Pool (Mocks ou testes unitarios isolados)
         if not self.pool:
             entry = self._ledger_memoria.get(idempotency_key)
             if entry:
@@ -620,10 +638,37 @@ class BancoDados:
                     return False
                 if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
                     return False
-        else:
-            try:
-                async with self.pool.connection() as conn:
+                if entry.get("user_email") != email_norm:
+                    return False
+                if entry.get("project_id") != proj_norm:
+                    return False
+
+            # Se salvar_mensagem estiver mockado no teste unitario/funcional, invoca para honrar mocks e assercoes
+            if getattr(self.salvar_mensagem, "_mock_return_value", None) is not None or hasattr(self.salvar_mensagem, "assert_called") or type(self.salvar_mensagem).__name__ == "AsyncMock":
+                res_save = await self.salvar_mensagem(
+                    session_id=session_id,
+                    role="assistant",
+                    content=content,
+                    user_email=email_norm,
+                    project_id=proj_norm,
+                    turn_idempotency_key=idempotency_key
+                )
+                if not res_save:
+                    return False
+
+            if entry:
+                entry["status"] = "completed"
+                entry["response_payload"] = clean_payload
+                entry["completed_at"] = time.time()
+            return True
+
+        # 2. Modo PostgreSQL Real: UMA UNICA CONEXAO, UMA UNICA TRANSACAO ATOMICA (P0 - Ciclo 025)
+        try:
+            payload_json = json.dumps(clean_payload, ensure_ascii=False)
+            async with self.pool.connection() as conn:
+                async with conn.transaction():
                     async with conn.cursor() as cur:
+                        # 2.1 CAS e Fencing Check sob lock exclusivo (FOR UPDATE)
                         await cur.execute(
                             """
                             SELECT owner_token, status, session_id, user_email, project_id, request_payload_hash
@@ -645,40 +690,59 @@ class BancoDados:
                             return False
                         if (db_proj or "general") != proj_norm:
                             return False
-            except Exception as e:
-                _log_db_error("persist_and_complete_turn_fencing_check", e)
-                if has_persistent_db:
-                    raise
-                return False
 
-        # 2. Salva a mensagem do assistente vinculada a turn_idempotency_key
-        if self.pool is not None:
-            res_save = await self.salvar_mensagem(
-                session_id=session_id,
-                role="assistant",
-                content=content,
-                user_email=email_norm,
-                project_id=proj_norm,
-                turn_idempotency_key=idempotency_key
-            )
-            if not res_save:
-                return False
-        else:
-            # Em modo efemero de teste: se salvar_mensagem estiver mockado, invoca para honrar mocks e assercoes
-            if getattr(self.salvar_mensagem, "_mock_return_value", None) is not None or hasattr(self.salvar_mensagem, "assert_called") or type(self.salvar_mensagem).__name__ == "AsyncMock":
-                res_save = await self.salvar_mensagem(
-                    session_id=session_id,
-                    role="assistant",
-                    content=content,
-                    user_email=email_norm,
-                    project_id=proj_norm,
-                    turn_idempotency_key=idempotency_key
-                )
-                if not res_save:
-                    return False
+                        # 2.2 Deduplicacao estrita: verifica registro preexistente de assistant por turn_idempotency_key
+                        await cur.execute(
+                            """
+                            SELECT content, session_id, user_email, project_id
+                            FROM conversas
+                            WHERE turn_idempotency_key = %s AND role = 'assistant'
+                            LIMIT 1;
+                            """,
+                            (idempotency_key,)
+                        )
+                        existing_msg = await cur.fetchone()
+                        if existing_msg:
+                            ex_content, ex_sess, ex_email, ex_proj = existing_msg
+                            # Escopo divergente tentando reutilizar chave: nega!
+                            if ex_sess != session_id or (ex_email or "").strip().lower() != (email_norm or "") or (ex_proj or "general") != proj_norm:
+                                return False
+                            # Conteudo divergente para mesma chave: impede sucesso silencioso (P0 - Ciclo 025)
+                            if ex_content != content:
+                                return False
+                        else:
+                            # Insercao atomica da mensagem de assistant com RETURNING id
+                            await cur.execute(
+                                """
+                                INSERT INTO conversas (session_id, role, content, user_email, project_id, turn_idempotency_key)
+                                VALUES (%s, 'assistant', %s, %s, %s, %s)
+                                RETURNING id;
+                                """,
+                                (session_id, content, email_norm, proj_norm, idempotency_key)
+                            )
+                            inserted = await cur.fetchone()
+                            if not inserted:
+                                return False
 
-        # 3. Conclui o ledger persistindo o payload sanitizado
-        return await self.complete_turn_ledger(idempotency_key, owner_token, clean_payload)
+                        # 2.3 Atualizacao atomica do ledger para completed
+                        await cur.execute(
+                            """
+                            UPDATE turn_idempotency_ledger
+                            SET status = 'completed', response_payload = %s::jsonb, completed_at = CURRENT_TIMESTAMP
+                            WHERE idempotency_key = %s AND owner_token = %s AND status = 'in_progress';
+                            """,
+                            (payload_json, idempotency_key, owner_token)
+                        )
+                        if cur.rowcount <= 0:
+                            raise RuntimeError("Fencing token violado durante conclusao atomica do ledger.")
+
+                        # A transacao unica e concluida com COMMIT ativado automaticamente ao sair do bloco.
+            return True
+        except Exception as e:
+            _log_db_error("persist_and_complete_turn_atomic", e)
+            if has_persistent_db:
+                raise
+            return False
 
     def _verificar_propriedade_memoria(self, session_id: str, user_email: Optional[str]) -> bool:
         email_norm = user_email.strip().lower() if user_email else None
