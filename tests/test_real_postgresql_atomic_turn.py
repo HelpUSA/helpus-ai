@@ -2124,15 +2124,18 @@ asyncio.run(main())
         self.run_async(_test())
 
     def test_real_postgresql_adversarial_isolation_and_cross_project_boundaries(self):
-        """P0 Testes de Isolamento de Sessao Anonima, Escopo de Projeto e Endpoints HTTP Reais (Ciclo 035):
+        """P0 Testes de Isolamento de Sessao, Escopo de Projeto, Auditoria e Endpoints HTTP Reais (Ciclos 035/036):
         1. Simula adversario com session_id conhecido tentando ler historico anonimo e de outros usuarios.
         2. Simula tentativas de acesso cross-project com project_id ausente, 'all' e '*'.
-        3. Valida endpoints HTTP reais (/historico/{sid}, /conversas, /admin/conversas/global) contra PostgreSQL 18.
-        4. Valida rejeicao de aliases conflitantes em is_nominal_legacy_request."""
+        3. Valida verificacao estrita de project_id em verificar_propriedade_sessao e movimentacao de projeto.
+        4. Valida autorizacao estrita de admins em admin_listar_conversas_globais e fail-closed de auditoria.
+        5. Valida endpoints HTTP reais (/historico/{sid} com auto-resolucao e mismatch 403, /conversas, /admin/conversas/global).
+        6. Valida rejeicao de aliases conflitantes em is_nominal_legacy_request."""
         import httpx
         from backend.banco import BancoDados, is_nominal_legacy_request
         import backend.main as b_main
         from auth import obter_usuario_google, obter_admin_google
+        import config
         import uuid
 
         async def _test():
@@ -2144,8 +2147,8 @@ asyncio.run(main())
 
             try:
                 victim_sid = f"sess_victim_{uuid.uuid4().hex[:8]}"
-                victim_email = f"victim_c35_{uuid.uuid4().hex[:8]}@helpus.com"
-                attacker_email = f"attacker_c35_{uuid.uuid4().hex[:8]}@helpus.com"
+                victim_email = f"victim_c36_{uuid.uuid4().hex[:8]}@helpus.com"
+                attacker_email = f"attacker_c36_{uuid.uuid4().hex[:8]}@helpus.com"
 
                 # 1. Cria conversa da vitima no projeto 'finance'
                 await b.salvar_mensagem(victim_sid, "user", "Dados financeiros confidenciais", user_email=victim_email, project_id="finance")
@@ -2201,12 +2204,17 @@ asyncio.run(main())
                 self.assertNotIn(sid_hr, list_fin_sids)
 
                 # 3. Consulta Global Administrativa (admin_listar_conversas_globais):
-                # Ator vazio/invalido levanta PermissionError
+                # (a) Ator vazio/invalido levanta PermissionError
                 with self.assertRaises(PermissionError):
                     await b.admin_listar_conversas_globais(actor_email="")
 
-                # Ator admin autorizado lista todas as conversas cross-project
+                # (b) Ator nao-admin levanta PermissionError (P0 - Ciclo 036)
+                with self.assertRaises(PermissionError):
+                    await b.admin_listar_conversas_globais(actor_email=f"nao_admin_{uuid.uuid4().hex[:8]}@helpus.com")
+
+                # (c) Ator admin autorizado lista todas as conversas cross-project
                 admin_actor = f"admin_auditor_{uuid.uuid4().hex[:8]}@helpus.com"
+                config.ADMIN_EMAILS = [admin_actor]
                 global_convs, total_global = await b.admin_listar_conversas_globais(
                     actor_email=admin_actor,
                     filter_user_email=victim_email
@@ -2217,7 +2225,23 @@ asyncio.run(main())
                 self.assertIn(sid_hr, global_sids)
                 self.assertEqual(len(global_sids), 3)
 
-                # 4. Validacao de Aliases Conflitantes em is_nominal_legacy_request (P1 - Ciclo 035):
+                # 4. Validacao Estrita de Propriedade de Sessao e Movimentacao (P0 - Ciclo 036):
+                # (a) Mesma conta tentando verificar sessao com projeto divergente ('hr' para sessao de 'finance') -> False
+                self.assertFalse(await b.verificar_propriedade_sessao(victim_sid, victim_email, "hr"))
+                # (b) Mesma conta com projeto correto ('finance') -> True
+                self.assertTrue(await b.verificar_propriedade_sessao(victim_sid, victim_email, "finance"))
+                # (c) Auto-resolucao de projeto
+                self.assertEqual(await b.obter_projeto_sessao(victim_sid, victim_email), "finance")
+                # (d) Movimentacao autorizada de projeto
+                sid_to_move = f"sess_move_{uuid.uuid4().hex[:8]}"
+                await b.salvar_mensagem(sid_to_move, "user", "Sessao a mover", user_email=victim_email, project_id="finance")
+                self.assertTrue(await b.verificar_propriedade_sessao(sid_to_move, victim_email, "finance"))
+                self.assertFalse(await b.verificar_propriedade_sessao(sid_to_move, victim_email, "hr"))
+                await b.mover_conversa_projeto(sid_to_move, "hr", victim_email)
+                self.assertTrue(await b.verificar_propriedade_sessao(sid_to_move, victim_email, "hr"))
+                self.assertFalse(await b.verificar_propriedade_sessao(sid_to_move, victim_email, "finance"))
+
+                # 5. Validacao de Aliases Conflitantes em is_nominal_legacy_request (P1 - Ciclo 035):
                 # (a) Conflito entre model_requested e model_used
                 self.assertFalse(is_nominal_legacy_request(
                     model="gemini-2.0-flash",
@@ -2279,7 +2303,7 @@ asyncio.run(main())
                     }
                 ))
 
-                # 5. Testes de Endpoints HTTP Reais contra PostgreSQL 18 via httpx:
+                # 6. Testes de Endpoints HTTP Reais contra PostgreSQL 18 via httpx:
                 transport = httpx.ASGITransport(app=b_main.app)
                 async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                     # (a) GET /historico/{session_id} sem autenticacao -> HTTP 401
@@ -2288,8 +2312,25 @@ asyncio.run(main())
                     self.assertEqual(res_anon_hist.status_code, 401)
                     self.assertIn("Autenticacao necessaria", res_anon_hist.json()["detail"])
 
-                    # (b) GET /conversas com wildcards 'all' ou '*' -> HTTP 400
+                    # (b) GET /historico/{session_id} autenticado SEM project_id -> auto-resolve para 'finance' e retorna 200 (P1 - Ciclo 036)
                     b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": victim_email, "name": "Victim", "role": "user"}
+                    res_hist_auto = await client.get(f"/historico/{victim_sid}")
+                    self.assertEqual(res_hist_auto.status_code, 200)
+                    hist_data = res_hist_auto.json()
+                    self.assertEqual(hist_data["project_id"], "finance")
+                    self.assertEqual(hist_data["quantidade"], 2)
+
+                    # (c) GET /historico/{session_id}?project_id=finance -> 200 com conteudo
+                    res_hist_fin = await client.get(f"/historico/{victim_sid}?project_id=finance")
+                    self.assertEqual(res_hist_fin.status_code, 200)
+                    self.assertEqual(res_hist_fin.json()["quantidade"], 2)
+
+                    # (d) GET /historico/{session_id}?project_id=hr -> 403 Forbidden por mismatch de projeto (P0 - Ciclo 036)
+                    res_hist_mismatch = await client.get(f"/historico/{victim_sid}?project_id=hr")
+                    self.assertEqual(res_hist_mismatch.status_code, 403)
+                    self.assertIn("Acesso negado", res_hist_mismatch.json()["detail"])
+
+                    # (e) GET /conversas com wildcards 'all' ou '*' -> HTTP 400
                     res_all = await client.get("/conversas?project_id=all")
                     self.assertEqual(res_all.status_code, 400)
                     self.assertIn("Wildcards 'all' ou '*' sao proibidos", res_all.json()["detail"])
@@ -2298,36 +2339,48 @@ asyncio.run(main())
                     self.assertEqual(res_star.status_code, 400)
                     self.assertIn("Wildcards 'all' ou '*' sao proibidos", res_star.json()["detail"])
 
-                    # (c) GET /conversas?project_id=finance -> 200 contendo apenas conversa de finance
+                    # (f) GET /conversas?project_id=finance -> 200 contendo apenas conversa de finance
                     res_fin = await client.get("/conversas?project_id=finance")
                     self.assertEqual(res_fin.status_code, 200)
                     fin_sids = [c["session_id"] for c in res_fin.json()["conversas"]]
                     self.assertIn(victim_sid, fin_sids)
                     self.assertNotIn(sid_gen, fin_sids)
 
-                    # (d) GET /conversas (sem project_id) -> 200 escopo padrao 'general'
+                    # (g) GET /conversas (sem project_id) -> 200 escopo padrao 'general'
                     res_gen = await client.get("/conversas")
                     self.assertEqual(res_gen.status_code, 200)
                     gen_sids = [c["session_id"] for c in res_gen.json()["conversas"]]
                     self.assertIn(sid_gen, gen_sids)
                     self.assertNotIn(victim_sid, gen_sids)
 
-                    # (e) GET /admin/conversas/global sem admin -> HTTP 401
+                    # (h) GET /admin/conversas/global sem admin -> HTTP 401
                     b_main.app.dependency_overrides[obter_admin_google] = lambda: None
                     res_admin_anon = await client.get("/admin/conversas/global")
                     self.assertEqual(res_admin_anon.status_code, 401)
 
-                    # (f) GET /admin/conversas/global com admin autorizado -> HTTP 200 com total e conversas cross-project
-                    admin_actor_web = f"superadmin_c35_{uuid.uuid4().hex[:8]}@helpus.com"
+                    # (i) GET /admin/conversas/global com admin autorizado -> HTTP 200 com total e conversas cross-project
+                    admin_actor_web = f"superadmin_c36_{uuid.uuid4().hex[:8]}@helpus.com"
+                    config.ADMIN_EMAILS = [admin_actor_web]
                     b_main.app.dependency_overrides[obter_admin_google] = lambda: {"email": admin_actor_web, "name": "SuperAdmin", "role": "admin"}
                     res_admin_ok = await client.get(f"/admin/conversas/global?filter_user_email={victim_email}")
                     self.assertEqual(res_admin_ok.status_code, 200)
                     admin_data = res_admin_ok.json()
-                    self.assertEqual(admin_data["total"], 3)
+                    self.assertEqual(admin_data["total"], 4)
                     admin_returned_sids = [c["session_id"] for c in admin_data["conversas"]]
                     self.assertIn(victim_sid, admin_returned_sids)
                     self.assertIn(sid_gen, admin_returned_sids)
                     self.assertIn(sid_hr, admin_returned_sids)
+                    self.assertIn(sid_to_move, admin_returned_sids)
+
+                    # (j) GET /admin/conversas/global com falha simulada de persistencia de auditoria -> HTTP 500 FAIL-CLOSED (P0 - Ciclo 036)
+                    orig_audit = b.registrar_evento_auditoria
+                    async def broken_audit(*args, **kwargs):
+                        raise RuntimeError("Simulacao de falha na persistencia de auditoria")
+                    b.registrar_evento_auditoria = broken_audit
+                    res_admin_fail = await client.get(f"/admin/conversas/global?filter_user_email={victim_email}")
+                    self.assertEqual(res_admin_fail.status_code, 500)
+                    self.assertNotIn("conversas", res_admin_fail.json())
+                    b.registrar_evento_auditoria = orig_audit
 
             finally:
                 b_main.banco = old_banco

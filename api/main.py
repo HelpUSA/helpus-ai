@@ -2136,8 +2136,12 @@ async def listar_conversas(project_id: Optional[str] = None, usuario = Depends(o
 
 
 @app.get("/historico/{session_id}")
-async def historico(session_id: str, usuario = Depends(obter_usuario_google)):
-    """Recupera historico de uma conversa (P0 - Ciclo 035: posse comprovavel via contexto de autenticacao)"""
+async def historico(
+    session_id: str,
+    project_id: Optional[str] = None,
+    usuario = Depends(obter_usuario_google)
+):
+    """Recupera historico de uma conversa com resolucao de projeto e comprovacao de posse (P0/P1 - Ciclos 035/036)"""
     if not usuario or not usuario.get("email"):
         raise HTTPException(
             status_code=401,
@@ -2145,9 +2149,31 @@ async def historico(session_id: str, usuario = Depends(obter_usuario_google)):
         )
     try:
         user_email = usuario["email"].strip().lower()
-        mensagens = await banco.carregar_mensagens(session_id, limite=100, user_email=user_email)
+
+        # P1 Funcionalidade & Resolucao de Projeto (Ciclo 036):
+        # Se project_id nao foi fornecido pelo cliente, auto-resolve o projeto registrado da sessao.
+        resolved_proj = (project_id or "").strip()
+        if not resolved_proj or resolved_proj in ("all", "*"):
+            sess_proj = await banco.obter_projeto_sessao(session_id, user_email)
+            resolved_proj = sess_proj or "general"
+        else:
+            # Se fornecido explicitamente, valida propriedade da sessao contra o projeto solicitado
+            eh_dono = await banco.verificar_propriedade_sessao(session_id, user_email, resolved_proj)
+            if not eh_dono:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Acesso negado: a sessao informada pertence a outro projeto ou usuario."
+                )
+
+        mensagens = await banco.carregar_mensagens(
+            session_id=session_id,
+            limite=100,
+            user_email=user_email,
+            project_id=resolved_proj
+        )
         return {
             "session_id": session_id,
+            "project_id": resolved_proj,
             "quantidade": len(mensagens),
             "mensagens": mensagens
         }
@@ -2165,7 +2191,7 @@ async def admin_listar_conversas_global(
     filter_project_id: Optional[str] = None,
     usuario = Depends(obter_admin_google)
 ):
-    """Endpoint administrativo exclusivo para consulta global cross-project com autorizacao administrativa e auditoria (P0 - Ciclo 035)"""
+    """Endpoint administrativo exclusivo para consulta global cross-project com autorizacao administrativa e auditoria (P0 - Ciclos 035/036)"""
     if not usuario:
         raise HTTPException(
             status_code=401,
@@ -2178,6 +2204,21 @@ async def admin_listar_conversas_global(
             detail="Identidade do administrador invalida."
         )
     try:
+        corr_id = str(uuid.uuid4())
+        # P0 Auditoria Fail-Closed (Ciclo 036): O evento de auditoria e registrado ANTES da entrega de qualquer dado.
+        # Caso a persistencia falhe, a requisicao e sumariamente abortada com 500 sem retorno de dados.
+        await banco.registrar_evento_auditoria(
+            action="ADMIN_GLOBAL_CONVERSAS_ACCESS_REQUESTED",
+            actor=admin_email,
+            details={
+                "limite": limite,
+                "offset": offset,
+                "filter_user_email": filter_user_email,
+                "filter_project_id": filter_project_id,
+            },
+            correlation_id=corr_id
+        )
+
         conversas, total = await banco.admin_listar_conversas_globais(
             actor_email=admin_email,
             limite=limite,
@@ -2185,6 +2226,7 @@ async def admin_listar_conversas_global(
             filter_user_email=filter_user_email,
             filter_project_id=filter_project_id
         )
+
         await banco.registrar_evento_auditoria(
             action="ADMIN_GLOBAL_CONVERSAS_VIEWED",
             actor=admin_email,
@@ -2196,8 +2238,9 @@ async def admin_listar_conversas_global(
                 "returned_count": len(conversas),
                 "total": total
             },
-            correlation_id=str(uuid.uuid4())
+            correlation_id=corr_id
         )
+
         return {
             "ok": True,
             "admin": admin_email,
@@ -2208,6 +2251,8 @@ async def admin_listar_conversas_global(
         }
     except HTTPException:
         raise
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

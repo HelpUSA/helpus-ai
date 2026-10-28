@@ -1276,12 +1276,20 @@ class BancoDados:
                 raise
             return False
 
-    def _verificar_propriedade_memoria(self, session_id: str, user_email: Optional[str]) -> bool:
+    def _verificar_propriedade_memoria(self, session_id: str, user_email: Optional[str], project_id: Optional[str] = None) -> bool:
         email_norm = user_email.strip().lower() if user_email else None
+        proj_norm = (project_id or "general").strip()[:80]
+        if proj_norm in ("all", "*", ""):
+            proj_norm = "general"
         if session_id not in self._sessoes_memoria:
-            self._sessoes_memoria[session_id] = email_norm
+            self._sessoes_memoria[session_id] = (email_norm, proj_norm)
             return True
-        return self._sessoes_memoria[session_id] == email_norm
+        stored = self._sessoes_memoria[session_id]
+        if isinstance(stored, tuple):
+            stored_email, stored_proj = stored
+        else:
+            stored_email, stored_proj = stored, "general"
+        return stored_email == email_norm and stored_proj == proj_norm
 
     def _verificar_propriedade_projeto_memoria(self, project_id: str, user_email: Optional[str]) -> bool:
         if not project_id or project_id == "general":
@@ -1307,7 +1315,7 @@ class BancoDados:
         3. Seguranca de Ambiente: Ambientes de producao (ENVIRONMENT=production ou NODE_ENV=production)
            JAMAIS utilizam fallback em memoria sob hipotese alguma.
         4. Modo de Teste: Autorizacao em memoria apenas se HELPUS_TEST_MODE=1 e SEM banco configurado.
-        5. Isolamento Multi-Tenant: Impede cross-account session hijacking.
+        5. Isolamento Multi-Tenant & Multi-Projeto: Impede cross-account e cross-project hijacking.
         """
         is_prod = (
             os.getenv("ENVIRONMENT") == "production"
@@ -1319,7 +1327,9 @@ class BancoDados:
         # 1. Se o pool estiver ativo e conectado, realiza checagem atomica no PostgreSQL
         if self.pool is not None:
             email_norm = user_email.strip().lower() if user_email else None
-            proj_norm = (project_id or "general")[:80]
+            proj_norm = (project_id or "general").strip()[:80]
+            if proj_norm in ("all", "*", ""):
+                proj_norm = "general"
             try:
                 async with self.pool.connection() as conn:
                     async with conn.cursor() as cur:
@@ -1341,7 +1351,10 @@ class BancoDados:
                         if not row:
                             return True
                         existing_email = (row[0] or "").strip().lower() if row[0] else None
-                        return existing_email == email_norm
+                        existing_proj = (row[1] or "general").strip()[:80]
+                        if existing_proj in ("all", "*", ""):
+                            existing_proj = "general"
+                        return existing_email == email_norm and existing_proj == proj_norm
             except Exception as e:
                 # FAIL-CLOSED: NUNCA conceder autorizacao em caso de erro na consulta
                 return False
@@ -1356,7 +1369,7 @@ class BancoDados:
 
         # 4. Modo de teste isolado e explicito (sem banco configurado e fora de producao)
         if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test":
-            return self._verificar_propriedade_memoria(session_id, user_email)
+            return self._verificar_propriedade_memoria(session_id, user_email, project_id)
 
         # Sem banco configurado e sem teste explicito: fail-closed estrito
         return False
@@ -1567,8 +1580,8 @@ class BancoDados:
             return True
 
         email_norm = user_email.strip().lower() if user_email else None
-        if not await self.verificar_propriedade_sessao(session_id, email_norm):
-            raise PermissionError(f"Acesso negado: a sessao '{session_id}' pertence a outra conta.")
+        if not await self.verificar_propriedade_sessao(session_id, email_norm, project_id=project_id):
+            raise PermissionError(f"Acesso negado: a sessao '{session_id}' pertence a outra conta ou outro projeto.")
 
         try:
             async with self.pool.connection() as conn:
@@ -1649,8 +1662,7 @@ class BancoDados:
                         WHERE session_id = %s 
                           AND LOWER(user_email) = %s
                           AND user_email IS NOT NULL
-                          AND project_id IS NOT NULL
-                          AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
+                          AND (project_id = %s OR (%s = 'general' AND (project_id IS NULL OR project_id = '')))
                         ORDER BY created_at DESC
                         LIMIT %s
                     ) sub
@@ -1727,8 +1739,7 @@ class BancoDados:
                     FROM conversas
                     WHERE LOWER(user_email) = %s
                       AND user_email IS NOT NULL
-                      AND project_id IS NOT NULL
-                      AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
+                      AND (project_id = %s OR (%s = 'general' AND (project_id IS NULL OR project_id = '')))
                     GROUP BY session_id
                     ORDER BY MAX(created_at) DESC
                     LIMIT %s
@@ -1758,9 +1769,19 @@ class BancoDados:
         filter_user_email: Optional[str] = None,
         filter_project_id: Optional[str] = None
     ) -> Tuple[List[Dict], int]:
-        """Consulta administrativa global de conversas com autorizacao administrativa (P0 - Ciclo 035)."""
+        """Consulta administrativa global de conversas com autorizacao administrativa (P0 - Ciclos 035/036)."""
         if not actor_email or not actor_email.strip():
             raise PermissionError("Acesso negado: ator administrativo obrigatorio.")
+
+        email_clean = actor_email.strip().lower()
+        try:
+            from config import ADMIN_EMAILS
+            admin_set = {e.strip().lower() for e in ADMIN_EMAILS} if ADMIN_EMAILS else set()
+        except Exception:
+            admin_set = set()
+
+        if not admin_set or email_clean not in admin_set:
+            raise PermissionError("Acesso negado: ator nao autorizado para consultas administrativas globais.")
 
         if not await self._garantir_pool() or self.pool is None:
             is_deploy = bool(
@@ -1868,8 +1889,25 @@ class BancoDados:
             _log_db_error("renomear_conversa", e)
 
     async def mover_conversa_projeto(self, session_id: str, project_id: str, user_email: Optional[str] = None):
-        if not await self._garantir_pool():
+        target_proj = (project_id or "general").strip()[:80]
+        if target_proj in ("all", "*", ""):
+            target_proj = "general"
+
+        if not await self._garantir_pool() or self.pool is None:
+            if os.getenv("HELPUS_TEST_MODE") == "1":
+                email_norm = user_email.strip().lower() if user_email else None
+                for m in self._conversas_memoria:
+                    if m.get("session_id") == session_id:
+                        m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
+                        if m_email == email_norm:
+                            m["project_id"] = target_proj
+                if session_id in self._sessoes_memoria:
+                    stored = self._sessoes_memoria[session_id]
+                    st_email = stored[0] if isinstance(stored, tuple) else stored
+                    if st_email == email_norm:
+                        self._sessoes_memoria[session_id] = (st_email, target_proj)
             return
+
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
@@ -1877,24 +1915,70 @@ class BancoDados:
                         email_norm = user_email.strip().lower()
                         await cur.execute(
                             "UPDATE conversas SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
-                            (project_id or "general", session_id, email_norm)
+                            (target_proj, session_id, email_norm)
                         )
                         await cur.execute(
                             "UPDATE sessoes SET project_id = %s WHERE session_id = %s AND LOWER(user_email) = %s",
-                            (project_id or "general", session_id, email_norm)
+                            (target_proj, session_id, email_norm)
                         )
                     else:
                         await cur.execute(
                             "UPDATE conversas SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
-                            (project_id or "general", session_id)
+                            (target_proj, session_id)
                         )
                         await cur.execute(
                             "UPDATE sessoes SET project_id = %s WHERE session_id = %s AND user_email IS NULL",
-                            (project_id or "general", session_id)
+                            (target_proj, session_id)
                         )
                     await conn.commit()
         except Exception as e:
             _log_db_error("mover_conversa", e)
+
+    async def obter_projeto_sessao(self, session_id: str, user_email: Optional[str] = None) -> Optional[str]:
+        """Recupera o project_id vinculado a uma sessao para um determinado usuario."""
+        if not session_id or not user_email:
+            return None
+        email_norm = user_email.strip().lower()
+
+        if not await self._garantir_pool() or self.pool is None:
+            if os.getenv("HELPUS_TEST_MODE") == "1":
+                if session_id in self._sessoes_memoria:
+                    stored = self._sessoes_memoria[session_id]
+                    if isinstance(stored, tuple):
+                        st_email, st_proj = stored
+                        if st_email == email_norm:
+                            return st_proj
+                    elif stored == email_norm:
+                        return "general"
+                for m in self._conversas_memoria:
+                    if m.get("session_id") == session_id:
+                        m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
+                        if m_email == email_norm:
+                            return m.get("project_id") or "general"
+            return None
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT project_id FROM sessoes WHERE session_id = %s AND LOWER(user_email) = %s LIMIT 1",
+                        (session_id, email_norm)
+                    )
+                    row = await cur.fetchone()
+                    if row and row[0]:
+                        return (row[0] or "general").strip()
+
+                    await cur.execute(
+                        "SELECT project_id FROM conversas WHERE session_id = %s AND LOWER(user_email) = %s AND project_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+                        (session_id, email_norm)
+                    )
+                    row_c = await cur.fetchone()
+                    if row_c and row_c[0]:
+                        return (row_c[0] or "general").strip()
+            return None
+        except Exception as e:
+            _log_db_error("obter_projeto_sessao", e)
+            return None
 
     async def listar_projetos(self, user_email: Optional[str] = None) -> List[Dict]:
         padrao = [{"project_id": "general", "nome": "Geral", "descricao": "Conversas gerais do HelpUS", "instrucoes": ""}]
