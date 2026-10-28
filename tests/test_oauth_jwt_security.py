@@ -774,6 +774,121 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                                 pass
                         self.assertIn("AUTH_REQUIRED", str(ctx.exception))
 
+    # --- Testes de Deploy Environment Gate e Salvaguardas Serverless (Ordem 089) ---
+
+    def test_deploy_context_vercel_blocks_development_environment(self):
+        """Ordem 089: VERCEL=1 com ENVIRONMENT=development DEVE falhar fail-closed com RuntimeError."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"VERCEL": "1", "ENVIRONMENT": "development", "AUTH_REQUIRED": "false"}, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", "development"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                self.assertIn("Ambiente de desenvolvimento 'development' e terminantemente proibido em contexto de deploy cloud", str(ctx.exception))
+
+    def test_deploy_context_blocks_missing_environment(self):
+        """Ordem 089: VERCEL definido com ENVIRONMENT ausente ou vazio DEVE falhar fail-closed."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"VERCEL": "", "ENVIRONMENT": ""}, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", ""):
+                with self.assertRaises(RuntimeError) as ctx:
+                    b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy cloud", str(ctx.exception))
+
+    def test_deploy_context_railway_blocks_dev_alias(self):
+        """Ordem 089: RAILWAY_ENVIRONMENT com ENVIRONMENT=dev DEVE falhar fail-closed."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"RAILWAY_ENVIRONMENT": "dev", "ENVIRONMENT": "dev"}, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", "dev"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                self.assertIn("Ambiente de desenvolvimento 'dev' e terminantemente proibido", str(ctx.exception))
+
+    def test_deploy_context_allows_valid_staging_with_explicit_credentials(self):
+        """Ordem 089: Deploy cloud em staging com AUTH_REQUIRED=true e GOOGLE_CLIENT_ID dedicado é aceito."""
+        import backend.config as b_cfg
+        staging_env = {
+            "VERCEL": "1",
+            "ENVIRONMENT": "staging",
+            "AUTH_REQUIRED": "true",
+            "GOOGLE_CLIENT_ID": "staging-dedicated-id-1234.apps.googleusercontent.com",
+            "ADMIN_EMAILS": "admin@helpusbr.com",
+        }
+        with patch.dict("os.environ", staging_env, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", "staging"):
+                with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", staging_env["GOOGLE_CLIENT_ID"]):
+                        with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
+                            diag = b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                            self.assertTrue(diag["conforme"])
+                            self.assertTrue(diag["is_deploy_context"])
+                            self.assertTrue(diag["is_protected"])
+
+    def test_deploy_context_allows_valid_production_with_explicit_credentials(self):
+        """Ordem 089: Deploy cloud em production com AUTH_REQUIRED=true e GOOGLE_CLIENT_ID explícito é aceito."""
+        import backend.config as b_cfg
+        prod_env = {
+            "RAILWAY_ENVIRONMENT": "production",
+            "ENVIRONMENT": "production",
+            "AUTH_REQUIRED": "true",
+            "GOOGLE_CLIENT_ID": "812202824664-prod-explicit.apps.googleusercontent.com",
+            "ADMIN_EMAILS": "admin@helpusbr.com",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", "production"):
+                with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", prod_env["GOOGLE_CLIENT_ID"]):
+                        with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
+                            diag = b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                            self.assertTrue(diag["conforme"])
+                            self.assertTrue(diag["is_deploy_context"])
+                            self.assertTrue(diag["is_protected"])
+
+    def test_fastapi_lifespan_lifecycle_blocks_deploy_with_development_on_testclient(self):
+        """Ordem 089: Ciclo de vida real via TestClient aborta se deploy carregar ENVIRONMENT=development."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"VERCEL": "1", "ENVIRONMENT": "development", "AUTH_REQUIRED": "false"}, clear=True):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "development"):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(b_main.app):
+                                pass
+                        self.assertIn("Ambiente de desenvolvimento 'development' e terminantemente proibido", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_deploy_missing_environment_on_testclient(self):
+        """Ordem 089: Ciclo de vida real via TestClient aborta se deploy omitir ENVIRONMENT."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"VERCEL": "1", "ENVIRONMENT": ""}, clear=True):
+            with patch.object(b_main.app_config, "ENVIRONMENT", ""):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(b_main.app):
+                                pass
+                        self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_allows_deploy_staging_on_testclient(self):
+        """Ordem 089: Ciclo de vida real via TestClient inicia perfeitamente em staging cloud válido e serve requisições."""
+        import backend.main as b_main
+        staging_env = {
+            "VERCEL": "1",
+            "ENVIRONMENT": "staging",
+            "AUTH_REQUIRED": "true",
+            "GOOGLE_CLIENT_ID": "staging-dedicated-testclient-1234.apps.googleusercontent.com",
+            "ADMIN_EMAILS": "admin@helpusbr.com",
+        }
+        with patch.dict("os.environ", staging_env, clear=True):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "staging"):
+                with patch.object(b_main.app_config, "AUTH_REQUIRED", True):
+                    with patch.object(b_main.app_config, "GOOGLE_CLIENT_ID", staging_env["GOOGLE_CLIENT_ID"]):
+                        with patch.object(b_main.app_config, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
+                            with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                                with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                                    with TestClient(b_main.app) as client:
+                                        resp = client.get("/saude")
+                                        self.assertEqual(resp.status_code, 200)
+                                        self.assertEqual(resp.json().get("status"), "saudavel")
+
 
 if __name__ == "__main__":
     unittest.main()

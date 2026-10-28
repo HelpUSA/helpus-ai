@@ -121,63 +121,104 @@ DEV_ENV_ALIASES = {"development", "dev", "test", "testing", "local"}
 PROTECTED_ENVIRONMENTS = PROD_ENV_ALIASES | STAGING_ENV_ALIASES
 VALID_ENVIRONMENTS = PROTECTED_ENVIRONMENTS | DEV_ENV_ALIASES
 
+DEPLOY_INDICATOR_VARS = (
+    "VERCEL",
+    "VERCEL_ENV",
+    "VERCEL_URL",
+    "RAILWAY_ENVIRONMENT",
+    "RAILWAY_PROJECT_ID",
+    "RENDER",
+    "RENDER_SERVICE_ID",
+    "FLY_ALLOC_ID",
+    "FLY_APP_NAME",
+    "AWS_EXECUTION_ENV",
+    "AWS_LAMBDA_FUNCTION_NAME",
+    "KUBERNETES_SERVICE_HOST",
+    "HEROKU_APP_ID",
+    "DIGITALOCEAN_APP_ID",
+    "NETLIFY",
+    "DENO_DEPLOYMENT_ID",
+    "GOOGLE_CLOUD_PROJECT",
+    "GAE_APPLICATION",
+    "K_SERVICE",
+)
+
 
 def validar_politica_seguranca_ambiente(enforce: bool = False, env_source: Optional[dict] = None) -> dict:
     """Avalia e opcionalmente bloqueia (fail-closed) a inicializacao por ambiente.
 
-    Fonte Unica de Verdade:
-    - O GOOGLE_CLIENT_ID deve provir comprovadamente do ambiente (variavel de ambiente no SO ou env_source).
-    - Alteracoes exclusivas em memoria (sem a variavel de ambiente correspondente) sao rejeitadas em ambientes protegidos.
-    - Aliases de producao ('production', 'prod') e staging ('staging', 'stage') sao estritamente protegidos.
-    - Em contexto de deploy (Vercel, Railway, Render, etc.), ambientes desconhecidos sao rejeitados (fail-closed).
+    Fonte Unica de Verdade e Deploy Environment Gate (Ordem 089):
+    - Em qualquer contexto de deploy cloud (Vercel, Railway, Render, Fly, Lambda, K8s, etc.):
+      * ENVIRONMENT ausente ou vazio e expressamente proibido (sem fallback silencioso para dev).
+      * Ambientes de desenvolvimento ('development', 'dev', 'local', 'test') sao terminantemente proibidos.
+      * Exige declaracao explicita de ambiente protegido homologado (staging, stage, prod, production).
+      * Invariantes de autenticacao sao compulsoriamente impostas (is_protected=True).
+    - O GOOGLE_CLIENT_ID deve provir comprovadamente do ambiente (variavel no SO ou env_source).
+    - Alteracoes exclusivas em memoria (sem variavel de ambiente) sao rejeitadas em ambientes protegidos.
     - Se enforce=True e houver erros, lanca RuntimeError abortando o startup.
-    - Em desenvolvimento local ('development', 'dev', 'local', 'test'): tolera fallback e AUTH_REQUIRED=False.
+    - Em desenvolvimento local offline sem deploy vars: tolera fallback e AUTH_REQUIRED=False.
     """
     lookup = env_source if env_source is not None else os.environ
     prod_default_client_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
+    erros = []
+    avisos = []
 
-    # Contexto de deploy cloud
-    in_deploy = bool(
-        lookup.get("VERCEL")
-        or lookup.get("RAILWAY_ENVIRONMENT")
-        or lookup.get("RAILWAY_PROJECT_ID")
-        or lookup.get("RENDER")
-        or lookup.get("FLY_ALLOC_ID")
-        or lookup.get("AWS_EXECUTION_ENV")
-        or lookup.get("KUBERNETES_SERVICE_HOST")
-    )
+    # Deteccao rigorosa de contexto de deploy cloud (inclusive variavel presente mas vazia)
+    in_deploy = any(var_name in lookup for var_name in DEPLOY_INDICATOR_VARS)
 
-    # Determinacao robusta do ambiente (suporta patch no modulo ou em os.environ)
-    env_from_lookup = lookup.get("ENVIRONMENT")
+    # Resolucao de ENVIRONMENT a partir do lookup ou modulo
+    raw_env_lookup = lookup.get("ENVIRONMENT")
     env_from_module = globals().get("ENVIRONMENT")
     if isinstance(env_from_module, str):
         env_from_module = env_from_module.strip()
     else:
         env_from_module = ""
 
-    if env_source is not None and "ENVIRONMENT" in env_source:
-        raw_env_name = env_source["ENVIRONMENT"]
-    elif env_from_module and env_from_module.lower().strip() in PROTECTED_ENVIRONMENTS:
-        raw_env_name = env_from_module
-    elif env_from_lookup and env_from_lookup.lower().strip() in PROTECTED_ENVIRONMENTS:
-        raw_env_name = env_from_lookup
+    if in_deploy:
+        # Contexto de Deploy: proibido defaulting silencioso para development
+        if raw_env_lookup is None or not str(raw_env_lookup).strip():
+            raw_env_name = env_from_module if env_from_module and env_from_module.lower().strip() in PROTECTED_ENVIRONMENTS else ""
+            if not raw_env_name:
+                erros.append(
+                    "ENVIRONMENT ausente ou vazio em contexto de deploy cloud. "
+                    "Deploy exige declaracao explicita de ambiente protegido homologado (production, prod, staging, stage)."
+                )
+                raw_env_name = "unspecified_deploy"
+        else:
+            raw_env_name = str(raw_env_lookup).strip()
+
+        env = raw_env_name.lower().strip()
+
+        if env in DEV_ENV_ALIASES:
+            erros.append(
+                f"Ambiente de desenvolvimento '{raw_env_name}' e terminantemente proibido em contexto de deploy cloud. "
+                "Deploy requer ambiente protegido homologado (production, prod, staging, stage)."
+            )
+        elif env not in PROTECTED_ENVIRONMENTS and env != "unspecified_deploy":
+            erros.append(
+                f"Ambiente nao homologado '{raw_env_name}' em contexto de deploy cloud. "
+                "Deploy requer ambiente protegido valido (production, prod, staging, stage)."
+            )
+
+        # Em deploy cloud, o modo e forcadamente protegido para avaliar todas as salvaguardas
+        is_protected = True
+        is_prod = env in PROD_ENV_ALIASES
+        is_staging = env in STAGING_ENV_ALIASES
     else:
-        raw_env_name = env_from_lookup or env_from_module or "development"
+        # Modo Local: desenvolvimento desimpedido fora de cloud
+        if env_source is not None and "ENVIRONMENT" in env_source:
+            raw_env_name = env_source["ENVIRONMENT"]
+        elif env_from_module and env_from_module.lower().strip() in PROTECTED_ENVIRONMENTS:
+            raw_env_name = env_from_module
+        elif raw_env_lookup and raw_env_lookup.lower().strip() in PROTECTED_ENVIRONMENTS:
+            raw_env_name = raw_env_lookup
+        else:
+            raw_env_name = raw_env_lookup or env_from_module or "development"
 
-    env = raw_env_name.lower().strip()
-    erros = []
-    avisos = []
-
-    # Rejeita ambiente desconhecido em contexto de deploy
-    if in_deploy and env not in VALID_ENVIRONMENTS:
-        erros.append(
-            f"Ambiente nao homologado '{raw_env_name}' em contexto de deploy. "
-            "Fail-closed ativo: deploy requer ENVIRONMENT valido (production, prod, staging, development)."
-        )
-
-    is_prod = env in PROD_ENV_ALIASES
-    is_staging = env in STAGING_ENV_ALIASES
-    is_protected = is_prod or is_staging
+        env = raw_env_name.lower().strip()
+        is_prod = env in PROD_ENV_ALIASES
+        is_staging = env in STAGING_ENV_ALIASES
+        is_protected = is_prod or is_staging
 
     # Resolucao de AUTH_REQUIRED (suporta lookup ou modulo)
     auth_from_lookup = lookup.get("AUTH_REQUIRED")
