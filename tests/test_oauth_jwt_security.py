@@ -491,11 +491,12 @@ class TestOAuthJwtSecurity(unittest.TestCase):
         # 2. Produção com AUTH_REQUIRED=True e GOOGLE_CLIENT_ID configurado deve estar conforme
         with patch.object(b_cfg, "ENVIRONMENT", "production"):
             with patch.object(b_cfg, "AUTH_REQUIRED", True):
-                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", self.mock_client_id):
-                    with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
-                        diag = b_cfg.validar_politica_seguranca_ambiente(enforce=False)
-                        self.assertTrue(diag["conforme"])
-                        self.assertEqual(len(diag["erros"]), 0)
+                with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": self.mock_client_id}):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                        with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
+                            diag = b_cfg.validar_politica_seguranca_ambiente(enforce=False)
+                            self.assertTrue(diag["conforme"])
+                            self.assertEqual(len(diag["erros"]), 0)
 
         # 3. Desenvolvimento local com AUTH_REQUIRED=False é permitido sem erros
         with patch.object(b_cfg, "ENVIRONMENT", "development"):
@@ -521,18 +522,19 @@ class TestOAuthJwtSecurity(unittest.TestCase):
         prod_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
         with patch.object(b_cfg, "ENVIRONMENT", "staging"):
             with patch.object(b_cfg, "AUTH_REQUIRED", True):
-                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", prod_id):
-                    with self.assertRaises(RuntimeError) as ctx:
-                        b_cfg.validar_politica_seguranca_ambiente(enforce=True)
-                    self.assertIn("reutilizar a credencial padrao de producao", str(ctx.exception))
+                with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": prod_id}):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", prod_id):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                        self.assertIn("reutilizar a credencial padrao de producao", str(ctx.exception))
 
     def test_startup_blocks_staging_when_client_id_missing_with_enforce(self):
         """Ordem 086: Bloqueio efetivo em staging se GOOGLE_CLIENT_ID estiver ausente."""
         import backend.config as b_cfg
         with patch.object(b_cfg, "ENVIRONMENT", "staging"):
             with patch.object(b_cfg, "AUTH_REQUIRED", True):
-                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", ""):
-                    with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", ""):
                         with self.assertRaises(RuntimeError) as ctx:
                             b_cfg.validar_politica_seguranca_ambiente(enforce=True)
                         self.assertIn("GOOGLE_CLIENT_ID ausente", str(ctx.exception))
@@ -602,16 +604,107 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                             self.assertTrue(diag["google_client_id_explicit"])
 
     def test_startup_blocks_staging_when_client_id_not_explicitly_configured(self):
-        """Ordem 087: Staging sem GOOGLE_CLIENT_ID configurado explicitamente deve falhar fail-closed."""
+        """Ordem 087/088: Staging sem GOOGLE_CLIENT_ID configurado explicitamente deve falhar fail-closed."""
         import backend.config as b_cfg
         with patch.object(b_cfg, "ENVIRONMENT", "staging"):
             with patch.object(b_cfg, "AUTH_REQUIRED", True):
                 with patch.object(b_cfg, "GOOGLE_CLIENT_ID", b_cfg.GOOGLE_CLIENT_ID_DEFAULT):
-                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY", False):
-                        with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                    with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                        self.assertTrue(
+                            any(term in str(ctx.exception) for term in ["reutilizar a credencial padrao", "nao foi configurado explicitamente", "ausente"])
+                        )
+
+    # --- Testes de Endurecimento da Origem e Aliases de Deploy (Ordem 088) ---
+
+    def test_in_memory_client_id_alteration_without_env_var_rejected_in_production(self):
+        """Ordem 088: Alteração de GOOGLE_CLIENT_ID exclusivamente em memória sem variável de ambiente
+        DEVE falhar fail-closed em produção, garantindo uma única fonte de verdade."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "production"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "true"}, clear=True):
+                    # Simula adulteração puramente no atributo do módulo em memória
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", "arbitrary-tampered-in-memory-client-id"):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                        self.assertIn("alteracao exclusiva em memoria e terminantemente proibido", str(ctx.exception))
+
+    def test_production_alias_prod_enforces_strict_fail_closed_on_auth_required(self):
+        """Ordem 088: Alias de produção 'prod' é reconhecido como ambiente protegido e exige AUTH_REQUIRED=true."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"ENVIRONMENT": "prod", "AUTH_REQUIRED": "false"}):
+            with patch.object(b_cfg, "ENVIRONMENT", "prod"):
+                with patch.object(b_cfg, "AUTH_REQUIRED", False):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                    self.assertIn("AUTH_REQUIRED deve ser estritamente True em ambiente protegido (prod)", str(ctx.exception))
+
+    def test_production_alias_prod_rejects_missing_or_in_memory_client_id(self):
+        """Ordem 088: Alias 'prod' rejeita GOOGLE_CLIENT_ID não declarado explicitamente no ambiente."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"ENVIRONMENT": "prod", "AUTH_REQUIRED": "true"}, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", "prod"):
+                with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", b_cfg.GOOGLE_CLIENT_ID_DEFAULT):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                        self.assertIn("GOOGLE_CLIENT_ID nao foi configurado explicitamente via variavel de ambiente em prod", str(ctx.exception))
+
+    def test_deploy_context_with_unknown_environment_fails_closed(self):
+        """Ordem 088: Em contexto de deploy cloud (ex: Vercel=1), ambiente desconhecido/não-homologado é rejeitado."""
+        import backend.config as b_cfg
+        deploy_env = {
+            "VERCEL": "1",
+            "ENVIRONMENT": "corporate_intranet_preview",
+            "AUTH_REQUIRED": "true",
+            "GOOGLE_CLIENT_ID": "staging-dedicated-id.apps.googleusercontent.com"
+        }
+        with patch.dict("os.environ", deploy_env):
+            with patch.object(b_cfg, "ENVIRONMENT", "corporate_intranet_preview"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                self.assertIn("Ambiente nao homologado 'corporate_intranet_preview' em contexto de deploy", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_in_memory_alteration_on_testclient(self):
+        """Ordem 088: Ciclo de vida real via TestClient aborta se GOOGLE_CLIENT_ID foi alterado apenas em memória."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "true"}, clear=True):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "production"):
+                with patch.object(b_main.app_config, "AUTH_REQUIRED", True):
+                    with patch.object(b_main.app_config, "GOOGLE_CLIENT_ID", "tampered-client-id-in-memory"):
+                        with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                            with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                                with self.assertRaises(RuntimeError) as ctx:
+                                    with TestClient(b_main.app):
+                                        pass
+                                self.assertIn("alteracao exclusiva em memoria", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_unknown_deploy_env_on_testclient(self):
+        """Ordem 088: Ciclo de vida real via TestClient aborta se contexto de deploy carregar ambiente desconhecido."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"VERCEL": "1", "ENVIRONMENT": "unapproved_custom_env"}):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "unapproved_custom_env"):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(b_main.app):
+                                pass
+                        self.assertIn("Ambiente nao homologado", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_prod_alias_insecure_on_testclient(self):
+        """Ordem 088: Ciclo de vida real via TestClient aborta se alias 'prod' tiver AUTH_REQUIRED=false."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"ENVIRONMENT": "prod", "AUTH_REQUIRED": "false"}):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "prod"):
+                with patch.object(b_main.app_config, "AUTH_REQUIRED", False):
+                    with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                        with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
                             with self.assertRaises(RuntimeError) as ctx:
-                                b_cfg.validar_politica_seguranca_ambiente(enforce=True)
-                            self.assertIn("GOOGLE_CLIENT_ID em staging nao pode reutilizar a credencial padrao de producao", str(ctx.exception))
+                                with TestClient(b_main.app):
+                                    pass
+                            self.assertIn("AUTH_REQUIRED", str(ctx.exception))
 
     def test_fastapi_lifespan_lifecycle_blocks_staging_when_auth_required_false_on_testclient(self):
         """Ordem 087: Execução do ciclo de vida FastAPI real via TestClient aborta startup em staging se AUTH_REQUIRED=false."""

@@ -115,47 +115,103 @@ MAX_OPERATIONAL_WORKERS = int(os.getenv("MAX_OPERATIONAL_WORKERS", "1"))
 OPERATIONAL_CONCURRENCY_MODE = os.getenv("OPERATIONAL_CONCURRENCY_MODE", "single_worker_in_memory")
 
 
-def validar_politica_seguranca_ambiente(enforce: bool = False) -> dict:
+PROD_ENV_ALIASES = {"production", "prod"}
+STAGING_ENV_ALIASES = {"staging", "stage"}
+DEV_ENV_ALIASES = {"development", "dev", "test", "testing", "local"}
+PROTECTED_ENVIRONMENTS = PROD_ENV_ALIASES | STAGING_ENV_ALIASES
+VALID_ENVIRONMENTS = PROTECTED_ENVIRONMENTS | DEV_ENV_ALIASES
+
+
+def validar_politica_seguranca_ambiente(enforce: bool = False, env_source: Optional[dict] = None) -> dict:
     """Avalia e opcionalmente bloqueia (fail-closed) a inicializacao por ambiente.
 
-    Em staging e producao:
-    - AUTH_REQUIRED deve ser estritamente True.
-    - GOOGLE_CLIENT_ID deve ser configurado explicitamente via variavel de ambiente (sem fallback implicito).
-    - Em staging, GOOGLE_CLIENT_ID nao pode reutilizar a credencial padrao de producao.
+    Fonte Unica de Verdade:
+    - O GOOGLE_CLIENT_ID deve provir comprovadamente do ambiente (variavel de ambiente no SO ou env_source).
+    - Alteracoes exclusivas em memoria (sem a variavel de ambiente correspondente) sao rejeitadas em ambientes protegidos.
+    - Aliases de producao ('production', 'prod') e staging ('staging', 'stage') sao estritamente protegidos.
+    - Em contexto de deploy (Vercel, Railway, Render, etc.), ambientes desconhecidos sao rejeitados (fail-closed).
     - Se enforce=True e houver erros, lanca RuntimeError abortando o startup.
-    Em desenvolvimento:
-    - Tolera AUTH_REQUIRED=False e fallback para desenvolvimento local e suites automatizadas.
+    - Em desenvolvimento local ('development', 'dev', 'local', 'test'): tolera fallback e AUTH_REQUIRED=False.
     """
-    env = (ENVIRONMENT or "development").lower().strip()
-    erros = []
-    avisos = []
-    client_id = (GOOGLE_CLIENT_ID or "").strip()
+    lookup = env_source if env_source is not None else os.environ
     prod_default_client_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
 
-    # Determina se GOOGLE_CLIENT_ID foi explicitamente configurado pelo ambiente
-    raw_env_client_id = os.getenv("GOOGLE_CLIENT_ID")
-    env_has_explicit = raw_env_client_id is not None and bool(raw_env_client_id.strip())
-    is_explicit = (
-        env_has_explicit
-        or bool(globals().get("GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY", False))
-        or (bool(client_id) and client_id != prod_default_client_id)
+    # Contexto de deploy cloud
+    in_deploy = bool(
+        lookup.get("VERCEL")
+        or lookup.get("RAILWAY_ENVIRONMENT")
+        or lookup.get("RAILWAY_PROJECT_ID")
+        or lookup.get("RENDER")
+        or lookup.get("FLY_ALLOC_ID")
+        or lookup.get("AWS_EXECUTION_ENV")
+        or lookup.get("KUBERNETES_SERVICE_HOST")
     )
 
-    if env in ("production", "staging"):
-        if not AUTH_REQUIRED:
-            erros.append("AUTH_REQUIRED deve ser estritamente True em ambiente protegido (staging/production).")
+    # Determinacao robusta do ambiente (suporta patch no modulo ou em os.environ)
+    env_from_lookup = lookup.get("ENVIRONMENT")
+    env_from_module = globals().get("ENVIRONMENT")
+    if isinstance(env_from_module, str):
+        env_from_module = env_from_module.strip()
+    else:
+        env_from_module = ""
+
+    if env_source is not None and "ENVIRONMENT" in env_source:
+        raw_env_name = env_source["ENVIRONMENT"]
+    elif env_from_module and env_from_module.lower().strip() in PROTECTED_ENVIRONMENTS:
+        raw_env_name = env_from_module
+    elif env_from_lookup and env_from_lookup.lower().strip() in PROTECTED_ENVIRONMENTS:
+        raw_env_name = env_from_lookup
+    else:
+        raw_env_name = env_from_lookup or env_from_module or "development"
+
+    env = raw_env_name.lower().strip()
+    erros = []
+    avisos = []
+
+    # Rejeita ambiente desconhecido em contexto de deploy
+    if in_deploy and env not in VALID_ENVIRONMENTS:
+        erros.append(
+            f"Ambiente nao homologado '{raw_env_name}' em contexto de deploy. "
+            "Fail-closed ativo: deploy requer ENVIRONMENT valido (production, prod, staging, development)."
+        )
+
+    is_prod = env in PROD_ENV_ALIASES
+    is_staging = env in STAGING_ENV_ALIASES
+    is_protected = is_prod or is_staging
+
+    # Resolucao de AUTH_REQUIRED (suporta lookup ou modulo)
+    auth_from_lookup = lookup.get("AUTH_REQUIRED")
+    if auth_from_lookup is not None:
+        auth_required = str(auth_from_lookup).lower().strip() in ("1", "true", "yes", "on")
+    else:
+        auth_required = bool(globals().get("AUTH_REQUIRED"))
+
+    # Resolucao de ADMIN_EMAILS
+    if "ADMIN_EMAILS" in lookup:
+        admin_emails = [email.strip().lower() for email in lookup.get("ADMIN_EMAILS", "").split(",") if email.strip()]
+    else:
+        admin_emails = list(globals().get("ADMIN_EMAILS") or [])
+
+    # Fonte unica de verdade para GOOGLE_CLIENT_ID: exclusivamente a variavel de ambiente
+    raw_env_client_id = lookup.get("GOOGLE_CLIENT_ID")
+    is_explicit = raw_env_client_id is not None and bool(raw_env_client_id.strip())
+    client_id = (raw_env_client_id if is_explicit else (globals().get("GOOGLE_CLIENT_ID") or "")).strip()
+
+    if is_protected:
+        if not auth_required:
+            erros.append(f"AUTH_REQUIRED deve ser estritamente True em ambiente protegido ({env}).")
 
         if not client_id:
-            erros.append("GOOGLE_CLIENT_ID ausente. O ambiente protegido exige configuracao explicita de Client ID.")
-        elif env == "staging" and client_id == prod_default_client_id:
+            erros.append(f"GOOGLE_CLIENT_ID ausente ou vazio. O ambiente protegido ({env}) exige configuracao explicita de Client ID.")
+        elif is_staging and client_id == prod_default_client_id:
             erros.append("GOOGLE_CLIENT_ID em staging nao pode reutilizar a credencial padrao de producao. Exigir Client ID dedicado.")
         elif not is_explicit:
             erros.append(
                 f"GOOGLE_CLIENT_ID nao foi configurado explicitamente via variavel de ambiente em {env}. "
-                "O uso de fallback implicito/hardcoded e terminantemente proibido em staging e producao."
+                "O uso de fallback de codigo ou alteracao exclusiva em memoria e terminantemente proibido."
             )
 
-        if not ADMIN_EMAILS:
+        if not admin_emails:
             avisos.append("ADMIN_EMAILS vazio. Endpoints /admin/* operarao em fail-closed total (403).")
 
     if enforce and erros:
@@ -163,10 +219,12 @@ def validar_politica_seguranca_ambiente(enforce: bool = False) -> dict:
 
     return {
         "environment": env,
-        "auth_required": bool(AUTH_REQUIRED),
+        "is_protected": is_protected,
+        "is_deploy_context": in_deploy,
+        "auth_required": bool(auth_required),
         "google_client_id_configured": bool(client_id),
         "google_client_id_explicit": bool(is_explicit),
-        "admin_emails_count": len(ADMIN_EMAILS),
+        "admin_emails_count": len(admin_emails),
         "conforme": len(erros) == 0,
         "erros": erros,
         "avisos": avisos,
