@@ -125,6 +125,9 @@ async def lifespan(app: FastAPI):
     print("[INFO] INICIANDO HelpUS")
     print("=" * 60)
 
+    # Bloqueio de Seguranca Fail-Closed por Ambiente (Ordem 086)
+    app_config.validar_politica_seguranca_ambiente(enforce=True)
+
     # 1. Conectar ao banco
     db_url_configured = bool(getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"))
     print("[INFO] Conectando ao PostgreSQL...")

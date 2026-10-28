@@ -112,27 +112,43 @@ MAX_OPERATIONAL_WORKERS = int(os.getenv("MAX_OPERATIONAL_WORKERS", "1"))
 OPERATIONAL_CONCURRENCY_MODE = os.getenv("OPERATIONAL_CONCURRENCY_MODE", "single_worker_in_memory")
 
 
-def validar_politica_seguranca_ambiente() -> dict:
-    """Avalia o status de conformidade de seguranca e fail-closed por ambiente.
+def validar_politica_seguranca_ambiente(enforce: bool = False) -> dict:
+    """Avalia e opcionalmente bloqueia (fail-closed) a inicializacao por ambiente.
 
-    Nao altera automaticamente variaveis de producao. Fornece diagnostico formal.
+    Em staging e producao:
+    - AUTH_REQUIRED deve ser estritamente True.
+    - GOOGLE_CLIENT_ID deve ser configurado explicitamente via variavel de ambiente.
+    - Em staging, GOOGLE_CLIENT_ID nao pode reutilizar a credencial padrao de producao.
+    - Se enforce=True e houver erros, lanca RuntimeError abortando o startup.
+    Em desenvolvimento:
+    - Tolera AUTH_REQUIRED=False para testes locais e suites automatizadas.
     """
     env = (ENVIRONMENT or "development").lower().strip()
     erros = []
     avisos = []
+    client_id = (GOOGLE_CLIENT_ID or "").strip()
+    prod_default_client_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
 
     if env in ("production", "staging"):
         if not AUTH_REQUIRED:
-            erros.append("AUTH_REQUIRED esta desativado (false) em ambiente protegido.")
-        if not GOOGLE_CLIENT_ID:
-            erros.append("GOOGLE_CLIENT_ID ausente ou vazio em ambiente protegido.")
+            erros.append("AUTH_REQUIRED deve ser estritamente True em ambiente protegido (staging/production).")
+
+        if not client_id:
+            erros.append("GOOGLE_CLIENT_ID ausente. O ambiente protegido exige configuracao explicita de Client ID.")
+        elif env == "staging" and client_id == prod_default_client_id:
+            erros.append("GOOGLE_CLIENT_ID em staging nao pode reutilizar a credencial padrao de producao. Exigir Client ID dedicado.")
+
         if not ADMIN_EMAILS:
             avisos.append("ADMIN_EMAILS vazio. Endpoints /admin/* operarao em fail-closed total (403).")
 
+    if enforce and erros:
+        raise RuntimeError(f"Bloqueio de seguranca fail-closed no startup ({env}): {'; '.join(erros)}")
+
     return {
         "environment": env,
-        "auth_required": AUTH_REQUIRED,
-        "google_client_id_configured": bool(GOOGLE_CLIENT_ID),
+        "auth_required": bool(AUTH_REQUIRED),
+        "google_client_id_configured": bool(client_id),
+        "google_client_id_explicit": bool(client_id and client_id != prod_default_client_id),
         "admin_emails_count": len(ADMIN_EMAILS),
         "conforme": len(erros) == 0,
         "erros": erros,

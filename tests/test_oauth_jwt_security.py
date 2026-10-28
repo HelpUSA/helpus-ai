@@ -476,14 +476,14 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                     self.assertEqual(ctx.exception.detail.get("error"), "admin_forbidden")
 
     def test_environment_fail_closed_validation_strategy(self):
-        """Ordem 085: Avalia a política de segurança e fail-closed da configuração por ambiente."""
+        """Ordem 085/086: Avalia a política de segurança e fail-closed da configuração por ambiente."""
         import backend.config as b_cfg
 
         # 1. Produção com AUTH_REQUIRED=False deve acusar não-conformidade (risco alto)
         with patch.object(b_cfg, "ENVIRONMENT", "production"):
             with patch.object(b_cfg, "AUTH_REQUIRED", False):
                 with patch.object(b_cfg, "GOOGLE_CLIENT_ID", self.mock_client_id):
-                    diag = b_cfg.validar_politica_seguranca_ambiente()
+                    diag = b_cfg.validar_politica_seguranca_ambiente(enforce=False)
                     self.assertFalse(diag["conforme"])
                     self.assertTrue(any("AUTH_REQUIRED" in err for err in diag["erros"]))
 
@@ -492,15 +492,86 @@ class TestOAuthJwtSecurity(unittest.TestCase):
             with patch.object(b_cfg, "AUTH_REQUIRED", True):
                 with patch.object(b_cfg, "GOOGLE_CLIENT_ID", self.mock_client_id):
                     with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
-                        diag = b_cfg.validar_politica_seguranca_ambiente()
+                        diag = b_cfg.validar_politica_seguranca_ambiente(enforce=False)
                         self.assertTrue(diag["conforme"])
                         self.assertEqual(len(diag["erros"]), 0)
 
         # 3. Desenvolvimento local com AUTH_REQUIRED=False é permitido sem erros
         with patch.object(b_cfg, "ENVIRONMENT", "development"):
             with patch.object(b_cfg, "AUTH_REQUIRED", False):
-                diag = b_cfg.validar_politica_seguranca_ambiente()
+                diag = b_cfg.validar_politica_seguranca_ambiente(enforce=False)
                 self.assertTrue(diag["conforme"])
+
+    # --- Testes de Bloqueio Fail-Closed no Startup (Ordem 086) ---
+
+    def test_startup_blocks_staging_when_auth_required_false_with_enforce(self):
+        """Ordem 086: Bloqueio efetivo fail-closed no startup de staging se AUTH_REQUIRED for false."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "staging"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", False):
+                with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "false"}):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                    self.assertIn("AUTH_REQUIRED", str(ctx.exception))
+
+    def test_startup_blocks_staging_when_reusing_production_client_id(self):
+        """Ordem 086: Bloqueio efetivo em staging se tentar reutilizar o GOOGLE_CLIENT_ID de produção."""
+        import backend.config as b_cfg
+        prod_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
+        with patch.object(b_cfg, "ENVIRONMENT", "staging"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", prod_id):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                    self.assertIn("reutilizar a credencial padrao de producao", str(ctx.exception))
+
+    def test_startup_blocks_staging_when_client_id_missing_with_enforce(self):
+        """Ordem 086: Bloqueio efetivo em staging se GOOGLE_CLIENT_ID estiver ausente."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "staging"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", ""):
+                    with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                        self.assertIn("GOOGLE_CLIENT_ID ausente", str(ctx.exception))
+
+    def test_startup_blocks_production_when_auth_required_false_with_enforce(self):
+        """Ordem 086: Bloqueio efetivo fail-closed no startup de producao se AUTH_REQUIRED for false."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "production"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", False):
+                with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "false"}):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                    self.assertIn("AUTH_REQUIRED", str(ctx.exception))
+
+    def test_startup_development_mode_runs_cleanly_with_enforce(self):
+        """Ordem 086: Em ambiente de desenvolvimento local, enforce=True não lança erro."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "development"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", False):
+                with patch.dict("os.environ", {"ENVIRONMENT": "development", "AUTH_REQUIRED": "false"}):
+                    diag = b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                    self.assertTrue(diag["conforme"])
+
+    def test_backend_admin_ignores_client_tampering_of_next_public_admin_emails(self):
+        """Ordem 086: O backend valida a autorização exclusivamente a partir de ADMIN_EMAILS do servidor.
+        Qualquer manipulação do frontend (ex: NEXT_PUBLIC_ADMIN_EMAILS) não concede acesso."""
+        import asyncio
+        valid_user_payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_attacker_trying_frontend_bypass",
+            "email": "attacker@helpusbr.com",
+            "email_verified": True,
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=valid_user_payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with patch.object(auth_backend, "ADMIN_EMAILS", ["realadmin@helpusbr.com"]):
+                    with self.assertRaises(HTTPException) as ctx:
+                        asyncio.run(auth_backend.obter_admin_google("Bearer attacker.token.sig"))
+                    self.assertEqual(ctx.exception.status_code, 403)
+                    self.assertEqual(ctx.exception.detail.get("error"), "admin_forbidden")
 
 
 if __name__ == "__main__":
