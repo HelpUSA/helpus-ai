@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-HelpUS AI - Testes Complementares de Carga e Concorrencia (Ordem Executiva 044 / 057)
+HelpUS AI - Testes de Carga, Concorrencia e Isolamento Multi-Usuario (Ordem Executiva 044 / 057)
 Validacao de 50+ Clientes Virtuais Simultaneos em PostgreSQL 18 Efemero Local com Provedor de IA Simulado.
 
-Governanca e Seguranca Fail-Closed:
-1. Ambiente 100% Local: Executa exclusivamente em PostgreSQL efemero local na porta 5433 (127.0.0.1).
-2. Aborto Fail-Closed Imediato: Se qualquer URL de banco apontar para host remoto, staging ou porta diferente de 5433,
-   o harness falha imediatamente antes de qualquer operacao.
-3. Provedor de IA Simulado: MockCerebroLoad simula latencia de inferencia (5ms) sem custos ou chamadas a APIs pagas.
-4. Restauracao Garantida (try/finally): Variaveis globais de ambiente (DATABASE_URL), dependencias do FastAPI
-   e conexoes do pool sao rigorosamente restauradas apos os testes.
-5. Escopo e Limitacoes do ASGITransport:
-   O ASGITransport (httpx) executa in-process sobre o loop assincrono do FastAPI, exercitando roteamento,
-   injecao de dependencias, serializacao JSON, middleware e transacoes ACID no PostgreSQL 18.
-   Ele isola a camada de aplicacao e banco, nao incluindo overhead de rede fisica (TCP/TLS), balanceadores
-   de borda (Cloudflare/Vercel) ou latencia externa de geracao de tokens do Gemini (TTFT 200-1200ms).
+Governanca e Seguranca Fail-Closed (Ordem 057):
+1. Ambiente 100% Local: Executa exclusivamente em PostgreSQL efemero local na porta 5433 (127.0.0.1 / localhost).
+2. Aborto Fail-Closed Imediato: Validacao rigorosa de host, porta, credenciais e nome de banco antes de qualquer
+   tentativa de conexao via socket ou pool. Bloqueio absoluto de palavras-chave de producao (prod, neon, railway, vercel).
+3. Provedor de IA Simulado: MockCerebroLoad simula latencia de inferencia (5ms) sem custos ou chamadas a APIs externas pagas.
+4. Restauracao Garantida (try/finally): Variaveis de ambiente globais (DATABASE_URL), dependencias do FastAPI
+   (b_main.banco, b_main.get_cerebro, app.dependency_overrides) e conexoes do pool sao restauradas incondicionalmente.
+5. Classificacao Arquitetural do ASGITransport:
+   O ASGITransport (httpx) opera como despacho ASGI local in-process / in-memory no loop de eventos do FastAPI.
+   Avalia a vazao em rajada (burst) de corrotinas, serializacao JSON, middleware e transacoes ACID do PostgreSQL 18 local.
+   NAO constitui benchmark de infraestrutura serverless remota, nem inclui latencia WAN, TLS handshake ou TTFT do modelo real Gemini.
+6. Isolamento Multi-Usuario e Cross-Project:
+   - Validacao estrita em todos os 50 clientes do Cenario 1.
+   - Cenario 5 dedicado a validacao funcional independente de isolamento entre identidades autenticadas distintas via API HTTP.
 """
 
 import asyncio
@@ -58,6 +60,16 @@ def validate_ephemeral_pg_url(url: str):
             f"VIOLACAO DE SEGURANCA: Banco de dados '{db_name}' nao permitido. "
             f"Testes de carga exigem banco efemero/teste ('ephemeral' ou 'test')."
         )
+    
+    # Bloqueio fail-closed de credenciais ou termos de producao/staging
+    forbidden_terms = {"prod", "production", "neon", "railway", "vercel", "aws", "supabase", "render"}
+    full_url_lower = url.lower()
+    for term in forbidden_terms:
+        if term in full_url_lower:
+            raise RuntimeError(
+                f"VIOLACAO DE SEGURANCA: Termo proibido '{term}' detectado na URL de conexao. "
+                f"Execucao abortada para proteger ambientes remotos/producao."
+            )
 
 
 # Validacao fail-closed imediata na carga do modulo
@@ -82,11 +94,16 @@ b_config.DATABASE_URL = EPHEMERAL_PG_URL
 
 
 def check_ephemeral_pg_available() -> bool:
-    """Verifica conectividade rapida com socket na porta efemera 5433."""
+    """Verifica conectividade rapida com socket na porta efemera 5433 apos validacao fail-closed."""
+    validate_ephemeral_pg_url(EPHEMERAL_PG_URL)
+    parsed = urlparse(EPHEMERAL_PG_URL)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 5433
+
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.5)
     try:
-        s.connect(("127.0.0.1", 5433))
+        s.connect((host, port))
         s.close()
         return True
     except Exception:
@@ -197,9 +214,10 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
     def test_01_load_50_concurrent_clients_atomic_turn(self):
         """
         Cenario 1: 50 Clientes Virtuais Simultaneos executando turnos atomicos completos no PostgreSQL 18.
-        - Sincronizacao estrita via asyncio.Barrier(50) garantindo disparo simultaneo no mesmo instante.
+        - Disparo em rajada (burst) via asyncio.Barrier(50) para medir capacidade maxima de pico.
         - 50 usuarios distintos distribuidos em 5 projetos independentes (proj_load_0..proj_load_4).
-        - Medicao de Throughput, Latencias (p50, p95, p99), Integridade do Ledger e Isolamento Cross-Project / Cross-User.
+        - Medicao de Throughput de rajada, Latencias (p50, p95, p99) e Integridade do Ledger.
+        - Validacao EXAUSTIVA de Isolamento Cross-Project e Cross-User sobre TODOS os 50 clientes (Ordem 057 item 1).
         - Limpeza garantida de recursos com try/finally.
         """
         NUM_CLIENTS = 50
@@ -306,40 +324,41 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
                         ledger_counts = {r[1]: r[0] for r in rows}
                         self.assertEqual(ledger_counts.get("completed", 0), NUM_CLIENTS)
 
-                # Verificacao Rigorosa de Isolamento Cross-Project e Cross-User
-                for c_idx in range(min(NUM_CLIENTS, 10)):
+                # Verificacao EXAUSTIVA de Isolamento Cross-Project e Cross-User sobre TODOS os 50 clientes
+                for c_idx in range(NUM_CLIENTS):
                     user_email = f"load_client_{run_id}_{c_idx}@helpus.local"
                     target_proj = f"proj_load_{run_id}_{c_idx % NUM_PROJECTS}"
                     other_proj = f"proj_load_{run_id}_{(c_idx + 1) % NUM_PROJECTS}"
 
-                    # 1. Usuario ve sua propria conversa no seu projeto
+                    # 1. Usuario ve estritamente sua propria conversa no seu projeto
                     own_sessions = await b.listar_conversas_usuario(user_email=user_email, limite=10, project_id=target_proj)
-                    self.assertEqual(len(own_sessions), 1)
+                    self.assertEqual(len(own_sessions), 1, f"Cliente {c_idx} deve ver exatamente 1 conversa propria.")
                     self.assertEqual(own_sessions[0].get("project_id"), target_proj)
 
-                    # 2. Usuario nao ve nada no projeto alheio (Isolamento Cross-Project estrito)
+                    # 2. Usuario NAO ve sessoes no projeto alheio (Isolamento Cross-Project estrito)
                     other_proj_sessions = await b.listar_conversas_usuario(user_email=user_email, limite=10, project_id=other_proj)
-                    self.assertEqual(len(other_proj_sessions), 0)
+                    self.assertEqual(len(other_proj_sessions), 0, f"Cliente {c_idx} nao deve ver conversas no projeto {other_proj}.")
 
-                    # 3. Outro usuario nao ve nada nesta sessao ou projeto (Isolamento Cross-User estrito)
+                    # 3. Usuario terceiro NAO ve nada nesta sessao ou projeto (Isolamento Cross-User estrito)
                     other_user = f"intruder_{c_idx}@helpus.local"
                     intruder_sessions = await b.listar_conversas_usuario(user_email=other_user, limite=10, project_id=target_proj)
-                    self.assertEqual(len(intruder_sessions), 0)
+                    self.assertEqual(len(intruder_sessions), 0, f"Intruso nao deve ver conversas de {user_email}.")
 
                 return {
-                    "scenario": "Atomic Turn 50 Clients",
+                    "scenario": "Atomic Turn 50 Clients (Burst Load)",
                     "clients": NUM_CLIENTS,
                     "total_duration_s": round(total_duration_s, 3),
-                    "throughput_req_s": round(throughput, 1),
+                    "burst_throughput_req_s": round(throughput, 1),
                     "percentiles_ms": pct,
                     "success_count": len(successful),
-                    "failure_count": len(failed)
+                    "failure_count": len(failed),
+                    "isolation_verified_clients": NUM_CLIENTS
                 }
             finally:
                 await b.fechar()
 
         report = self.run_async(_test())
-        print(f"\n[LOAD TEST 01 RESULT] {json.dumps(report, indent=2)}")
+        print(f"\n[LOAD TEST 01 RESULT (Burst Local)] {json.dumps(report, indent=2)}")
 
     def test_02_concurrent_race_idempotency_deduplication(self):
         """
@@ -398,18 +417,18 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
         report = self.run_async(_test())
         print(f"\n[LOAD TEST 02 RESULT] {json.dumps(report, indent=2)}")
 
-    def test_03_http_chat_50_concurrent_clients(self):
+    def test_03_http_chat_50_concurrent_clients_asgi_local(self):
         """
-        Cenario 3: 50 Clientes Virtuais Simultaneos chamando o endpoint HTTP FastAPI /chat.
+        Cenario 3: 50 Clientes Virtuais Simultaneos chamando endpoint HTTP FastAPI /chat.
+        - Despacho ASGI Local In-Process / In-Memory (httpx.ASGITransport).
         - Utiliza MockCerebroLoad (IA simulada) com micro-delay controlado de 5ms.
-        - AsyncClient com 50 conexoes assincronas simultaneas sincronizadas por Barrier.
-        - Medicao de Latencias ponta a ponta (HTTP ASGI + Banco PostgreSQL + IA mock + Commit).
+        - AsyncClient com 50 requisicoes disparadas simultaneamente por Barrier.
+        - Medicao de Throughput e Latencias locais (FastAPI ASGI + Banco PostgreSQL 18 + IA mock).
         - Documentacao de Escopo do ASGITransport:
           * O ASGITransport opera inteiramente in-memory/in-process via loop asyncio do FastAPI.
-          * Ele testa a capacidade de processamento concorrente do ASGI router, injecao de dependencias,
-            validacao Pydantic, isolamento de sessao e transacoes no PostgreSQL efemero.
-          * NAO reproduz overheads de rede WAN, TLS handshake, proxies de borda (Vercel) ou latencia
-            de geracao de tokens do modelo real Gemini 2.0 Flash (tipicamente 200ms a 1200ms TTFT).
+          * Ele avalia o router ASGI, injecao de dependencias, validacao Pydantic e transacoes no PostgreSQL efemero.
+          * NAO constitui benchmark serverless nem reproduz overheads de rede WAN, TLS handshake, proxies de borda
+            (Vercel) ou latencia real de geracao de tokens do Gemini 2.0 Flash (tipicamente 200ms a 1200ms TTFT).
         - Restauracao Estrita de Dependencias: old_banco, old_get_cerebro e dependency_overrides
           sao restaurados incondicionalmente em bloco try/finally.
         """
@@ -429,7 +448,7 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
             mock_ai = MockCerebroLoad(delay_ms=5.0)
             b_main.get_cerebro = lambda: mock_ai
 
-            # Override de autenticacao para simular usuario autorizado
+            # Override de autenticacao para teste de carga
             b_main.app.dependency_overrides[obter_usuario_google] = lambda: {
                 "email": "load_user@helpus.local", "name": "Load Test User", "role": "user"
             }
@@ -482,10 +501,10 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
                 self.assertEqual(mock_ai.call_count, NUM_CLIENTS)
 
                 return {
-                    "scenario": "HTTP /chat 50 Concurrent Clients",
+                    "scenario": "HTTP /chat 50 Concurrent Clients (ASGI Local In-Process)",
                     "clients": NUM_CLIENTS,
                     "total_duration_s": round(total_duration_s, 3),
-                    "throughput_req_s": round(throughput, 1),
+                    "burst_throughput_req_s": round(throughput, 1),
                     "percentiles_ms": pct,
                     "error_rate_pct": round(((NUM_CLIENTS - len(successes)) / NUM_CLIENTS) * 100.0, 2),
                     "ai_calls_simulated": mock_ai.call_count
@@ -498,7 +517,7 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
                 await b.fechar()
 
         report = self.run_async(_test())
-        print(f"\n[LOAD TEST 03 RESULT] {json.dumps(report, indent=2)}")
+        print(f"\n[LOAD TEST 03 RESULT (ASGI Local In-Process)] {json.dumps(report, indent=2)}")
 
     def test_04_fault_injection_and_recovery_under_load(self):
         """
@@ -590,6 +609,109 @@ class LoadConcurrency50ClientsTest(unittest.TestCase):
 
         report = self.run_async(_test())
         print(f"\n[LOAD TEST 04 RESULT] {json.dumps(report, indent=2)}")
+
+    def test_05_http_multi_user_authenticated_strict_isolation(self):
+        """
+        Cenario 5 (Ordem 057 item 2): Teste Funcional Independente de Isolamento Entre Usuarios Autenticados Distintos.
+        - Separa rigorosamente os requisitos de carga (Cenarios 1-3) da verificacao de isolamento multi-usuario na API.
+        - Executa requisicoes HTTP via ASGITransport alternando entre identidades autenticadas independentes:
+          * Usuario Alpha: alpha@helpus.local no projeto 'proj_alpha'
+          * Usuario Beta: beta@helpus.local no projeto 'proj_beta'
+        - Comprova:
+          1. Usuario Alpha cria sessao e conversa com sucesso via POST /chat.
+          2. Usuario Alpha acessa seu proprio historico via GET /historico/{session_alpha} -> HTTP 200.
+          3. Usuario Beta tenta acessar o historico de Alpha via GET /historico/{session_alpha} -> HTTP 403 (Acesso Negado).
+          4. Usuario Alpha ve sua conversa em GET /conversas?project_id=proj_alpha -> 1 conversa.
+          5. Usuario Beta em GET /conversas?project_id=proj_alpha -> 0 conversas (Isolamento Cross-User estrito).
+          6. Chamada sem autenticacao em GET /historico/{session_alpha} -> HTTP 401 (Nao Autorizado).
+        - Restauracao de dependencias e conexoes estritamente garantida por try/finally.
+        """
+        import httpx
+
+        async def _test():
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            self.assertIsNotNone(b.pool)
+            await pre_warm_pool_connections(b)
+
+            old_banco = getattr(b_main, "banco", None)
+            old_get_cerebro = getattr(b_main, "get_cerebro", None)
+
+            b_main.banco = b
+            mock_ai = MockCerebroLoad(delay_ms=2.0)
+            b_main.get_cerebro = lambda: mock_ai
+
+            transport = httpx.ASGITransport(app=b_main.app)
+            run_id = uuid.uuid4().hex[:6]
+            sess_alpha = f"sess_alpha_{run_id}"
+
+            try:
+                # 1. Usuario Alpha autenticado cria conversa
+                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {
+                    "email": "alpha@helpus.local", "name": "User Alpha", "role": "user"
+                }
+
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    resp_chat = await client.post("/chat", json={
+                        "mensagem": "Ola sou o Usuario Alpha",
+                        "session_id": sess_alpha,
+                        "client_request_id": f"req_alpha_{run_id}",
+                        "model": "gemini-2.0-flash",
+                        "project_id": "proj_alpha"
+                    })
+                    self.assertEqual(resp_chat.status_code, 200, f"Erro chat Alpha: {resp_chat.text}")
+
+                    # 2. Usuario Alpha le seu proprio historico -> HTTP 200
+                    resp_hist_alpha = await client.get(f"/historico/{sess_alpha}?project_id=proj_alpha")
+                    self.assertEqual(resp_hist_alpha.status_code, 200)
+                    hist_data = resp_hist_alpha.json()
+                    self.assertTrue(len(hist_data.get("mensagens", [])) >= 1)
+
+                    # 3. Usuario Alpha lista conversas no seu projeto
+                    resp_conv_alpha = await client.get("/conversas?project_id=proj_alpha")
+                    self.assertEqual(resp_conv_alpha.status_code, 200)
+                    convs_alpha = resp_conv_alpha.json().get("conversas", [])
+                    self.assertTrue(any(c.get("session_id") == sess_alpha for c in convs_alpha))
+
+                # 4. Alterna identidade para Usuario Beta
+                b_main.app.dependency_overrides[obter_usuario_google] = lambda: {
+                    "email": "beta@helpus.local", "name": "User Beta", "role": "user"
+                }
+
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    # 5. Usuario Beta tenta acessar sessao de Alpha -> DEVE RETORNAR 403 FORBIDDEN
+                    resp_hist_beta = await client.get(f"/historico/{sess_alpha}?project_id=proj_alpha")
+                    self.assertEqual(resp_hist_beta.status_code, 403, "Usuario Beta nao pode acessar sessao de Alpha.")
+
+                    # 6. Usuario Beta lista projeto proj_alpha -> DEVE RETORNAR 0 conversas
+                    resp_conv_beta = await client.get("/conversas?project_id=proj_alpha")
+                    self.assertEqual(resp_conv_beta.status_code, 200)
+                    convs_beta = resp_conv_beta.json().get("conversas", [])
+                    self.assertFalse(any(c.get("session_id") == sess_alpha for c in convs_beta), "Beta nao pode ver conversas de Alpha.")
+
+                # 7. Requisicao anonima / sem autenticacao -> DEVE RETORNAR 401 UNAUTHORIZED
+                b_main.app.dependency_overrides[obter_usuario_google] = lambda: None
+
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    resp_anon = await client.get(f"/historico/{sess_alpha}")
+                    self.assertEqual(resp_anon.status_code, 401, "Requisicao sem auth deve falhar com 401.")
+
+                return {
+                    "scenario": "Multi-User Authenticated Isolation (HTTP API)",
+                    "user_alpha": "alpha@helpus.local",
+                    "user_beta": "beta@helpus.local",
+                    "cross_user_access_code": resp_hist_beta.status_code,
+                    "unauthenticated_code": resp_anon.status_code,
+                    "status": "PASS"
+                }
+            finally:
+                b_main.banco = old_banco
+                b_main.get_cerebro = old_get_cerebro
+                b_main.app.dependency_overrides.pop(obter_usuario_google, None)
+                await b.fechar()
+
+        report = self.run_async(_test())
+        print(f"\n[MULTI-USER ISOLATION RESULT] {json.dumps(report, indent=2)}")
 
 
 if __name__ == "__main__":
