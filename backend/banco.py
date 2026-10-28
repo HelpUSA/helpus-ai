@@ -48,12 +48,13 @@ def sanitizar_detalhes_auditoria(details: Optional[Dict[str, Any]]) -> Dict[str,
     return sanitized
 
 class BancoDados:
-    def __init__(self):
+    def __init__(self, database_url: str = None):
         self.pool = None
-        self.database_url = DATABASE_URL
+        self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
 
     async def _garantir_pool(self) -> bool:
-        if not self.pool and DATABASE_URL and AsyncConnectionPool is not None:
+        db_url = self.database_url if self.database_url is not None else os.getenv("DATABASE_URL")
+        if not self.pool and db_url and AsyncConnectionPool is not None:
             await self.conectar()
         return self.pool is not None
 
@@ -62,16 +63,27 @@ class BancoDados:
             print("[INFO] psycopg_pool nao disponivel. Banco de dados desativado.")
             self.pool = None
             return
-        if not DATABASE_URL or "localhost" in DATABASE_URL or "127.0.0.1" in DATABASE_URL:
+        db_url = self.database_url if self.database_url is not None else os.getenv("DATABASE_URL")
+        if not db_url:
+            print("[INFO] Sem DATABASE_URL. Banco de dados desativado.")
+            self.pool = None
+            return
+        if "localhost" in db_url or "127.0.0.1" in db_url:
             if os.getenv("VERCEL"):
                 print("[INFO] Vercel serverless sem banco remoto.")
                 self.pool = None
                 return
 
+        if sys.platform == "win32":
+            try:
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            except Exception:
+                pass
+
         try:
             print(f"[INFO] Conectando pool de banco de dados PostgreSQL...")
             self.pool = AsyncConnectionPool(
-                DATABASE_URL,
+                db_url,
                 open=False,
                 min_size=1,
                 max_size=10,
@@ -626,8 +638,10 @@ class BancoDados:
             "cached": True
         }
 
-        # 1. Modo em Memoria / Sem Pool (Mocks ou testes unitarios isolados)
+        # 1. Modo em Memoria / Sem Pool (Somente autorizado em ambiente de teste formal HELPUS_TEST_MODE=1)
         if not self.pool:
+            if os.getenv("HELPUS_TEST_MODE") != "1":
+                raise RuntimeError("Persistencia duravel obrigatoria: pool de banco de dados indisponivel (fail-closed).")
             entry = self._ledger_memoria.get(idempotency_key)
             if entry:
                 if entry.get("owner_token") != owner_token:

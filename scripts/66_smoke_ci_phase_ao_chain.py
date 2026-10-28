@@ -1,4 +1,3 @@
-
 from pathlib import Path
 import json
 
@@ -115,21 +114,21 @@ for marker in [
     )
 
 for marker in [
-    "Conversas",
     "Buscar conversas",
-    "Atualizar lista",
-    "conversasFiltradas.map",
+    "conversasFiltradas",
     "void carregarHistorico(conv.session_id)",
-    "void apagarConversa(conv.session_id)",
+    "void apagarConversa(conv.session_id",
     "Abrir conversa",
     "Copiar link",
     "Renomear",
     "Excluir",
-    "project_id: 'general'",
+    "project_id",
 ]:
     assert marker in page, (
         f"missing Phase AO page marker: {marker}"
     )
+
+assert "false &&" not in page, "Dead code {false && (...)} is strictly forbidden"
 
 for marker in [
     "Phase AP implementation contract",

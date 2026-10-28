@@ -89,18 +89,22 @@ async def lifespan(app: FastAPI):
     """Inicializa e finaliza os servicos"""
     global cerebro, buscador
 
-    # P0 MULTIWORKER (Ciclo 023): Rejeita incondicionalmente mais de 1 worker / replica.
+    # P0/P1 MULTIWORKER (Ciclo 026): Inspeciona WORKERS, WEB_CONCURRENCY e SERVER_REPLICAS separadamente.
     # Enquanto claim/heartbeat/complete/release operarem localmente no processo, a execucao
     # permanece estritamente restrita a 1 worker (MAX_OPERATIONAL_WORKERS = 1).
-    # O bypass anterior DISTRIBUTED_FENCING_ENABLED foi removido conforme auditoria do Ciclo 022.
-    workers_env = int(os.getenv("WEB_CONCURRENCY", os.getenv("WORKERS", os.getenv("SERVER_REPLICAS", "1"))))
-    if workers_env > 1:
-        raise RuntimeError(
-            f"Incompatibilidade operacional critica: foram solicitados {workers_env} workers/replicas, "
-            "mas a arquitetura operacional atual esta estritamente restrita a 1 worker local (MAX_OPERATIONAL_WORKERS = 1). "
-            "A presenca de DATABASE_URL ou flags de ambiente nao autoriza execucao multi-worker sem homologacao transacional distribuida. "
-            "Ajuste WORKERS=1, WEB_CONCURRENCY=1 e SERVER_REPLICAS=1."
-        )
+    for var_name in ("WORKERS", "WEB_CONCURRENCY", "SERVER_REPLICAS"):
+        raw_val = os.getenv(var_name)
+        if raw_val is not None and str(raw_val).strip() != "":
+            try:
+                val = int(str(raw_val).strip())
+                if val > 1:
+                    raise RuntimeError(
+                        f"Incompatibilidade operacional critica: {var_name}={val} foi solicitado, "
+                        "mas a arquitetura operacional atual esta estritamente restrita a 1 worker local (MAX_OPERATIONAL_WORKERS = 1). "
+                        "Ajuste WORKERS=1, WEB_CONCURRENCY=1 e SERVER_REPLICAS=1."
+                    )
+            except ValueError:
+                raise RuntimeError(f"Configuracao invalida para {var_name}: '{raw_val}'. Deve ser um numero inteiro.")
 
     print("=" * 60)
     print("[INFO] INICIANDO HelpUS")

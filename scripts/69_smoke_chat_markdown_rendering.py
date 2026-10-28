@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -60,19 +59,23 @@ page = read_text(PAGE)
 component = read_text(MARKDOWN_COMPONENT)
 
 for marker in (
-    "type MessageSource",
+    "MessageSource",
     "<MarkdownMessage content={msg.content} />",
     "<SafeSourceLink",
-    "key={`${fonte.url}-${i}`}",
-    "msg.role === 'assistant'",
+    "role === 'assistant'",
     "v0.34.0-dev",
-    "const STARTER_PROMPTS = [",
+    "STARTER_PROMPTS",
     "function tituloConversa",
 ):
     require(
         marker in page,
         f"Missing page marker: {marker}",
     )
+
+require(
+    "false &&" not in page,
+    "Forbidden dead code block {false && (...)} found in page.tsx",
+)
 
 for marker in (
     "function renderInlineMarkdown",

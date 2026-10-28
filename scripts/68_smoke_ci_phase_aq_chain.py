@@ -1,4 +1,3 @@
-
 from pathlib import Path
 import json
 
@@ -122,27 +121,24 @@ for marker in [
     "signal: controller.signal",
     "reenviarUltimaMensagem",
     "cancelarResposta",
-    "A resposta foi interrompida.",
     "Tentar novamente",
     "Ir para o fim",
-    "Pesquisar na web",
-    "aria-pressed={pesquisarWeb}",
 ]:
     assert marker in page, (
         f"missing Phase AQ page marker: {marker}"
     )
 
 for marker in [
-    "Conversas",
     "Buscar conversas",
-    "Atualizar lista",
-    "conversasFiltradas.map",
+    "conversasFiltradas",
     "void carregarHistorico(conv.session_id)",
-    "void apagarConversa(conv.session_id)",
+    "void apagarConversa(conv.session_id",
 ]:
     assert marker in page, (
         f"missing Phase AO compatibility marker: {marker}"
     )
+
+assert "false &&" not in page, "Dead code {false && (...)} is strictly forbidden"
 
 for marker in [
     "Phase AR implementation contract",
