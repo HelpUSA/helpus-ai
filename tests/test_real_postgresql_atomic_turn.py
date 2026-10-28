@@ -1571,7 +1571,98 @@ asyncio.run(main())
                     )
                 self.assertIn("Crie uma nova client_request_id", str(ctx_proj.exception))
 
-                # 3g. Comprova que a resposta historica permanece intacta no banco em todos os casos de conflito
+                # 3g. Testes de Metadados Legados Malformados, Strings Booleanas e Identificadores de Anexo (P1 - Ciclo 034):
+                # (i) Payload historico com string booleana "false" em pesquisar_web (DEVE ser False estrito, NAO coagido cegamente a True)
+                from backend.banco import is_nominal_legacy_request
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False,
+                    project_id="general",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": "false",
+                        "has_image": False,
+                        "has_file": False,
+                        "project_id": "general"
+                    }
+                ))
+
+                # (ii) Payload historico com identificador de anexo de arquivo no lugar de booleano
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False,
+                    project_id="general",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_file": "relatorio_anexo.pdf",
+                        "project_id": "general"
+                    }
+                ))
+
+                # (iii) Payload historico com hash sha256 no lugar de booleano de imagem
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False,
+                    project_id="general",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                        "has_file": False,
+                        "project_id": "general"
+                    }
+                ))
+
+                # (iv) Payload historico malformado nao-dict (string invalida)
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False,
+                    project_id="general",
+                    historical_response_payload="string invalida de resposta"
+                ))
+
+                # (v) Payload historico com strings booleanas canonicas "1" e "0" compativeis
+                self.assertTrue(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False,
+                    project_id="general",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": "1",
+                        "has_image": "0",
+                        "has_file": "0",
+                        "project_id": "general"
+                    }
+                ))
+
+                # (vi) Payload historico com projeto ausente
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False,
+                    project_id="general",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_file": False
+                    }
+                ))
+
+                # 3h. Comprova que a resposta historica permanece intacta no banco em todos os casos de conflito
                 async with b.pool.connection() as conn:
                     async with conn.cursor() as cur:
                         await cur.execute("SELECT status, response_payload->>'resposta' FROM turn_idempotency_ledger WHERE idempotency_key = %s;", (legacy_key,))
@@ -1881,16 +1972,20 @@ asyncio.run(main())
 
                 b1 = BancoDados()
                 b2 = BancoDados()
+                b3 = BancoDados()
                 b1.database_url = ""
                 b2.database_url = ""
+                b3.database_url = ""
                 b1.pool = None
                 b2.pool = None
+                b3.pool = None
 
-                # Comprova isolamento de instancia: escrita em b1 nao afeta b2
+                # Comprova isolamento de instancia: escrita em b1 nao afeta b2 ou b3
                 ok_b1 = await b1.salvar_mensagem("sess_inst_1", "user", "Ola b1", user_email="alpha@helpus.com", project_id="proj_a")
                 self.assertTrue(ok_b1)
                 self.assertEqual(len(b1._conversas_memoria), 1)
                 self.assertEqual(len(b2._conversas_memoria), 0, "Isolamento de instancia violado: b2 vazou memoria de b1")
+                self.assertEqual(len(b3._conversas_memoria), 0, "Isolamento de instancia violado: b3 vazou memoria de b1")
 
                 # Adiciona mensagens em b1 para diferentes sessoes, usuarios e projetos
                 await b1.salvar_mensagem("sess_inst_1", "assistant", "Resp b1 alpha", user_email="alpha@helpus.com", project_id="proj_a")
@@ -1919,6 +2014,77 @@ asyncio.run(main())
                 convs_beta = await b1.listar_conversas_usuario("beta@helpus.com", project_id="proj_b")
                 self.assertEqual(len(convs_beta), 1)
                 self.assertEqual(convs_beta[0]["session_id"], "sess_inst_2")
+
+                # P0 Testes Adversariais de Isolamento e Fail-Closed em Memoria (Ciclo 034):
+                # (i) Injeta registros adversariais com usuario ausente (None ou "")
+                b1._conversas_memoria.append({
+                    "session_id": "sess_no_user",
+                    "role": "assistant",
+                    "content": "conteudo sem usuario",
+                    "user_email": None,
+                    "project_id": "proj_a"
+                })
+                b1._conversas_memoria.append({
+                    "session_id": "sess_empty_user",
+                    "role": "assistant",
+                    "content": "conteudo com usuario vazio",
+                    "user_email": "",
+                    "project_id": "proj_a"
+                })
+
+                # (ii) Injeta registros adversariais com projeto ausente (None ou "")
+                b1._conversas_memoria.append({
+                    "session_id": "sess_no_proj",
+                    "role": "assistant",
+                    "content": "conteudo sem projeto",
+                    "user_email": "alpha@helpus.com",
+                    "project_id": None
+                })
+                b1._conversas_memoria.append({
+                    "session_id": "sess_empty_proj",
+                    "role": "assistant",
+                    "content": "conteudo com projeto vazio",
+                    "user_email": "alpha@helpus.com",
+                    "project_id": ""
+                })
+
+                # Validacao 1: Usuario autenticado JAMAIS recebe registros com usuario ausente
+                leak_user = await b1.carregar_mensagens("sess_no_user", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(leak_user), 0, "Falha P0: registro com usuario ausente vazou para usuario autenticado")
+                leak_empty_user = await b1.carregar_mensagens("sess_empty_user", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(leak_empty_user), 0, "Falha P0: registro com usuario vazio vazou para usuario autenticado")
+
+                # Validacao 2: Usuario autenticado JAMAIS recebe registros com projeto ausente
+                leak_proj = await b1.carregar_mensagens("sess_no_proj", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(leak_proj), 0, "Falha P0: registro com projeto ausente vazou para usuario autenticado")
+                leak_empty_proj = await b1.carregar_mensagens("sess_empty_proj", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(leak_empty_proj), 0, "Falha P0: registro com projeto vazio vazou para usuario autenticado")
+
+                # Validacao 3: Solicitante sem identidade (user_email=None ou "") nao recebe mensagens de usuario autenticado
+                anon_msgs_none = await b1.carregar_mensagens("sess_inst_1", user_email=None, project_id="proj_a")
+                self.assertEqual(len(anon_msgs_none), 0, "Falha P0 Fail-Closed: solicitante sem identidade recebeu mensagens de usuario autenticado")
+                anon_msgs_empty = await b1.carregar_mensagens("sess_inst_1", user_email="", project_id="proj_a")
+                self.assertEqual(len(anon_msgs_empty), 0, "Falha P0 Fail-Closed: solicitante com email vazio recebeu mensagens de usuario autenticado")
+
+                # Mensagens de sessao anonima podem ser lidas por anonimo, mas NUNCA por usuario autenticado
+                await b1.salvar_mensagem("sess_anon", "user", "Ola anonimo", user_email=None, project_id="proj_a")
+                anon_msgs = await b1.carregar_mensagens("sess_anon", user_email=None, project_id="proj_a")
+                self.assertEqual(len(anon_msgs), 1)
+                self.assertEqual(anon_msgs[0]["content"], "Ola anonimo")
+                leak_to_auth = await b1.carregar_mensagens("sess_anon", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(leak_to_auth), 0, "Sessao anonima vazou para usuario autenticado")
+
+                # Validacao 4: Listagem de conversas nunca inclui sessoes com usuario ou projeto ausentes
+                list_alpha = await b1.listar_conversas_usuario("alpha@helpus.com", project_id="proj_a")
+                list_alpha_sids = [c["session_id"] for c in list_alpha]
+                self.assertNotIn("sess_no_user", list_alpha_sids)
+                self.assertNotIn("sess_empty_user", list_alpha_sids)
+                self.assertNotIn("sess_no_proj", list_alpha_sids)
+                self.assertNotIn("sess_empty_proj", list_alpha_sids)
+
+                # Validacao 5: Solicitante anonimo para listar conversas retorna lista vazia
+                self.assertEqual(await b1.listar_conversas_usuario("", project_id="proj_a"), [])
+                self.assertEqual(await b1.listar_conversas_usuario(None, project_id="proj_a"), [])
 
                 # 2. Enforcamento Fail-Closed sem HELPUS_TEST_MODE
                 os.environ.pop("HELPUS_TEST_MODE", None)

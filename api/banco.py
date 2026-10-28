@@ -29,6 +29,35 @@ class LegacyReplayConflictError(Exception):
     """Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro."""
     pass
 
+def parse_strict_boolean(value: Any) -> Optional[bool]:
+    """Valida e converte estritamente valores booleanos de metadados historicos (P1 - Ciclo 034).
+    
+    Regras Estritas de Tipo e Formato:
+    - bool nativo: True -> True, False -> False
+    - int nativo (excluindo bool): 1 -> True, 0 -> False (qualquer outro int -> None / invalido)
+    - str canonica: 'true', '1', 'yes', 'sim' -> True
+                    'false', '0', 'no', 'nao' -> False
+    - Nomes de arquivo, identificadores de anexo, hashes sha256/md5 ou texto arbitrario
+      (ex.: 'relatorio.pdf', 'hash123', 'img.png') retornam None (ambiguo / indicador invalido).
+    - Qualquer outro tipo (dict, list, None) retorna None (invalido / ambiguo).
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+    if isinstance(value, str):
+        v_clean = value.strip().lower()
+        if v_clean in ("true", "1", "yes", "sim"):
+            return True
+        if v_clean in ("false", "0", "no", "nao"):
+            return False
+        return None
+    return None
+
 def is_nominal_legacy_request(
     model: Optional[str] = None,
     pesquisar_web: bool = True,
@@ -38,14 +67,15 @@ def is_nominal_legacy_request(
     historical_response_payload: Optional[Dict[str, Any]] = None
 ) -> bool:
     """Verifica se os parametros da requisicao correspondem estritamente ao baseline nominal legado
-    E se ha proveniencia historica suficiente para comprovar TODOS os parametros semanticamente relevantes (P0 - Ciclos 031/032/033).
+    E se ha proveniencia historica suficiente para comprovar TODOS os parametros semanticamente relevantes (P0 - Ciclos 031/032/033/034).
     
     Regras Estritas de Proveniencia e Tolerancia Zero a Pressupostos:
     1. Zero Pressuposto de Equivalencia de Modelo: gemini-2.0-flash != gemini-2.5-flash != gemini-1.5-flash.
     2. Prova de Pesquisa Web: O payload historico DEVE conter metadados comprovando o estado de web search
-       (chave 'pesquisar_web' ou 'web') e seu valor DEVE ser identico ao da requisicao.
+       (chave 'pesquisar_web' ou 'web') e seu valor DEVE ser um booleano estrito identico ao da requisicao.
     3. Prova de Anexos: O payload historico DEVE conter comprovacao de ausencia/presenca de anexos
-       (chaves 'has_image'/'img' e 'has_file'/'file') e seus valores DEVEM ser identicos aos da requisicao.
+       (chaves 'has_image'/'img' e 'has_file'/'file') com indicadores booleanos estritos.
+       Identificadores de anexo, nomes de arquivos e hashes DEVEM ser rejeitados como indicadores booleanos invalidos.
     4. Prova de Projeto: O payload historico DEVE conter o escopo de projeto (chave 'project_id' ou 'proj')
        e coincidir estritamente com o projeto solicitado.
     5. Se qualquer metadado de proveniencia estiver ausente, incompleto ou divergente, a funcao retorna False,
@@ -76,47 +106,55 @@ def is_nominal_legacy_request(
         if not hist_model or eff_model != hist_model:
             return False
 
-        # 2. Prova de Pesquisa Web (P0 - Ciclo 033: Exigir proveniencia expressa no registro historico)
+        # 2. Prova de Pesquisa Web (P0/P1 - Ciclos 033/034: validacao estrita de booleanos sem coercoes cegas)
+        hist_web = None
         if "pesquisar_web" in historical_response_payload:
-            hist_web = bool(historical_response_payload.get("pesquisar_web"))
+            hist_web = parse_strict_boolean(historical_response_payload.get("pesquisar_web"))
         elif "web" in historical_response_payload:
-            hist_web = bool(historical_response_payload.get("web"))
-        else:
-            # Sem proveniencia documental de web search: rejeita reaproveitamento
+            hist_web = parse_strict_boolean(historical_response_payload.get("web"))
+        if hist_web is None:
+            # Sem proveniencia documental de web search ou valor ambiguo/malformado: rejeita reaproveitamento
             return False
         if bool(pesquisar_web) != hist_web:
             return False
 
-        # 3. Prova de Anexos de Imagem (P0 - Ciclo 033)
+        # 3. Prova de Anexos de Imagem (P0/P1 - Ciclos 033/034)
+        hist_img = None
         if "has_image" in historical_response_payload:
-            hist_img = bool(historical_response_payload.get("has_image"))
+            hist_img = parse_strict_boolean(historical_response_payload.get("has_image"))
         elif "has_img" in historical_response_payload:
-            hist_img = bool(historical_response_payload.get("has_img"))
+            hist_img = parse_strict_boolean(historical_response_payload.get("has_img"))
         elif "img" in historical_response_payload:
-            hist_img = bool(historical_response_payload.get("img"))
-        else:
-            # Sem proveniencia documental de imagem: rejeita reaproveitamento
+            hist_img = parse_strict_boolean(historical_response_payload.get("img"))
+        if hist_img is None:
+            # Sem proveniencia documental de imagem ou indicador ambiguo (ex.: hash ou nome de arquivo no lugar de booleano): rejeita
             return False
         if bool(has_image) != hist_img:
             return False
 
-        # 4. Prova de Anexos de Arquivo (P0 - Ciclo 033)
+        # 4. Prova de Anexos de Arquivo (P0/P1 - Ciclos 033/034)
+        hist_file = None
         if "has_file" in historical_response_payload:
-            hist_file = bool(historical_response_payload.get("has_file"))
+            hist_file = parse_strict_boolean(historical_response_payload.get("has_file"))
         elif "file" in historical_response_payload:
-            hist_file = bool(historical_response_payload.get("file"))
-        else:
-            # Sem proveniencia documental de arquivo: rejeita reaproveitamento
+            hist_file = parse_strict_boolean(historical_response_payload.get("file"))
+        if hist_file is None:
+            # Sem proveniencia documental de arquivo ou indicador ambiguo (ex.: nome de arquivo no lugar de booleano): rejeita
             return False
         if bool(has_file) != hist_file:
             return False
 
-        # 5. Prova de Projeto (P0 - Ciclo 033)
+        # 5. Prova de Projeto (P0/P1 - Ciclos 033/034)
         if "project_id" in historical_response_payload:
-            hist_proj = str(historical_response_payload.get("project_id") or "general").strip()
+            hist_proj_raw = historical_response_payload.get("project_id")
         elif "proj" in historical_response_payload:
-            hist_proj = str(historical_response_payload.get("proj") or "general").strip()
+            hist_proj_raw = historical_response_payload.get("proj")
         else:
+            return False
+        if not isinstance(hist_proj_raw, str):
+            return False
+        hist_proj = hist_proj_raw.strip()
+        if not hist_proj:
             return False
         req_proj = (project_id or "general").strip()
         if (hist_proj or "general") != (req_proj or "general"):
@@ -1515,18 +1553,37 @@ class BancoDados:
                 or os.getenv("RENDER")
                 or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
             )
-            # P0 Memoria de Testes (Ciclo 033): Exige HELPUS_TEST_MODE=1 e ausencia de deploy; filtra por sessao, usuario e projeto
+            # P0 Memoria de Testes (Ciclos 033/034): Exige HELPUS_TEST_MODE=1 e ausencia de deploy
             if os.getenv("HELPUS_TEST_MODE") == "1" and not is_deploy and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
-                email_norm = (user_email or "").strip().lower() if user_email else None
-                proj_norm = (project_id or "general").strip() if project_id else None
+                email_norm = (user_email or "").strip().lower() if user_email and user_email.strip() else None
+                proj_norm = (project_id or "general").strip() if project_id and project_id.strip() else "general"
+
                 msgs = []
                 for m in self._conversas_memoria:
                     if m.get("session_id") != session_id:
                         continue
-                    if email_norm and m.get("user_email") and m.get("user_email") != email_norm:
-                        continue
-                    if proj_norm and m.get("project_id") and m.get("project_id") != proj_norm:
-                        continue
+                    m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
+                    m_proj = (m.get("project_id") or "").strip() if m.get("project_id") else None
+
+                    # P0 Ciclos 033/034:
+                    # 1. Se o solicitante for autenticado (email_norm fornecido):
+                    #    Registros com usuario ausente (m_email is None) ou projeto ausente (m_proj is None)
+                    #    JAMAIS podem ser retornados ao solicitante autenticado.
+                    if email_norm is not None:
+                        if m_email is None or m_proj is None:
+                            continue
+                        if m_email != email_norm:
+                            continue
+                        if m_proj != proj_norm:
+                            continue
+                    else:
+                        # 2. Se o solicitante for anonimo (email_norm is None):
+                        #    JAMAIS expor registros de usuarios autenticados (m_email is not None).
+                        if m_email is not None:
+                            continue
+                        if m_proj != proj_norm:
+                            continue
+
                     msgs.append({"role": m.get("role"), "content": m.get("content")})
                 return msgs[-limite:]
             return []
@@ -1536,19 +1593,42 @@ class BancoDados:
                 async with conn.cursor() as cur:
                     if user_email and user_email.strip():
                         email_norm = user_email.strip().lower()
-                        await cur.execute(
-                            """
-                            SELECT role, content FROM (
-                                SELECT role, content, created_at
-                                FROM conversas
-                                WHERE session_id = %s AND LOWER(user_email) = %s
-                                ORDER BY created_at DESC
-                                LIMIT %s
-                            ) sub
-                            ORDER BY created_at ASC
-                            """,
-                            (session_id, email_norm, limite)
-                        )
+                        proj_norm = (project_id or "general").strip() if project_id and project_id not in ("all", "*") else None
+                        if proj_norm:
+                            await cur.execute(
+                                """
+                                SELECT role, content FROM (
+                                    SELECT role, content, created_at
+                                    FROM conversas
+                                    WHERE session_id = %s 
+                                      AND LOWER(user_email) = %s
+                                      AND user_email IS NOT NULL
+                                      AND project_id IS NOT NULL
+                                      AND project_id = %s
+                                    ORDER BY created_at DESC
+                                    LIMIT %s
+                                ) sub
+                                ORDER BY created_at ASC
+                                """,
+                                (session_id, email_norm, proj_norm, limite)
+                            )
+                        else:
+                            await cur.execute(
+                                """
+                                SELECT role, content FROM (
+                                    SELECT role, content, created_at
+                                    FROM conversas
+                                    WHERE session_id = %s 
+                                      AND LOWER(user_email) = %s
+                                      AND user_email IS NOT NULL
+                                      AND project_id IS NOT NULL
+                                    ORDER BY created_at DESC
+                                    LIMIT %s
+                                ) sub
+                                ORDER BY created_at ASC
+                                """,
+                                (session_id, email_norm, limite)
+                            )
                     else:
                         await cur.execute(
                             """
@@ -1579,7 +1659,7 @@ class BancoDados:
                 or os.getenv("RENDER")
                 or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
             )
-            # P0 Memoria de Testes (Ciclo 033): Exige HELPUS_TEST_MODE=1 e isolamento estrito de usuario e projeto
+            # P0 Memoria de Testes (Ciclos 033/034): Exige HELPUS_TEST_MODE=1 e isolamento estrito de usuario e projeto
             if os.getenv("HELPUS_TEST_MODE") == "1" and not is_deploy and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
                 if not user_email or not user_email.strip():
                     return []
@@ -1587,9 +1667,14 @@ class BancoDados:
                 proj_norm = (project_id or "general").strip() if project_id and project_id not in ("all", "*") else None
                 sessoes_vistas = {}
                 for m in self._conversas_memoria:
-                    if (m.get("user_email") or "").strip().lower() != email_norm:
+                    m_email = (m.get("user_email") or "").strip().lower()
+                    m_proj = (m.get("project_id") or "").strip()
+                    # P0 Ciclo 034: Registros com usuario ou projeto ausentes NAO podem ser retornados a solicitantes autenticados
+                    if not m_email or not m_proj:
                         continue
-                    if proj_norm and (m.get("project_id") or "general").strip() != proj_norm:
+                    if m_email != email_norm:
+                        continue
+                    if proj_norm and m_proj != proj_norm:
                         continue
                     sid = m.get("session_id")
                     if sid and sid not in sessoes_vistas:
@@ -1597,7 +1682,7 @@ class BancoDados:
                             "session_id": sid,
                             "title": m.get("title") or m.get("content")[:80],
                             "created_at": None,
-                            "project_id": m.get("project_id") or "general",
+                            "project_id": m_proj,
                         }
                 return list(sessoes_vistas.values())[:limite]
             return []
