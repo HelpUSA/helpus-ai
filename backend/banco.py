@@ -9,7 +9,7 @@ import sys
 import json
 import asyncio
 import time
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
 try:
     from psycopg_pool import AsyncConnectionPool
 except ImportError:
@@ -275,11 +275,270 @@ class BancoDados:
                     ON admin_audit_events (created_at DESC)
                 """)
 
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS turn_idempotency_ledger (
+                        idempotency_key VARCHAR(160) PRIMARY KEY,
+                        owner_token VARCHAR(80) NOT NULL,
+                        status VARCHAR(30) NOT NULL DEFAULT 'in_progress',
+                        session_id VARCHAR(120) NOT NULL,
+                        user_email VARCHAR(255),
+                        project_id VARCHAR(100) DEFAULT 'general',
+                        request_payload_hash VARCHAR(64) NOT NULL,
+                        response_payload JSONB,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        last_heartbeat TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        completed_at TIMESTAMPTZ,
+                        expires_at TIMESTAMPTZ DEFAULT (CURRENT_TIMESTAMP + INTERVAL '24 hours'),
+                        CONSTRAINT chk_turn_ledger_status CHECK (status IN ('in_progress', 'completed', 'released', 'failed'))
+                    )
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_turn_ledger_session
+                    ON turn_idempotency_ledger (session_id, created_at DESC)
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_turn_ledger_status_heartbeat
+                    ON turn_idempotency_ledger (status, last_heartbeat)
+                """)
+
+                await cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_turn_ledger_expires
+                    ON turn_idempotency_ledger (expires_at)
+                """)
+
                 await conn.commit()
 
     _sessoes_memoria: Dict[str, Optional[str]] = {}
     _projetos_memoria: Dict[str, Optional[str]] = {}
     _audit_log_memoria: List[Dict] = []
+    _ledger_memoria: Dict[str, Dict[str, Any]] = {}
+
+    async def claim_turn_ledger(
+        self,
+        idempotency_key: str,
+        owner_token: str,
+        session_id: str,
+        user_email: Optional[str],
+        project_id: Optional[str],
+        request_payload_hash: str,
+        is_retry: bool = False,
+        lease_seconds: float = 15.0
+    ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+        """Reivindica a execucao atomica do turno no ledger persistente ou memoria.
+        
+        Garantias:
+        - Retorna (should_run, cached_payload, owner_token).
+        - Se completed: retorna (False, cached_payload, None) para replay seguro (crash-recovery).
+        - Se in_progress e ativo (< lease_seconds): retorna (False, None, None) para HTTP 409 Conflict.
+        - Se in_progress expirado e is_retry: assume posse via CAS com novo owner_token.
+        """
+        if not idempotency_key or not owner_token:
+            return True, None, owner_token
+
+        if not self.pool:
+            now = time.time()
+            entry = self._ledger_memoria.get(idempotency_key)
+            if entry:
+                status = entry.get("status")
+                if status == "completed":
+                    return False, entry.get("response_payload"), None
+                if status == "in_progress":
+                    last_hb = entry.get("last_heartbeat", 0.0)
+                    if now - last_hb < lease_seconds:
+                        return False, None, None
+                    if is_retry:
+                        entry["owner_token"] = owner_token
+                        entry["last_heartbeat"] = now
+                        entry["status"] = "in_progress"
+                        return True, None, owner_token
+                    return False, None, None
+                # released ou failed: permite novo claim
+                entry["owner_token"] = owner_token
+                entry["last_heartbeat"] = now
+                entry["status"] = "in_progress"
+                return True, None, owner_token
+
+            self._ledger_memoria[idempotency_key] = {
+                "owner_token": owner_token,
+                "status": "in_progress",
+                "session_id": session_id,
+                "user_email": user_email,
+                "project_id": project_id or "general",
+                "request_payload_hash": request_payload_hash,
+                "response_payload": None,
+                "created_at": now,
+                "last_heartbeat": now,
+            }
+            return True, None, owner_token
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT owner_token, status, response_payload,
+                               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_heartbeat)) as heartbeat_age
+                        FROM turn_idempotency_ledger
+                        WHERE idempotency_key = %s
+                        FOR UPDATE;
+                        """,
+                        (idempotency_key,)
+                    )
+                    row = await cur.fetchone()
+                    if row:
+                        db_owner, status, resp_payload, heartbeat_age = row
+                        if status == "completed":
+                            payload = resp_payload if isinstance(resp_payload, dict) else json.loads(resp_payload or "{}")
+                            return False, payload, None
+                        if status == "in_progress":
+                            if heartbeat_age is not None and heartbeat_age < lease_seconds:
+                                return False, None, None
+                            if is_retry:
+                                await cur.execute(
+                                    """
+                                    UPDATE turn_idempotency_ledger
+                                    SET owner_token = %s, last_heartbeat = CURRENT_TIMESTAMP, status = 'in_progress'
+                                    WHERE idempotency_key = %s;
+                                    """,
+                                    (owner_token, idempotency_key)
+                                )
+                                await conn.commit()
+                                return True, None, owner_token
+                            return False, None, None
+
+                        await cur.execute(
+                            """
+                            UPDATE turn_idempotency_ledger
+                            SET owner_token = %s, status = 'in_progress', last_heartbeat = CURRENT_TIMESTAMP
+                            WHERE idempotency_key = %s;
+                            """,
+                            (owner_token, idempotency_key)
+                        )
+                        await conn.commit()
+                        return True, None, owner_token
+                    else:
+                        await cur.execute(
+                            """
+                            INSERT INTO turn_idempotency_ledger
+                            (idempotency_key, owner_token, status, session_id, user_email, project_id, request_payload_hash)
+                            VALUES (%s, %s, 'in_progress', %s, %s, %s, %s);
+                            """,
+                            (idempotency_key, owner_token, session_id, user_email, project_id or "general", request_payload_hash)
+                        )
+                        await conn.commit()
+                        return True, None, owner_token
+        except Exception as e:
+            _log_db_error("claim_turn_ledger", e)
+            if getattr(self, "database_url", None) or os.getenv("DATABASE_URL"):
+                raise
+            return True, None, owner_token
+
+    async def heartbeat_turn_ledger(self, idempotency_key: str, owner_token: str) -> bool:
+        """Atualiza last_heartbeat do turno em andamento."""
+        if not idempotency_key or not owner_token:
+            return False
+        if not self.pool:
+            entry = self._ledger_memoria.get(idempotency_key)
+            if entry and entry.get("owner_token") == owner_token and entry.get("status") == "in_progress":
+                entry["last_heartbeat"] = time.time()
+                return True
+            return False
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        UPDATE turn_idempotency_ledger
+                        SET last_heartbeat = CURRENT_TIMESTAMP
+                        WHERE idempotency_key = %s AND owner_token = %s AND status = 'in_progress';
+                        """,
+                        (idempotency_key, owner_token)
+                    )
+                    await conn.commit()
+                    return cur.rowcount > 0
+        except Exception as e:
+            _log_db_error("heartbeat_turn_ledger", e)
+            return False
+
+    async def complete_turn_ledger(
+        self,
+        idempotency_key: str,
+        owner_token: str,
+        response_payload: Dict[str, Any]
+    ) -> bool:
+        """Marca o turno como concluido persistindo o payload sanitizado para replay seguro."""
+        if not idempotency_key or not owner_token:
+            return False
+
+        clean_payload = {
+            "resposta": response_payload.get("resposta", ""),
+            "session_id": response_payload.get("session_id"),
+            "project_id": response_payload.get("project_id", "general"),
+            "model_requested": response_payload.get("model_requested"),
+            "model_used": response_payload.get("model_used"),
+            "provider_used": response_payload.get("provider_used"),
+            "fallback_reason": response_payload.get("fallback_reason"),
+            "cached": True
+        }
+
+        if not self.pool:
+            entry = self._ledger_memoria.get(idempotency_key)
+            if entry and entry.get("owner_token") == owner_token and entry.get("status") == "in_progress":
+                entry["status"] = "completed"
+                entry["response_payload"] = clean_payload
+                entry["completed_at"] = time.time()
+                return True
+            return False
+
+        try:
+            payload_json = json.dumps(clean_payload, ensure_ascii=False)
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        UPDATE turn_idempotency_ledger
+                        SET status = 'completed', response_payload = %s::jsonb, completed_at = CURRENT_TIMESTAMP
+                        WHERE idempotency_key = %s AND owner_token = %s AND status = 'in_progress';
+                        """,
+                        (payload_json, idempotency_key, owner_token)
+                    )
+                    await conn.commit()
+                    return cur.rowcount > 0
+        except Exception as e:
+            _log_db_error("complete_turn_ledger", e)
+            return False
+
+    async def release_turn_ledger(self, idempotency_key: str, owner_token: str, failed: bool = False) -> bool:
+        """Libera o claim do turno em caso de falha de persistencia ou abort."""
+        if not idempotency_key or not owner_token:
+            return False
+        target_status = "failed" if failed else "released"
+        if not self.pool:
+            entry = self._ledger_memoria.get(idempotency_key)
+            if entry and entry.get("owner_token") == owner_token and entry.get("status") == "in_progress":
+                entry["status"] = target_status
+                return True
+            return False
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        UPDATE turn_idempotency_ledger
+                        SET status = %s
+                        WHERE idempotency_key = %s AND owner_token = %s AND status = 'in_progress';
+                        """,
+                        (target_status, idempotency_key, owner_token)
+                    )
+                    await conn.commit()
+                    return cur.rowcount > 0
+        except Exception as e:
+            _log_db_error("release_turn_ledger", e)
+            return False
 
     def _verificar_propriedade_memoria(self, session_id: str, user_email: Optional[str]) -> bool:
         email_norm = user_email.strip().lower() if user_email else None

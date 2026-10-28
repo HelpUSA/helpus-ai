@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 
 import config as app_config
 from config import DEBUG, CORS_ORIGINS
-from banco import BancoDados
+from banco import BancoDados, _log_db_error
 from cerebro import CerebroIA, set_request_model, get_request_model, get_request_metadata, set_request_metadata, reset_request_context
 from buscador import MotorBusca
 from auth import obter_usuario_google, obter_admin_google
@@ -89,16 +89,17 @@ async def lifespan(app: FastAPI):
     """Inicializa e finaliza os servicos"""
     global cerebro, buscador
 
-    # P0 MULTIWORKER (Ciclo 022): Rejeita estritamente mais de 1 worker / replica enquanto o fencing distribuido
-    # nao estiver formalmente ativado e homologado, mesmo com DATABASE_URL configurada.
+    # P0 MULTIWORKER (Ciclo 023): Rejeita incondicionalmente mais de 1 worker / replica.
+    # Enquanto claim/heartbeat/complete/release operarem localmente no processo, a execucao
+    # permanece estritamente restrita a 1 worker (MAX_OPERATIONAL_WORKERS = 1).
+    # O bypass anterior DISTRIBUTED_FENCING_ENABLED foi removido conforme auditoria do Ciclo 022.
     workers_env = int(os.getenv("WEB_CONCURRENCY", os.getenv("WORKERS", os.getenv("SERVER_REPLICAS", "1"))))
-    distributed_fencing_active = os.getenv("DISTRIBUTED_FENCING_ENABLED", "false").lower() in ("1", "true", "yes")
-    if workers_env > 1 and not distributed_fencing_active:
+    if workers_env > 1:
         raise RuntimeError(
             f"Incompatibilidade operacional critica: foram solicitados {workers_env} workers/replicas, "
-            "mas o mecanismo de idempotencia e turn lock opera em memoria local de processo. "
-            "A presenca de DATABASE_URL isolada nao garante fencing distribuido. "
-            "Ajuste WORKERS=1 e SERVER_REPLICAS=1 ate a ativacao e homologacao de ledger distribuido."
+            "mas a arquitetura operacional atual esta estritamente restrita a 1 worker local (MAX_OPERATIONAL_WORKERS = 1). "
+            "A presenca de DATABASE_URL ou flags de ambiente nao autoriza execucao multi-worker sem homologacao transacional distribuida. "
+            "Ajuste WORKERS=1, WEB_CONCURRENCY=1 e SERVER_REPLICAS=1."
         )
 
     print("=" * 60)
@@ -106,13 +107,20 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # 1. Conectar ao banco
+    db_url_configured = bool(getattr(banco, "database_url", None) or os.getenv("DATABASE_URL"))
     print("[INFO] Conectando ao PostgreSQL...")
     try:
         await banco.conectar()
         await banco.criar_tabelas()
         print("[OK] Banco de dados pronto")
     except Exception as e:
-        print(f"[WARN] Banco de dados nao disponivel (tipo={type(e).__name__})")
+        if db_url_configured:
+            _log_db_error("startup_db_fail_closed", e)
+            raise RuntimeError(
+                f"Falha critica no startup: DATABASE_URL esta configurada porem a conexao ou inicializacao de tabelas falhou (tipo={type(e).__name__}). "
+                "Fail-closed obrigatorio: abortando inicializacao para impedir operacao inconsistente sem banco persistente."
+            ) from e
+        print(f"[WARN] Banco de dados nao configurado/disponivel (tipo={type(e).__name__})")
         print("   Rodando sem banco de dados...")
 
     # 2. Carregar modelo IA se ainda nao carregado
@@ -1355,6 +1363,40 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             return StreamingResponse(replay_cached_stream(), media_type="text/event-stream")
         is_stream_claimed = should_run
 
+        # Se houver pool de banco PostgreSQL conectado, estende o claim para o ledger persistente
+        if banco and getattr(banco, "pool", None) and owner_token:
+            req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest()[:16]
+            try:
+                db_should_run, db_cached_resp, _ = await banco.claim_turn_ledger(
+                    idempotency_key=idempotency_key,
+                    owner_token=owner_token,
+                    session_id=session_id,
+                    user_email=user_email,
+                    project_id=project_id,
+                    request_payload_hash=req_hash,
+                    is_retry=request.is_retry
+                )
+                if not db_should_run:
+                    if db_cached_resp:
+                        complete_idempotent_request(idempotency_key, db_cached_resp, owner_token=owner_token)
+                        async def replay_cached_stream():
+                            text_content = db_cached_resp.get("resposta", "")
+                            yield f"data: {json.dumps({'content': text_content, 'text': text_content, 'session_id': session_id, 'model_requested': db_cached_resp.get('model_requested'), 'model_used': db_cached_resp.get('model_used'), 'provider_used': db_cached_resp.get('provider_used'), 'fallback_reason': db_cached_resp.get('fallback_reason'), 'cached': True}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'done': True, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                            yield "data: [DONE]\n\n"
+                        return StreamingResponse(replay_cached_stream(), media_type="text/event-stream")
+                    release_idempotent_request(idempotency_key, owner_token=owner_token)
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Requisicao identica em processamento ativo no ledger persistente."
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                _log_db_error("claim_turn_ledger_stream", e)
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=503, detail="Servico de idempotencia temporariamente indisponivel.")
+
     # Salva mensagem do usuario imediatamente (se nao for retry)
     if banco and not request.is_retry:
         try:
@@ -1402,6 +1444,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 image_url=request.image_url,
             ):
                 heartbeat_idempotent_request(idempotency_key, owner_token)
+                if banco and idempotency_key and owner_token:
+                    asyncio.create_task(banco.heartbeat_turn_ledger(idempotency_key, owner_token))
                 full_chunks.append(chunk)
                 meta = get_request_metadata()
                 model_eff = meta.get("model_used") or get_request_model() or request.model or "gemini-2.5-flash"
@@ -1448,7 +1492,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                 # 2. P0 IDEMPOTENCIA: Conclui CAS apenas se HOUVE PERSISTENCIA EFETIVA e stream completou
                 if is_stream_claimed and idempotency_key and owner_token:
                     if stream_completed_ok and persisted_ok:
-                        complete_idempotent_request(idempotency_key, {
+                        payload_final = {
                             "resposta": resposta_completa,
                             "session_id": session_id,
                             "project_id": project_id,
@@ -1456,10 +1500,15 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                             "model_used": last_model_eff,
                             "provider_used": last_prov_used,
                             "fallback_reason": last_fb_reason,
-                        }, owner_token=owner_token)
+                        }
+                        complete_idempotent_request(idempotency_key, payload_final, owner_token=owner_token)
+                        if banco:
+                            await banco.complete_turn_ledger(idempotency_key, owner_token, payload_final)
                     else:
                         # Falha de persistencia ou stream: libera claim para permitir retry seguro
                         release_idempotent_request(idempotency_key, owner_token=owner_token)
+                        if banco:
+                            await banco.release_turn_ledger(idempotency_key, owner_token, failed=not persisted_ok)
 
             async with turn_lock_context(idempotency_key):
                 await _persist_under_lock()

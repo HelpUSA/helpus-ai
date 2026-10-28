@@ -881,14 +881,153 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
 
     def test_operational_concurrency_guard_rejects_multi_worker_even_with_database_url(self):
         # Valida que mesmo com DATABASE_URL configurada, ter mais de 1 worker/replica lanca RuntimeError
-        # se DISTRIBUTED_FENCING_ENABLED nao estiver ativado (P0 - Ciclo 022)
+        # (P0 - Ciclo 022/023: bypass removido, MAX_OPERATIONAL_WORKERS = 1)
         import asyncio
         from backend.main import lifespan
         with patch.dict(os.environ, {"WEB_CONCURRENCY": "2", "DATABASE_URL": "postgresql://mock:mock@localhost:5432/db", "DISTRIBUTED_FENCING_ENABLED": "false"}):
             with self.assertRaises(RuntimeError) as ctx:
                 asyncio.run(lifespan(app).__aenter__())
             self.assertIn("Incompatibilidade operacional critica", str(ctx.exception))
-            self.assertIn("DATABASE_URL isolada nao garante fencing distribuido", str(ctx.exception))
+            self.assertIn("MAX_OPERATIONAL_WORKERS = 1", str(ctx.exception))
+
+    def test_operational_concurrency_guard_rejects_multi_worker_even_with_distributed_fencing_flag_active(self):
+        # Valida que a flag DISTRIBUTED_FENCING_ENABLED=true nao faz bypass (P0 - Ciclo 023)
+        import asyncio
+        from backend.main import lifespan
+        with patch.dict(os.environ, {"WEB_CONCURRENCY": "3", "DATABASE_URL": "postgresql://mock:mock@localhost:5432/db", "DISTRIBUTED_FENCING_ENABLED": "true"}):
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(lifespan(app).__aenter__())
+            self.assertIn("Incompatibilidade operacional critica", str(ctx.exception))
+            self.assertIn("MAX_OPERATIONAL_WORKERS = 1", str(ctx.exception))
+
+    def test_startup_fails_closed_when_database_url_configured_and_connection_fails(self):
+        # Valida fail-closed estrito no startup quando DATABASE_URL esta configurada e conexao falha (P0 - Ciclo 023)
+        import asyncio
+        from backend.main import lifespan
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://mock:mock@localhost:5432/fail_db", "WEB_CONCURRENCY": "1"}):
+            with patch.object(banco, "conectar", side_effect=ConnectionRefusedError("Connection refused by test mock")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    asyncio.run(lifespan(app).__aenter__())
+                self.assertIn("Fail-closed obrigatorio", str(ctx.exception))
+                self.assertIn("ConnectionRefusedError", str(ctx.exception))
+
+    def test_turn_idempotency_ledger_claim_complete_and_replay_cycle(self):
+        # Valida ciclo de vida completo do ledger duravel de turnos (claim -> active -> complete -> replay) (P0 - Ciclo 023)
+        import asyncio
+        from backend.banco import BancoDados
+
+        test_banco = BancoDados()
+        idemp_key = "user@helpus.com:sess_turn_test_1:req_abc:hash123"
+        owner_1 = "owner_token_test_1"
+
+        # 1. Claim inicial
+        should_run, cached, owner = asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token=owner_1,
+                session_id="sess_turn_test_1",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash123",
+                is_retry=False
+            )
+        )
+        self.assertTrue(should_run)
+        self.assertIsNone(cached)
+        self.assertEqual(owner, owner_1)
+
+        # 2. Tentativa concorrente enquanto ativo (< lease_seconds) -> Bloqueio 409
+        should_run_2, cached_2, owner_2 = asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token="owner_token_concurrent",
+                session_id="sess_turn_test_1",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash123",
+                is_retry=False
+            )
+        )
+        self.assertFalse(should_run_2)
+        self.assertIsNone(cached_2)
+        self.assertIsNone(owner_2)
+
+        # 3. Heartbeat do turno em andamento
+        hb_ok = asyncio.run(test_banco.heartbeat_turn_ledger(idemp_key, owner_1))
+        self.assertTrue(hb_ok)
+
+        # 4. Conclusao com persistencia de resposta sanitizada
+        comp_ok = asyncio.run(
+            test_banco.complete_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token=owner_1,
+                response_payload={
+                    "resposta": "Resposta gerada e persistida com sucesso.",
+                    "session_id": "sess_turn_test_1",
+                    "project_id": "general",
+                    "model_used": "gemini-2.5-flash",
+                }
+            )
+        )
+        self.assertTrue(comp_ok)
+
+        # 5. Tentativa subsequente (replay / crash-recovery sem re-inferencia)
+        should_run_replay, cached_replay, owner_replay = asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token="owner_replay_check",
+                session_id="sess_turn_test_1",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash123",
+                is_retry=True
+            )
+        )
+        self.assertFalse(should_run_replay, "Turno completado nao deve rodar novamente")
+        self.assertIsNotNone(cached_replay, "Deve retornar payload em cache para replay")
+        self.assertEqual(cached_replay.get("resposta"), "Resposta gerada e persistida com sucesso.")
+        self.assertTrue(cached_replay.get("cached"))
+        self.assertIsNone(owner_replay)
+
+    def test_turn_idempotency_ledger_release_on_failure(self):
+        # Valida liberacao de claim em caso de falha de persistencia ou abort (P0 - Ciclo 023)
+        import asyncio
+        from backend.banco import BancoDados
+
+        test_banco = BancoDados()
+        idemp_key = "user@helpus.com:sess_fail_test_1:req_fail:hash999"
+        owner_fail = "owner_fail_test_1"
+
+        asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token=owner_fail,
+                session_id="sess_fail_test_1",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash999",
+                is_retry=False
+            )
+        )
+
+        # Libera em falha
+        rel_ok = asyncio.run(test_banco.release_turn_ledger(idemp_key, owner_fail, failed=True))
+        self.assertTrue(rel_ok)
+
+        # Novo retry deve conseguir claim com novo owner
+        should_run_retry, _, new_owner = asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token="new_owner_retry",
+                session_id="sess_fail_test_1",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash999",
+                is_retry=True
+            )
+        )
+        self.assertTrue(should_run_retry)
+        self.assertEqual(new_owner, "new_owner_retry")
 
     def test_log_db_error_sanitizes_credentials_and_sql_messages(self):
         # Valida que _log_db_error sanitiza o output eliminando credenciais e queries internas (P0 - Ciclo 022)
