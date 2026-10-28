@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Suíte de Testes Unitários de Segurança OAuth / JWT Google — Ordem Executiva 082.
+"""Suíte de Testes Unitários de Segurança OAuth / JWT Google — Ordens 082 e 084.
 
 Validações isoladas sem rede externa, sem bancos remotos e sem credenciais reais:
 1. Rejeição de tokens falsificados com payload manipulado (antigo fallback eliminado)
@@ -8,15 +8,23 @@ Validações isoladas sem rede externa, sem bancos remotos e sem credenciais rea
 4. Rejeição de token expirado (exp)
 5. Rejeição de emissor não autorizado (iss mismatch)
 6. Rejeição de token sem email
-7. Rejeição de email não verificado (email_verified: false)
+7. Matriz estrita de validação de email_verified (Ordem 084):
+   - email_verified ausente -> 401 unverified_email
+   - email_verified = None -> 401 unverified_email
+   - email_verified = "false" -> 401 unverified_email
+   - email_verified = "true" (string) -> 401 unverified_email
+   - email_verified = 0 -> 401 unverified_email
+   - email_verified = False (booleano) -> 401 unverified_email
+   - email_verified = True (booleano estrito) -> aceito
 8. Rejeição de token sem sub (subject)
 9. Aceitação de token íntegro e verificado oficialmente
-10. Bloqueio de elevação de privilégio administrativo via token forjado
-11. Proibição de acesso administrativo para usuário legítimo não cadastrado (403)
-12. Acesso administrativo concedido para email presente em ADMIN_EMAILS
-13. Tratamento seguro de token ausente, vazio ou whitespace
-14. Fail-closed caso GOOGLE_CLIENT_ID não esteja configurado
-15. Paridade estrita entre backend/auth.py e api/auth.py (eliminação do fallback)
+10. Verificação de que verify_oauth2_token recebe o GOOGLE_CLIENT_ID esperado e que falha bloqueia autenticação
+11. Bloqueio de elevação de privilégio administrativo via token forjado
+12. Proibição de acesso administrativo para usuário legítimo não cadastrado (403)
+13. Acesso administrativo concedido para email presente em ADMIN_EMAILS
+14. Tratamento seguro de token ausente, vazio ou whitespace
+15. Fail-closed caso GOOGLE_CLIENT_ID não esteja configurado
+16. Paridade estrita entre backend/auth.py e api/auth.py (eliminação do fallback e checagem is True)
 """
 
 import sys
@@ -120,20 +128,140 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                 self.assertEqual(ctx.exception.status_code, 401)
                 self.assertEqual(ctx.exception.detail.get("error"), "invalid_google_token")
 
-    def test_unverified_email_rejected(self):
-        """Token com email_verified=False deve ser rejeitado com 401."""
-        payload_unverified = {
+    # --- Testes de Matriz Estrita para email_verified (Ordem 084) ---
+
+    def test_email_verified_missing_rejected(self):
+        """Ordem 084: email_verified ausente no payload DEVE ser rejeitado com 401 unverified_email."""
+        payload = {
             "iss": "https://accounts.google.com",
-            "sub": "sub_unverified_456",
+            "sub": "sub_no_verified_claim",
+            "email": "user@gmail.com",
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with self.assertRaises(HTTPException) as ctx:
+                    auth_backend.verificar_google_id_token("header.missing_verified.sig")
+                self.assertEqual(ctx.exception.status_code, 401)
+                self.assertEqual(ctx.exception.detail.get("error"), "unverified_email")
+
+    def test_email_verified_none_rejected(self):
+        """Ordem 084: email_verified=None DEVE ser rejeitado com 401 unverified_email."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_none_verified",
+            "email": "user@gmail.com",
+            "email_verified": None,
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with self.assertRaises(HTTPException) as ctx:
+                    auth_backend.verificar_google_id_token("header.none_verified.sig")
+                self.assertEqual(ctx.exception.status_code, 401)
+                self.assertEqual(ctx.exception.detail.get("error"), "unverified_email")
+
+    def test_email_verified_string_false_rejected(self):
+        """Ordem 084: email_verified='false' (string) DEVE ser rejeitado com 401 unverified_email."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_str_false",
+            "email": "user@gmail.com",
+            "email_verified": "false",
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with self.assertRaises(HTTPException) as ctx:
+                    auth_backend.verificar_google_id_token("header.str_false.sig")
+                self.assertEqual(ctx.exception.status_code, 401)
+                self.assertEqual(ctx.exception.detail.get("error"), "unverified_email")
+
+    def test_email_verified_string_true_rejected(self):
+        """Ordem 084: email_verified='true' (string não-booleana) DEVE ser rejeitado com 401 unverified_email."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_str_true",
+            "email": "user@gmail.com",
+            "email_verified": "true",
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with self.assertRaises(HTTPException) as ctx:
+                    auth_backend.verificar_google_id_token("header.str_true.sig")
+                self.assertEqual(ctx.exception.status_code, 401)
+                self.assertEqual(ctx.exception.detail.get("error"), "unverified_email")
+
+    def test_email_verified_zero_rejected(self):
+        """Ordem 084: email_verified=0 (inteiro) DEVE ser rejeitado com 401 unverified_email."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_int_zero",
+            "email": "user@gmail.com",
+            "email_verified": 0,
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                with self.assertRaises(HTTPException) as ctx:
+                    auth_backend.verificar_google_id_token("header.int_zero.sig")
+                self.assertEqual(ctx.exception.status_code, 401)
+                self.assertEqual(ctx.exception.detail.get("error"), "unverified_email")
+
+    def test_email_verified_boolean_false_rejected(self):
+        """Ordem 084: email_verified=False (booleano) DEVE ser rejeitado com 401 unverified_email."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_bool_false",
             "email": "unverified@gmail.com",
             "email_verified": False,
         }
-        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload_unverified):
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
             with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
                 with self.assertRaises(HTTPException) as ctx:
-                    auth_backend.verificar_google_id_token("header.unverified_email.sig")
+                    auth_backend.verificar_google_id_token("header.bool_false.sig")
                 self.assertEqual(ctx.exception.status_code, 401)
                 self.assertEqual(ctx.exception.detail.get("error"), "unverified_email")
+
+    def test_email_verified_boolean_true_accepted(self):
+        """Ordem 084: Apenas o booleano True estrito deve ser aceito como verificado."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_verified_ok",
+            "email": "verified@helpusbr.com",
+            "email_verified": True,
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload):
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                user = auth_backend.verificar_google_id_token("header.verified_ok.sig")
+                self.assertEqual(user["email"], "verified@helpusbr.com")
+
+    # --- Verificação do Parâmetro Audience e Fail-Closed do Verificador (Ordem 084) ---
+
+    def test_verify_oauth2_token_receives_expected_client_id(self):
+        """Ordem 084: Confirma que verify_oauth2_token é invocado com o GOOGLE_CLIENT_ID esperado."""
+        payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "sub_aud_test",
+            "email": "test@helpusbr.com",
+            "email_verified": True,
+        }
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=payload) as mock_verify:
+            with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                auth_backend.verificar_google_id_token("test_token_content")
+                mock_verify.assert_called_once()
+                args, kwargs = mock_verify.call_args
+                # args: (token, request, audience)
+                self.assertEqual(args[0], "test_token_content")
+                self.assertEqual(args[2], self.mock_client_id)
+
+    def test_verify_oauth2_token_failure_strictly_prevents_authentication(self):
+        """Ordem 084: Qualquer falha interna ou de transporte em verify_oauth2_token
+        impede absolutamente a autenticação (fail-closed) sem retorno de usuário."""
+        from google.auth.exceptions import GoogleAuthError
+        for exc in (ValueError("Signature corrupted"), GoogleAuthError("Certs fetch timeout"), RuntimeError("Unexpected error")):
+            with patch("google.oauth2.id_token.verify_oauth2_token", side_effect=exc):
+                with patch.object(auth_backend, "GOOGLE_CLIENT_ID", self.mock_client_id):
+                    with self.assertRaises(HTTPException) as ctx:
+                        auth_backend.verificar_google_id_token("token_error_case")
+                    self.assertEqual(ctx.exception.status_code, 401)
+                    self.assertEqual(ctx.exception.detail.get("error"), "invalid_google_token")
 
     def test_missing_sub_rejected(self):
         """Token sem claim sub deve ser rejeitado com 401."""
@@ -238,7 +366,7 @@ class TestOAuthJwtSecurity(unittest.TestCase):
             self.assertNotIn("base64.urlsafe_b64decode", content, f"Fallback inseguro encontrado em {path}")
             self.assertNotIn("parts = token.split", content, f"Split manual inseguro de JWT em {path}")
             self.assertIn("verify_oauth2_token", content)
-            self.assertIn("email_verified", content)
+            self.assertIn('info.get("email_verified") is not True', content, f"Checagem estrita ausente em {path}")
             self.assertIn("sub", content)
 
 

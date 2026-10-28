@@ -73,9 +73,8 @@ def verificar_google_id_token(token: str) -> Dict[str, Any]:
             detail={"error": "invalid_google_token", "message": "Token Google sem email. Faca login novamente."},
         )
 
-    # Validar email_verified
-    email_verified = info.get("email_verified")
-    if email_verified is False or (isinstance(email_verified, str) and email_verified.lower() == "false"):
+    # Validar email_verified: exigir estritamente o booleano True (rejeita None, "true", "false", 0, False ou ausente)
+    if info.get("email_verified") is not True:
         raise HTTPException(
             status_code=401,
             detail={"error": "unverified_email", "message": "Email Google nao verificado pelo provedor."},
