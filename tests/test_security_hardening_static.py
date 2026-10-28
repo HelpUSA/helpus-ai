@@ -22,6 +22,14 @@ class SecurityHardeningTests(unittest.TestCase):
         mirror = (ROOT / "backend" / "auth.py").read_text(encoding="utf-8")
         self.assertIn("if not ADMIN_EMAILS or email not in ADMIN_EMAILS:", mirror)
 
+    def test_no_unverified_jwt_fallback(self):
+        for path in [ROOT / "api" / "auth.py", ROOT / "backend" / "auth.py"]:
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("base64.urlsafe_b64decode", source)
+            self.assertNotIn("parts = token.split", source)
+            self.assertIn("verify_oauth2_token", source)
+            self.assertIn("email_verified", source)
+
     def test_public_stream_has_no_local_execution_trigger(self):
         source = (ROOT / "api" / "main.py").read_text(encoding="utf-8")
         stream = source.split('@app.post("/chat/stream")', 1)[1]
