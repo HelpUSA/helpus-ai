@@ -1350,6 +1350,7 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
     validar_url_remota(request.image_url)
 
     idempotency_key = _gerar_chave_idempotencia(user_email, session_id, request.client_request_id, request.mensagem)
+    req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest() if idempotency_key else None
     is_stream_claimed = False
     owner_token = None
     if idempotency_key:
@@ -1363,9 +1364,8 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
             return StreamingResponse(replay_cached_stream(), media_type="text/event-stream")
         is_stream_claimed = should_run
 
-        # Se houver pool de banco PostgreSQL conectado, estende o claim para o ledger persistente
-        if banco and getattr(banco, "pool", None) and owner_token:
-            req_hash = hashlib.sha256((request.mensagem or "").encode("utf-8")).hexdigest()[:16]
+        # Estende o claim para o ledger persistente ou memoria
+        if banco and owner_token:
             try:
                 db_should_run, db_cached_resp, _ = await banco.claim_turn_ledger(
                     idempotency_key=idempotency_key,
@@ -1390,6 +1390,9 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                         status_code=409,
                         detail="Requisicao identica em processamento ativo no ledger persistente."
                     )
+            except PermissionError as pe:
+                release_idempotent_request(idempotency_key, owner_token=owner_token)
+                raise HTTPException(status_code=403, detail="Chave de idempotencia associada a escopo ou requisicao divergente.")
             except HTTPException:
                 raise
             except Exception as e:
@@ -1473,42 +1476,64 @@ async def chat_stream(request: MensagemRequest, usuario = Depends(obter_usuario_
                     log_structured("WARN", "stream_fenced_persistence_aborted", correlation_id=stream_corr_id, details={"masked_key": _mask_key(idempotency_key)})
                     if idempotency_key and owner_token:
                         release_idempotent_request(idempotency_key, owner_token=owner_token)
+                        if banco:
+                            try:
+                                await banco.release_turn_ledger(idempotency_key, owner_token, failed=True)
+                            except:
+                                pass
                     return
+
+                payload_final = {
+                    "resposta": resposta_completa,
+                    "session_id": session_id,
+                    "project_id": project_id,
+                    "model_requested": last_model_req,
+                    "model_used": last_model_eff,
+                    "provider_used": last_prov_used,
+                    "fallback_reason": last_fb_reason,
+                }
 
                 if banco and resposta_completa and stream_completed_ok:
                     try:
-                        res_save = await banco.salvar_mensagem(
-                            session_id=session_id,
-                            role="assistant",
-                            content=resposta_completa,
-                            user_email=user_email,
-                            project_id=project_id,
-                        )
-                        persisted_ok = bool(res_save is True)
+                        if idempotency_key and owner_token:
+                            # 1. P0 ATOMICIDADE: Transacao unica PostgreSQL para salvar mensagem e concluir ledger
+                            turn_res = await banco.persist_and_complete_turn(
+                                session_id=session_id,
+                                content=resposta_completa,
+                                idempotency_key=idempotency_key,
+                                owner_token=owner_token,
+                                user_email=user_email,
+                                project_id=project_id,
+                                request_payload_hash=req_hash,
+                                response_payload=payload_final
+                            )
+                            persisted_ok = bool(turn_res is True)
+                        else:
+                            # Requisicao legada sem chave de idempotencia
+                            res_save = await banco.salvar_mensagem(
+                                session_id=session_id,
+                                role="assistant",
+                                content=resposta_completa,
+                                user_email=user_email,
+                                project_id=project_id,
+                            )
+                            persisted_ok = bool(res_save is True)
                     except Exception as e:
                         persisted_ok = False
                         log_structured("ERROR", "stream_assistant_persistence_failed", correlation_id=stream_corr_id, details={"error_kind": type(e).__name__})
 
-                # 2. P0 IDEMPOTENCIA: Conclui CAS apenas se HOUVE PERSISTENCIA EFETIVA e stream completou
+                # 2. P0 IDEMPOTENCIA: Conclui CAS em cache APENAS se houve persistencia duravel confirmada
                 if is_stream_claimed and idempotency_key and owner_token:
                     if stream_completed_ok and persisted_ok:
-                        payload_final = {
-                            "resposta": resposta_completa,
-                            "session_id": session_id,
-                            "project_id": project_id,
-                            "model_requested": last_model_req,
-                            "model_used": last_model_eff,
-                            "provider_used": last_prov_used,
-                            "fallback_reason": last_fb_reason,
-                        }
                         complete_idempotent_request(idempotency_key, payload_final, owner_token=owner_token)
-                        if banco:
-                            await banco.complete_turn_ledger(idempotency_key, owner_token, payload_final)
                     else:
                         # Falha de persistencia ou stream: libera claim para permitir retry seguro
                         release_idempotent_request(idempotency_key, owner_token=owner_token)
                         if banco:
-                            await banco.release_turn_ledger(idempotency_key, owner_token, failed=not persisted_ok)
+                            try:
+                                await banco.release_turn_ledger(idempotency_key, owner_token, failed=not persisted_ok)
+                            except:
+                                pass
 
             async with turn_lock_context(idempotency_key):
                 await _persist_under_lock()

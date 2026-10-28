@@ -115,5 +115,18 @@ class Migration003ReconciliationTests(unittest.TestCase):
         # Rollback presente
         self.assertIn("DROP TABLE IF EXISTS turn_idempotency_ledger CASCADE", sql_content)
 
+    def test_migration_005_conversas_deduplication_structure(self):
+        """Verifica a integridade do DDL da Migration 005 (Deduplicacao de conversas por turno)."""
+        sql_path = Path(__file__).resolve().parents[1] / "migrations" / "005_conversas_turn_idempotency_key.sql"
+        self.assertTrue(sql_path.exists(), "Arquivo SQL 005 deve existir")
+        sql_content = sql_path.read_text(encoding="utf-8")
+        
+        self.assertIn("ALTER TABLE conversas", sql_content)
+        self.assertIn("ADD COLUMN IF NOT EXISTS turn_idempotency_key VARCHAR(160)", sql_content)
+        self.assertIn("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversas_turn_assistant", sql_content)
+        self.assertIn("WHERE turn_idempotency_key IS NOT NULL AND role = 'assistant'", sql_content)
+        self.assertIn("'005_conversas_turn_idempotency_key'", sql_content)
+        self.assertIn("DROP INDEX IF EXISTS uq_conversas_turn_assistant", sql_content)
+
 if __name__ == "__main__":
     unittest.main()

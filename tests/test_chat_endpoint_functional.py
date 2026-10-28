@@ -1043,5 +1043,152 @@ class ChatEndpointFunctionalTests(unittest.TestCase):
         self.assertNotIn("secret123", out)
         self.assertNotIn("password", out)
 
+    def test_persist_and_complete_turn_atomic_and_fencing_protection(self):
+        # Valida que persist_and_complete_turn protege CAS contra token usurpado ou status incorreto (P0 - Ciclo 024)
+        import asyncio
+        from backend.banco import BancoDados
+
+        test_banco = BancoDados()
+        idemp_key = "user@helpus.com:sess_atomic_1:req_atomic:hash_abc"
+        owner_real = "owner_real_1"
+
+        # 1. Claim legítimo
+        asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token=owner_real,
+                session_id="sess_atomic_1",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash_abc",
+                is_retry=False
+            )
+        )
+
+        # 2. Tentativa de persistir com owner_token inválido (fencing perdido) -> deve retornar False
+        fail_res = asyncio.run(
+            test_banco.persist_and_complete_turn(
+                session_id="sess_atomic_1",
+                content="Resposta com owner usurpado",
+                idempotency_key=idemp_key,
+                owner_token="owner_usurpado",
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash_abc"
+            )
+        )
+        self.assertFalse(fail_res, "Persistencia deve falhar quando owner_token nao confere (CAS violado)")
+
+        # 3. Persistência legítima com owner correto -> deve retornar True
+        ok_res = asyncio.run(
+            test_banco.persist_and_complete_turn(
+                session_id="sess_atomic_1",
+                content="Resposta legitima persistida atomicamente",
+                idempotency_key=idemp_key,
+                owner_token=owner_real,
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash_abc"
+            )
+        )
+        self.assertTrue(ok_res)
+
+        # 4. Nova tentativa após conclusão -> deve retornar False (status não é mais in_progress)
+        dup_res = asyncio.run(
+            test_banco.persist_and_complete_turn(
+                session_id="sess_atomic_1",
+                content="Resposta duplicada",
+                idempotency_key=idemp_key,
+                owner_token=owner_real,
+                user_email="user@helpus.com",
+                project_id="general",
+                request_payload_hash="hash_abc"
+            )
+        )
+        self.assertFalse(dup_res, "Persistencia duplicada deve ser rejeitada")
+
+    def test_claim_turn_ledger_rejects_scope_or_hash_mismatch(self):
+        # Valida que reaproveitar chave com escopo ou payload divergente gera PermissionError (P0 - Ciclo 024)
+        import asyncio
+        from backend.banco import BancoDados
+
+        test_banco = BancoDados()
+        idemp_key = "userA@helpus.com:sess_iso_1:req_iso:hash_orig"
+
+        # 1. Claim original para userA
+        asyncio.run(
+            test_banco.claim_turn_ledger(
+                idempotency_key=idemp_key,
+                owner_token="owner_iso_A",
+                session_id="sess_iso_1",
+                user_email="userA@helpus.com",
+                project_id="general",
+                request_payload_hash="hash_orig",
+                is_retry=False
+            )
+        )
+
+        # 2. Tentativa por outro usuário com a mesma chave -> PermissionError
+        with self.assertRaises(PermissionError):
+            asyncio.run(
+                test_banco.claim_turn_ledger(
+                    idempotency_key=idemp_key,
+                    owner_token="owner_attacker",
+                    session_id="sess_iso_1",
+                    user_email="attacker@helpus.com",
+                    project_id="general",
+                    request_payload_hash="hash_orig",
+                    is_retry=False
+                )
+            )
+
+        # 3. Tentativa na mesma conta mas payload hash alterado -> PermissionError
+        with self.assertRaises(PermissionError):
+            asyncio.run(
+                test_banco.claim_turn_ledger(
+                    idempotency_key=idemp_key,
+                    owner_token="owner_iso_A_tampered",
+                    session_id="sess_iso_1",
+                    user_email="userA@helpus.com",
+                    project_id="general",
+                    request_payload_hash="hash_alterado",
+                    is_retry=False
+                )
+            )
+
+    def test_fail_closed_when_database_url_configured_and_pool_missing(self):
+        # Valida fail-closed estrito: se DATABASE_URL esta configurada e pool e None, levanta RuntimeError (P0 - Ciclo 024)
+        import asyncio
+        from backend.banco import BancoDados
+
+        test_banco = BancoDados()
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://mock:mock@localhost:5432/fail_closed_db"}):
+            test_banco.database_url = "postgresql://mock:mock@localhost:5432/fail_closed_db"
+            test_banco.pool = None
+
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(
+                    test_banco.claim_turn_ledger(
+                        idempotency_key="key_fail_closed",
+                        owner_token="owner_fc",
+                        session_id="sess_fc",
+                        user_email="user@helpus.com",
+                        project_id="general",
+                        request_payload_hash="hash_fc"
+                    )
+                )
+            self.assertIn("fail-closed", str(ctx.exception).lower())
+
+            with self.assertRaises(RuntimeError) as ctx2:
+                asyncio.run(
+                    test_banco.persist_and_complete_turn(
+                        session_id="sess_fc",
+                        content="tentativa sem pool",
+                        idempotency_key="key_fail_closed",
+                        owner_token="owner_fc"
+                    )
+                )
+            self.assertIn("fail-closed", str(ctx2.exception).lower())
+
 if __name__ == "__main__":
     unittest.main()
