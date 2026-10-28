@@ -2118,24 +2118,96 @@ async def listar_conversas(project_id: Optional[str] = None, usuario = Depends(o
     if not usuario:
         return {"conversas": []}
 
+    # P0 Projetos (Ciclo 035): Rejeita explicitamente wildcards 'all' ou '*' em endpoints normais de usuario
+    if project_id and project_id.strip() in ("all", "*"):
+        raise HTTPException(
+            status_code=400,
+            detail="Wildcards 'all' ou '*' sao proibidos em consultas de usuario. Use o endpoint administrativo /admin/conversas/global."
+        )
+
     try:
         return {
             "conversas": await banco.listar_conversas_usuario(usuario["email"], limite=50, project_id=project_id)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/historico/{session_id}")
 async def historico(session_id: str, usuario = Depends(obter_usuario_google)):
-    """Recupera historico de uma conversa"""
+    """Recupera historico de uma conversa (P0 - Ciclo 035: posse comprovavel via contexto de autenticacao)"""
+    if not usuario or not usuario.get("email"):
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao necessaria para recuperacao de historico de conversa. Posse da sessao requer identidade verificada."
+        )
     try:
-        mensagens = await banco.carregar_mensagens(session_id, limite=100, user_email=usuario["email"] if usuario else None)
+        user_email = usuario["email"].strip().lower()
+        mensagens = await banco.carregar_mensagens(session_id, limite=100, user_email=user_email)
         return {
             "session_id": session_id,
             "quantidade": len(mensagens),
             "mensagens": mensagens
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/conversas/global")
+async def admin_listar_conversas_global(
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    filter_user_email: Optional[str] = None,
+    filter_project_id: Optional[str] = None,
+    usuario = Depends(obter_admin_google)
+):
+    """Endpoint administrativo exclusivo para consulta global cross-project com autorizacao administrativa e auditoria (P0 - Ciclo 035)"""
+    if not usuario:
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao administrativa necessaria para consulta global cross-project."
+        )
+    admin_email = usuario.get("email") if isinstance(usuario, dict) else str(usuario)
+    if not admin_email or not admin_email.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Identidade do administrador invalida."
+        )
+    try:
+        conversas, total = await banco.admin_listar_conversas_globais(
+            actor_email=admin_email,
+            limite=limite,
+            offset=offset,
+            filter_user_email=filter_user_email,
+            filter_project_id=filter_project_id
+        )
+        await banco.registrar_evento_auditoria(
+            action="ADMIN_GLOBAL_CONVERSAS_VIEWED",
+            actor=admin_email,
+            details={
+                "limite": limite,
+                "offset": offset,
+                "filter_user_email": filter_user_email,
+                "filter_project_id": filter_project_id,
+                "returned_count": len(conversas),
+                "total": total
+            },
+            correlation_id=str(uuid.uuid4())
+        )
+        return {
+            "ok": True,
+            "admin": admin_email,
+            "total": total,
+            "limite": limite,
+            "offset": offset,
+            "conversas": conversas
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

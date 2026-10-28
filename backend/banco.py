@@ -97,65 +97,86 @@ def is_nominal_legacy_request(
         if not isinstance(historical_response_payload, dict):
             return False
 
-        # 1. Prova de Modelo
-        hist_model = (
-            historical_response_payload.get("model_requested")
-            or historical_response_payload.get("model_used")
-            or ""
-        ).strip().lower()
+        # 1. Prova de Modelo (com checagem de conflito entre aliases)
+        req_m = historical_response_payload.get("model_requested")
+        used_m = historical_response_payload.get("model_used")
+        if req_m and used_m:
+            if req_m.strip().lower() != used_m.strip().lower():
+                return False  # Conflito entre aliases de modelo
+        hist_model = (req_m or used_m or "").strip().lower()
         if not hist_model or eff_model != hist_model:
             return False
 
-        # 2. Prova de Pesquisa Web (P0/P1 - Ciclos 033/034: validacao estrita de booleanos sem coercoes cegas)
-        hist_web = None
-        if "pesquisar_web" in historical_response_payload:
-            hist_web = parse_strict_boolean(historical_response_payload.get("pesquisar_web"))
-        elif "web" in historical_response_payload:
-            hist_web = parse_strict_boolean(historical_response_payload.get("web"))
-        if hist_web is None:
-            # Sem proveniencia documental de web search ou valor ambiguo/malformado: rejeita reaproveitamento
+        # 2. Prova de Pesquisa Web (com checagem de conflito entre aliases)
+        has_pw = "pesquisar_web" in historical_response_payload
+        has_w = "web" in historical_response_payload
+        if not has_pw and not has_w:
             return False
+        b_pw = parse_strict_boolean(historical_response_payload.get("pesquisar_web")) if has_pw else None
+        b_w = parse_strict_boolean(historical_response_payload.get("web")) if has_w else None
+        if has_pw and b_pw is None:
+            return False
+        if has_w and b_w is None:
+            return False
+        if has_pw and has_w and b_pw != b_w:
+            return False  # Conflito entre aliases de pesquisa web
+        hist_web = b_pw if has_pw else b_w
         if bool(pesquisar_web) != hist_web:
             return False
 
-        # 3. Prova de Anexos de Imagem (P0/P1 - Ciclos 033/034)
-        hist_img = None
-        if "has_image" in historical_response_payload:
-            hist_img = parse_strict_boolean(historical_response_payload.get("has_image"))
-        elif "has_img" in historical_response_payload:
-            hist_img = parse_strict_boolean(historical_response_payload.get("has_img"))
-        elif "img" in historical_response_payload:
-            hist_img = parse_strict_boolean(historical_response_payload.get("img"))
-        if hist_img is None:
-            # Sem proveniencia documental de imagem ou indicador ambiguo (ex.: hash ou nome de arquivo no lugar de booleano): rejeita
+        # 3. Prova de Anexos de Imagem (com checagem de conflito entre aliases)
+        has_hi = "has_image" in historical_response_payload
+        has_himg = "has_img" in historical_response_payload
+        has_i = "img" in historical_response_payload
+        if not has_hi and not has_himg and not has_i:
             return False
+        b_hi = parse_strict_boolean(historical_response_payload.get("has_image")) if has_hi else None
+        b_himg = parse_strict_boolean(historical_response_payload.get("has_img")) if has_himg else None
+        b_i = parse_strict_boolean(historical_response_payload.get("img")) if has_i else None
+        if has_hi and b_hi is None:
+            return False
+        if has_himg and b_himg is None:
+            return False
+        if has_i and b_i is None:
+            return False
+        vals_img = [v for v in (b_hi, b_himg, b_i) if v is not None]
+        if any(v != vals_img[0] for v in vals_img):
+            return False  # Conflito entre aliases de anexo de imagem
+        hist_img = vals_img[0]
         if bool(has_image) != hist_img:
             return False
 
-        # 4. Prova de Anexos de Arquivo (P0/P1 - Ciclos 033/034)
-        hist_file = None
-        if "has_file" in historical_response_payload:
-            hist_file = parse_strict_boolean(historical_response_payload.get("has_file"))
-        elif "file" in historical_response_payload:
-            hist_file = parse_strict_boolean(historical_response_payload.get("file"))
-        if hist_file is None:
-            # Sem proveniencia documental de arquivo ou indicador ambiguo (ex.: nome de arquivo no lugar de booleano): rejeita
+        # 4. Prova de Anexos de Arquivo (com checagem de conflito entre aliases)
+        has_hf = "has_file" in historical_response_payload
+        has_f = "file" in historical_response_payload
+        if not has_hf and not has_f:
             return False
+        b_hf = parse_strict_boolean(historical_response_payload.get("has_file")) if has_hf else None
+        b_f = parse_strict_boolean(historical_response_payload.get("file")) if has_f else None
+        if has_hf and b_hf is None:
+            return False
+        if has_f and b_f is None:
+            return False
+        if has_hf and has_f and b_hf != b_f:
+            return False  # Conflito entre aliases de anexo de arquivo
+        hist_file = b_hf if has_hf else b_f
         if bool(has_file) != hist_file:
             return False
 
-        # 5. Prova de Projeto (P0/P1 - Ciclos 033/034)
-        if "project_id" in historical_response_payload:
-            hist_proj_raw = historical_response_payload.get("project_id")
-        elif "proj" in historical_response_payload:
-            hist_proj_raw = historical_response_payload.get("proj")
-        else:
+        # 5. Prova de Projeto (com checagem de conflito entre aliases)
+        has_p = "project_id" in historical_response_payload
+        has_proj = "proj" in historical_response_payload
+        if not has_p and not has_proj:
             return False
-        if not isinstance(hist_proj_raw, str):
+        p_val = historical_response_payload.get("project_id") if has_p else None
+        proj_val = historical_response_payload.get("proj") if has_proj else None
+        if has_p and (not isinstance(p_val, str) or not p_val.strip()):
             return False
-        hist_proj = hist_proj_raw.strip()
-        if not hist_proj:
+        if has_proj and (not isinstance(proj_val, str) or not proj_val.strip()):
             return False
+        if has_p and has_proj and p_val.strip() != proj_val.strip():
+            return False  # Conflito entre aliases de projeto
+        hist_proj = (p_val or proj_val).strip()
         req_proj = (project_id or "general").strip()
         if (hist_proj or "general") != (req_proj or "general"):
             return False
@@ -446,6 +467,35 @@ class BancoDados:
                         status VARCHAR(50) DEFAULT 'success',
                         details JSONB
                     )
+                """)
+
+                await cur.execute("""
+                    ALTER TABLE admin_audit_events
+                    ADD COLUMN IF NOT EXISTS action VARCHAR(100)
+                """)
+                await cur.execute("""
+                    ALTER TABLE admin_audit_events
+                    ADD COLUMN IF NOT EXISTS actor VARCHAR(255)
+                """)
+                await cur.execute("""
+                    ALTER TABLE admin_audit_events
+                    ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(120)
+                """)
+                await cur.execute("""
+                    ALTER TABLE admin_audit_events
+                    ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'success'
+                """)
+
+                await cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'admin_audit_events' AND column_name = 'event_type'
+                        ) THEN
+                            ALTER TABLE admin_audit_events ALTER COLUMN event_type DROP NOT NULL;
+                        END IF;
+                    END $$;
                 """)
 
                 await cur.execute("""
@@ -1545,6 +1595,21 @@ class BancoDados:
         user_email: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> List[Dict]:
+        """Recupera historico de mensagens com isolamento rigoroso por usuario e projeto (P0 - Ciclos 034/035).
+        
+        Garantias de Seguranca:
+        1. Acesso anonimo bloqueado: user_email e estritamente obrigatorio; session_id isoladamente
+           NUNCA e aceito como comprovacao de posse (retorna []).
+        2. Escopo estrito de projeto: project_id e enforcado (padrao 'general' quando nao fornecido;
+           wildcards 'all' e '*' sao neutralizados para 'general').
+        """
+        if not user_email or not user_email.strip():
+            return []
+        email_norm = user_email.strip().lower()
+        proj_norm = (project_id or "general").strip()
+        if proj_norm in ("all", "*", ""):
+            proj_norm = "general"
+
         if not await self._garantir_pool() or self.pool is None:
             is_deploy = bool(
                 os.getenv("VERCEL")
@@ -1553,11 +1618,8 @@ class BancoDados:
                 or os.getenv("RENDER")
                 or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
             )
-            # P0 Memoria de Testes (Ciclos 033/034): Exige HELPUS_TEST_MODE=1 e ausencia de deploy
+            # P0 Memoria de Testes (Ciclos 033/034/035): Exige HELPUS_TEST_MODE=1 e ausencia de deploy
             if os.getenv("HELPUS_TEST_MODE") == "1" and not is_deploy and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
-                email_norm = (user_email or "").strip().lower() if user_email and user_email.strip() else None
-                proj_norm = (project_id or "general").strip() if project_id and project_id.strip() else "general"
-
                 msgs = []
                 for m in self._conversas_memoria:
                     if m.get("session_id") != session_id:
@@ -1565,24 +1627,13 @@ class BancoDados:
                     m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
                     m_proj = (m.get("project_id") or "").strip() if m.get("project_id") else None
 
-                    # P0 Ciclos 033/034:
-                    # 1. Se o solicitante for autenticado (email_norm fornecido):
-                    #    Registros com usuario ausente (m_email is None) ou projeto ausente (m_proj is None)
-                    #    JAMAIS podem ser retornados ao solicitante autenticado.
-                    if email_norm is not None:
-                        if m_email is None or m_proj is None:
-                            continue
-                        if m_email != email_norm:
-                            continue
-                        if m_proj != proj_norm:
-                            continue
-                    else:
-                        # 2. Se o solicitante for anonimo (email_norm is None):
-                        #    JAMAIS expor registros de usuarios autenticados (m_email is not None).
-                        if m_email is not None:
-                            continue
-                        if m_proj != proj_norm:
-                            continue
+                    # Registros com usuario ou projeto ausentes JAMAIS podem ser retornados a solicitantes autenticados
+                    if not m_email or not m_proj:
+                        continue
+                    if m_email != email_norm:
+                        continue
+                    if m_proj != proj_norm:
+                        continue
 
                     msgs.append({"role": m.get("role"), "content": m.get("content")})
                 return msgs[-limite:]
@@ -1591,59 +1642,21 @@ class BancoDados:
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    if user_email and user_email.strip():
-                        email_norm = user_email.strip().lower()
-                        proj_norm = (project_id or "general").strip() if project_id and project_id not in ("all", "*") else None
-                        if proj_norm:
-                            await cur.execute(
-                                """
-                                SELECT role, content FROM (
-                                    SELECT role, content, created_at
-                                    FROM conversas
-                                    WHERE session_id = %s 
-                                      AND LOWER(user_email) = %s
-                                      AND user_email IS NOT NULL
-                                      AND project_id IS NOT NULL
-                                      AND project_id = %s
-                                    ORDER BY created_at DESC
-                                    LIMIT %s
-                                ) sub
-                                ORDER BY created_at ASC
-                                """,
-                                (session_id, email_norm, proj_norm, limite)
-                            )
-                        else:
-                            await cur.execute(
-                                """
-                                SELECT role, content FROM (
-                                    SELECT role, content, created_at
-                                    FROM conversas
-                                    WHERE session_id = %s 
-                                      AND LOWER(user_email) = %s
-                                      AND user_email IS NOT NULL
-                                      AND project_id IS NOT NULL
-                                    ORDER BY created_at DESC
-                                    LIMIT %s
-                                ) sub
-                                ORDER BY created_at ASC
-                                """,
-                                (session_id, email_norm, limite)
-                            )
-                    else:
-                        await cur.execute(
-                            """
-                            SELECT role, content FROM (
-                                SELECT role, content, created_at
-                                FROM conversas
-                                WHERE session_id = %s AND user_email IS NULL
-                                ORDER BY created_at DESC
-                                LIMIT %s
-                            ) sub
-                            ORDER BY created_at ASC
-                            """,
-                            (session_id, limite)
-                        )
-
+                    query = """
+                    SELECT role, content FROM (
+                        SELECT role, content, created_at
+                        FROM conversas
+                        WHERE session_id = %s 
+                          AND LOWER(user_email) = %s
+                          AND user_email IS NOT NULL
+                          AND project_id IS NOT NULL
+                          AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    ) sub
+                    ORDER BY created_at ASC
+                    """
+                    await cur.execute(query, (session_id, email_norm, proj_norm, proj_norm, limite))
                     rows = await cur.fetchall()
                     return [{"role": r[0], "content": r[1]} for r in rows]
         except Exception as e:
@@ -1651,6 +1664,20 @@ class BancoDados:
             return []
 
     async def listar_conversas_usuario(self, user_email: str, limite: int = 50, project_id: Optional[str] = None) -> List[Dict]:
+        """Lista conversas de um usuario com isolamento estrito de projeto (P0 - Ciclos 034/035).
+        
+        Garantias de Seguranca:
+        1. Acesso cross-project implicito (via project_id ausente, 'all' ou '*') e sumariamente eliminado.
+        2. Toda consulta de usuario normal e restrita a um projeto especifico (padrao 'general' quando nao fornecido ou quando wildcard for tentado).
+        3. Consultas globais sao permitidas unicamente no metodo administrativo separado (admin_listar_conversas_globais).
+        """
+        if not user_email or not user_email.strip():
+            return []
+        email_norm = user_email.strip().lower()
+        proj_norm = (project_id or "general").strip()
+        if proj_norm in ("all", "*", ""):
+            proj_norm = "general"
+
         if not await self._garantir_pool() or self.pool is None:
             is_deploy = bool(
                 os.getenv("VERCEL")
@@ -1659,22 +1686,18 @@ class BancoDados:
                 or os.getenv("RENDER")
                 or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
             )
-            # P0 Memoria de Testes (Ciclos 033/034): Exige HELPUS_TEST_MODE=1 e isolamento estrito de usuario e projeto
+            # P0 Memoria de Testes (Ciclos 033/034/035): Exige HELPUS_TEST_MODE=1 e isolamento estrito de usuario e projeto
             if os.getenv("HELPUS_TEST_MODE") == "1" and not is_deploy and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
-                if not user_email or not user_email.strip():
-                    return []
-                email_norm = user_email.strip().lower()
-                proj_norm = (project_id or "general").strip() if project_id and project_id not in ("all", "*") else None
                 sessoes_vistas = {}
                 for m in self._conversas_memoria:
-                    m_email = (m.get("user_email") or "").strip().lower()
-                    m_proj = (m.get("project_id") or "").strip()
-                    # P0 Ciclo 034: Registros com usuario ou projeto ausentes NAO podem ser retornados a solicitantes autenticados
+                    m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
+                    m_proj = (m.get("project_id") or "").strip() if m.get("project_id") else None
+                    # Tolerancia zero a registros ausentes ou divergentes
                     if not m_email or not m_proj:
                         continue
                     if m_email != email_norm:
                         continue
-                    if proj_norm and m_proj != proj_norm:
+                    if m_proj != proj_norm:
                         continue
                     sid = m.get("session_id")
                     if sid and sid not in sessoes_vistas:
@@ -1687,53 +1710,30 @@ class BancoDados:
                 return list(sessoes_vistas.values())[:limite]
             return []
 
-        if not user_email or not user_email.strip():
-            return []
-
         try:
             async with self.pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    email_norm = user_email.strip().lower()
-                    if project_id and project_id not in ("all", "*"):
-                        query = """
-                        SELECT
-                            session_id,
-                            COALESCE(
-                                NULLIF(MAX(title), ''),
-                                LEFT((ARRAY_AGG(content ORDER BY created_at ASC))[1], 80),
-                                'Nova conversa'
-                            ) AS titulo,
-                            MAX(created_at) AS updated_at,
-                            COUNT(*) AS total_mensagens,
-                            COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
-                        FROM conversas
-                        WHERE LOWER(user_email) = %s
-                          AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
-                        GROUP BY session_id
-                        ORDER BY MAX(created_at) DESC
-                        LIMIT %s
-                        """
-                        params = (email_norm, project_id, project_id, limite)
-                    else:
-                        query = """
-                        SELECT
-                            session_id,
-                            COALESCE(
-                                NULLIF(MAX(title), ''),
-                                LEFT((ARRAY_AGG(content ORDER BY created_at ASC))[1], 80),
-                                'Nova conversa'
-                            ) AS titulo,
-                            MAX(created_at) AS updated_at,
-                            COUNT(*) AS total_mensagens,
-                            COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
-                        FROM conversas
-                        WHERE LOWER(user_email) = %s
-                        GROUP BY session_id
-                        ORDER BY MAX(created_at) DESC
-                        LIMIT %s
-                        """
-                        params = (email_norm, limite)
-
+                    query = """
+                    SELECT
+                        session_id,
+                        COALESCE(
+                            NULLIF(MAX(title), ''),
+                            LEFT((ARRAY_AGG(content ORDER BY created_at ASC))[1], 80),
+                            'Nova conversa'
+                        ) AS titulo,
+                        MAX(created_at) AS updated_at,
+                        COUNT(*) AS total_mensagens,
+                        COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
+                    FROM conversas
+                    WHERE LOWER(user_email) = %s
+                      AND user_email IS NOT NULL
+                      AND project_id IS NOT NULL
+                      AND (project_id = %s OR (%s = 'general' AND project_id IS NULL))
+                    GROUP BY session_id
+                    ORDER BY MAX(created_at) DESC
+                    LIMIT %s
+                    """
+                    params = (email_norm, proj_norm, proj_norm, limite)
                     await cur.execute(query, params)
                     rows = await cur.fetchall()
                     return [
@@ -1749,6 +1749,102 @@ class BancoDados:
         except Exception as e:
             _log_db_error("listar_conversas", e)
             return []
+
+    async def admin_listar_conversas_globais(
+        self,
+        actor_email: str,
+        limite: int = 50,
+        offset: int = 0,
+        filter_user_email: Optional[str] = None,
+        filter_project_id: Optional[str] = None
+    ) -> Tuple[List[Dict], int]:
+        """Consulta administrativa global de conversas com autorizacao administrativa (P0 - Ciclo 035)."""
+        if not actor_email or not actor_email.strip():
+            raise PermissionError("Acesso negado: ator administrativo obrigatorio.")
+
+        if not await self._garantir_pool() or self.pool is None:
+            is_deploy = bool(
+                os.getenv("VERCEL")
+                or os.getenv("RAILWAY_ENVIRONMENT")
+                or os.getenv("RAILWAY_PROJECT_ID")
+                or os.getenv("RENDER")
+                or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+            )
+            if is_deploy or os.getenv("HELPUS_TEST_MODE") != "1" or os.getenv("HELPUS_REQUIRE_POSTGRES") == "1":
+                raise RuntimeError("Consulta administrativa duravel indisponivel: conexao com banco ausente.")
+            
+            sessoes = {}
+            for m in self._conversas_memoria:
+                m_email = (m.get("user_email") or "").strip().lower() if m.get("user_email") else None
+                m_proj = (m.get("project_id") or "general").strip()
+                if filter_user_email and m_email != filter_user_email.strip().lower():
+                    continue
+                if filter_project_id and filter_project_id not in ("all", "*") and m_proj != filter_project_id.strip():
+                    continue
+                sid = m.get("session_id")
+                if sid and sid not in sessoes:
+                    sessoes[sid] = {
+                        "session_id": sid,
+                        "title": m.get("title") or m.get("content")[:80],
+                        "user_email": m_email,
+                        "project_id": m_proj,
+                        "created_at": None
+                    }
+            res = list(sessoes.values())
+            return res[offset:offset+limite], len(res)
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    where_clauses = ["user_email IS NOT NULL"]
+                    params = []
+                    if filter_user_email and filter_user_email.strip():
+                        where_clauses.append("LOWER(user_email) = %s")
+                        params.append(filter_user_email.strip().lower())
+                    if filter_project_id and filter_project_id not in ("all", "*"):
+                        where_clauses.append("project_id = %s")
+                        params.append(filter_project_id.strip())
+                    
+                    where_sql = " AND ".join(where_clauses)
+                    count_query = f"SELECT COUNT(DISTINCT session_id) FROM conversas WHERE {where_sql}"
+                    await cur.execute(count_query, tuple(params))
+                    total_row = await cur.fetchone()
+                    total = total_row[0] if total_row else 0
+
+                    data_query = f"""
+                    SELECT
+                        session_id,
+                        COALESCE(
+                            NULLIF(MAX(title), ''),
+                            LEFT((ARRAY_AGG(content ORDER BY created_at ASC))[1], 80),
+                            'Nova conversa'
+                        ) AS titulo,
+                        MAX(created_at) AS updated_at,
+                        COUNT(*) AS total_mensagens,
+                        COALESCE(NULLIF(MAX(project_id), ''), 'general') AS project_id
+                    FROM conversas
+                    WHERE {where_sql}
+                    GROUP BY session_id
+                    ORDER BY MAX(created_at) DESC
+                    LIMIT %s OFFSET %s
+                    """
+                    data_params = list(params) + [limite, offset]
+                    await cur.execute(data_query, tuple(data_params))
+                    rows = await cur.fetchall()
+                    conversas = [
+                        {
+                            "session_id": r[0],
+                            "titulo": r[1],
+                            "updated_at": r[2].isoformat() if r[2] else None,
+                            "total_mensagens": int(r[3] or 0),
+                            "project_id": r[4] or "general",
+                        }
+                        for r in rows
+                    ]
+                    return conversas, total
+        except Exception as e:
+            _log_db_error("admin_listar_conversas_globais", e)
+            raise
 
     async def renomear_conversa(self, session_id: str, novo_titulo: str, user_email: Optional[str] = None):
         if not await self._garantir_pool():

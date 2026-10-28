@@ -2060,19 +2060,25 @@ asyncio.run(main())
                 leak_empty_proj = await b1.carregar_mensagens("sess_empty_proj", user_email="alpha@helpus.com", project_id="proj_a")
                 self.assertEqual(len(leak_empty_proj), 0, "Falha P0: registro com projeto vazio vazou para usuario autenticado")
 
-                # Validacao 3: Solicitante sem identidade (user_email=None ou "") nao recebe mensagens de usuario autenticado
+                # Validacao 3: Solicitante sem identidade (user_email=None ou "") e fail-closed (P0 - Ciclo 035)
+                # Posse da sessao isoladamente NUNCA e aceita; recuperacao de historico anonimo e bloqueada
                 anon_msgs_none = await b1.carregar_mensagens("sess_inst_1", user_email=None, project_id="proj_a")
                 self.assertEqual(len(anon_msgs_none), 0, "Falha P0 Fail-Closed: solicitante sem identidade recebeu mensagens de usuario autenticado")
                 anon_msgs_empty = await b1.carregar_mensagens("sess_inst_1", user_email="", project_id="proj_a")
                 self.assertEqual(len(anon_msgs_empty), 0, "Falha P0 Fail-Closed: solicitante com email vazio recebeu mensagens de usuario autenticado")
 
-                # Mensagens de sessao anonima podem ser lidas por anonimo, mas NUNCA por usuario autenticado
+                # Recuperacao de historico anonimo e bloqueada em carregar_mensagens ate haver controle seguro de posse
                 await b1.salvar_mensagem("sess_anon", "user", "Ola anonimo", user_email=None, project_id="proj_a")
                 anon_msgs = await b1.carregar_mensagens("sess_anon", user_email=None, project_id="proj_a")
-                self.assertEqual(len(anon_msgs), 1)
-                self.assertEqual(anon_msgs[0]["content"], "Ola anonimo")
+                self.assertEqual(len(anon_msgs), 0, "Falha P0: historico anonimo sem controle seguro de posse foi recuperado")
                 leak_to_auth = await b1.carregar_mensagens("sess_anon", user_email="alpha@helpus.com", project_id="proj_a")
                 self.assertEqual(len(leak_to_auth), 0, "Sessao anonima vazou para usuario autenticado")
+
+                # Validacao 3b: Neutralizacao estrita de wildcards 'all' e '*' em consultas de usuario
+                convs_all = await b1.listar_conversas_usuario("alpha@helpus.com", project_id="all")
+                self.assertEqual(len(convs_all), 0, "Wildcard 'all' nao deve vazar conversas de outros projetos")
+                convs_star = await b1.listar_conversas_usuario("alpha@helpus.com", project_id="*")
+                self.assertEqual(len(convs_star), 0, "Wildcard '*' nao deve vazar conversas de outros projetos")
 
                 # Validacao 4: Listagem de conversas nunca inclui sessoes com usuario ou projeto ausentes
                 list_alpha = await b1.listar_conversas_usuario("alpha@helpus.com", project_id="proj_a")
@@ -2114,6 +2120,219 @@ asyncio.run(main())
                     os.environ["DATABASE_URL"] = orig_db_url
                 else:
                     os.environ.pop("DATABASE_URL", None)
+
+        self.run_async(_test())
+
+    def test_real_postgresql_adversarial_isolation_and_cross_project_boundaries(self):
+        """P0 Testes de Isolamento de Sessao Anonima, Escopo de Projeto e Endpoints HTTP Reais (Ciclo 035):
+        1. Simula adversario com session_id conhecido tentando ler historico anonimo e de outros usuarios.
+        2. Simula tentativas de acesso cross-project com project_id ausente, 'all' e '*'.
+        3. Valida endpoints HTTP reais (/historico/{sid}, /conversas, /admin/conversas/global) contra PostgreSQL 18.
+        4. Valida rejeicao de aliases conflitantes em is_nominal_legacy_request."""
+        import httpx
+        from backend.banco import BancoDados, is_nominal_legacy_request
+        import backend.main as b_main
+        from auth import obter_usuario_google, obter_admin_google
+        import uuid
+
+        async def _test():
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            self.assertIsNotNone(b.pool)
+            old_banco = b_main.banco
+            b_main.banco = b
+
+            try:
+                victim_sid = f"sess_victim_{uuid.uuid4().hex[:8]}"
+                victim_email = f"victim_c35_{uuid.uuid4().hex[:8]}@helpus.com"
+                attacker_email = f"attacker_c35_{uuid.uuid4().hex[:8]}@helpus.com"
+
+                # 1. Cria conversa da vitima no projeto 'finance'
+                await b.salvar_mensagem(victim_sid, "user", "Dados financeiros confidenciais", user_email=victim_email, project_id="finance")
+                await b.salvar_mensagem(victim_sid, "assistant", "Lucro liquido: R$ 500.000", user_email=victim_email, project_id="finance")
+
+                # (a) Adversario com session_id conhecido tentando ler anonimo (user_email=None)
+                anon_attempt = await b.carregar_mensagens(victim_sid, user_email=None, project_id="finance")
+                self.assertEqual(len(anon_attempt), 0, "Falha P0: adversario anonimo conseguiu ler conversa da vitima")
+
+                # (b) Adversario com conta diferente (attacker_email) tentando ler session_id da vitima
+                attacker_attempt = await b.carregar_mensagens(victim_sid, user_email=attacker_email, project_id="finance")
+                self.assertEqual(len(attacker_attempt), 0, "Falha P0: adversario de outra conta conseguiu ler conversa da vitima")
+
+                # (c) Mesma vitima tentando ler com escopo de projeto divergente ('general')
+                cross_proj_attempt = await b.carregar_mensagens(victim_sid, user_email=victim_email, project_id="general")
+                self.assertEqual(len(cross_proj_attempt), 0, "Falha P0: leitura com escopo de projeto divergente retornou dados")
+
+                # (d) Leitura legitima da vitima no projeto correto ('finance')
+                legit_read = await b.carregar_mensagens(victim_sid, user_email=victim_email, project_id="finance")
+                self.assertEqual(len(legit_read), 2)
+                self.assertEqual(legit_read[0]["content"], "Dados financeiros confidenciais")
+
+                # 2. Testes de Escopo de Projetos em listar_conversas_usuario:
+                # Cria mais duas conversas da vitima: uma em 'general' e outra em 'hr'
+                sid_gen = f"sess_gen_{uuid.uuid4().hex[:8]}"
+                sid_hr = f"sess_hr_{uuid.uuid4().hex[:8]}"
+                await b.salvar_mensagem(sid_gen, "user", "Conversa Geral", user_email=victim_email, project_id="general")
+                await b.salvar_mensagem(sid_hr, "user", "Conversa RH", user_email=victim_email, project_id="hr")
+
+                # (i) project_id ausente (None): DEVE retornar estritamente as de 'general', NUNCA cross-project
+                list_default = await b.listar_conversas_usuario(victim_email, project_id=None)
+                list_default_sids = [c["session_id"] for c in list_default]
+                self.assertIn(sid_gen, list_default_sids)
+                self.assertNotIn(victim_sid, list_default_sids, "Falha P0: project_id ausente vazou conversa de 'finance'")
+                self.assertNotIn(sid_hr, list_default_sids, "Falha P0: project_id ausente vazou conversa de 'hr'")
+
+                # (ii) project_id='all' e '*': DEVEM ser neutralizados estritamente para 'general'
+                list_all = await b.listar_conversas_usuario(victim_email, project_id="all")
+                list_all_sids = [c["session_id"] for c in list_all]
+                self.assertIn(sid_gen, list_all_sids)
+                self.assertNotIn(victim_sid, list_all_sids, "Falha P0: 'all' vazou conversa de outro projeto")
+
+                list_star = await b.listar_conversas_usuario(victim_email, project_id="*")
+                list_star_sids = [c["session_id"] for c in list_star]
+                self.assertIn(sid_gen, list_star_sids)
+                self.assertNotIn(victim_sid, list_star_sids, "Falha P0: '*' vazou conversa de outro projeto")
+
+                # (iii) project_id='finance': retorna unicamente a de finance
+                list_fin = await b.listar_conversas_usuario(victim_email, project_id="finance")
+                list_fin_sids = [c["session_id"] for c in list_fin]
+                self.assertIn(victim_sid, list_fin_sids)
+                self.assertNotIn(sid_gen, list_fin_sids)
+                self.assertNotIn(sid_hr, list_fin_sids)
+
+                # 3. Consulta Global Administrativa (admin_listar_conversas_globais):
+                # Ator vazio/invalido levanta PermissionError
+                with self.assertRaises(PermissionError):
+                    await b.admin_listar_conversas_globais(actor_email="")
+
+                # Ator admin autorizado lista todas as conversas cross-project
+                admin_actor = f"admin_auditor_{uuid.uuid4().hex[:8]}@helpus.com"
+                global_convs, total_global = await b.admin_listar_conversas_globais(
+                    actor_email=admin_actor,
+                    filter_user_email=victim_email
+                )
+                global_sids = [c["session_id"] for c in global_convs]
+                self.assertIn(victim_sid, global_sids)
+                self.assertIn(sid_gen, global_sids)
+                self.assertIn(sid_hr, global_sids)
+                self.assertEqual(len(global_sids), 3)
+
+                # 4. Validacao de Aliases Conflitantes em is_nominal_legacy_request (P1 - Ciclo 035):
+                # (a) Conflito entre model_requested e model_used
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    historical_response_payload={
+                        "model_requested": "gemini-2.0-flash",
+                        "model_used": "gemini-1.5-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_file": False,
+                        "project_id": "general"
+                    }
+                ))
+                # (b) Conflito entre pesquisar_web e web
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "web": False,
+                        "has_image": False,
+                        "has_file": False,
+                        "project_id": "general"
+                    }
+                ))
+                # (c) Conflito entre has_image e has_img
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_img": True,
+                        "has_file": False,
+                        "project_id": "general"
+                    }
+                ))
+                # (d) Conflito entre has_file e file
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_file": False,
+                        "file": True,
+                        "project_id": "general"
+                    }
+                ))
+                # (e) Conflito entre project_id e proj
+                self.assertFalse(is_nominal_legacy_request(
+                    model="gemini-2.0-flash",
+                    historical_response_payload={
+                        "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_file": False,
+                        "project_id": "general",
+                        "proj": "finance"
+                    }
+                ))
+
+                # 5. Testes de Endpoints HTTP Reais contra PostgreSQL 18 via httpx:
+                transport = httpx.ASGITransport(app=b_main.app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    # (a) GET /historico/{session_id} sem autenticacao -> HTTP 401
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: None
+                    res_anon_hist = await client.get(f"/historico/{victim_sid}")
+                    self.assertEqual(res_anon_hist.status_code, 401)
+                    self.assertIn("Autenticacao necessaria", res_anon_hist.json()["detail"])
+
+                    # (b) GET /conversas com wildcards 'all' ou '*' -> HTTP 400
+                    b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": victim_email, "name": "Victim", "role": "user"}
+                    res_all = await client.get("/conversas?project_id=all")
+                    self.assertEqual(res_all.status_code, 400)
+                    self.assertIn("Wildcards 'all' ou '*' sao proibidos", res_all.json()["detail"])
+
+                    res_star = await client.get("/conversas?project_id=*")
+                    self.assertEqual(res_star.status_code, 400)
+                    self.assertIn("Wildcards 'all' ou '*' sao proibidos", res_star.json()["detail"])
+
+                    # (c) GET /conversas?project_id=finance -> 200 contendo apenas conversa de finance
+                    res_fin = await client.get("/conversas?project_id=finance")
+                    self.assertEqual(res_fin.status_code, 200)
+                    fin_sids = [c["session_id"] for c in res_fin.json()["conversas"]]
+                    self.assertIn(victim_sid, fin_sids)
+                    self.assertNotIn(sid_gen, fin_sids)
+
+                    # (d) GET /conversas (sem project_id) -> 200 escopo padrao 'general'
+                    res_gen = await client.get("/conversas")
+                    self.assertEqual(res_gen.status_code, 200)
+                    gen_sids = [c["session_id"] for c in res_gen.json()["conversas"]]
+                    self.assertIn(sid_gen, gen_sids)
+                    self.assertNotIn(victim_sid, gen_sids)
+
+                    # (e) GET /admin/conversas/global sem admin -> HTTP 401
+                    b_main.app.dependency_overrides[obter_admin_google] = lambda: None
+                    res_admin_anon = await client.get("/admin/conversas/global")
+                    self.assertEqual(res_admin_anon.status_code, 401)
+
+                    # (f) GET /admin/conversas/global com admin autorizado -> HTTP 200 com total e conversas cross-project
+                    admin_actor_web = f"superadmin_c35_{uuid.uuid4().hex[:8]}@helpus.com"
+                    b_main.app.dependency_overrides[obter_admin_google] = lambda: {"email": admin_actor_web, "name": "SuperAdmin", "role": "admin"}
+                    res_admin_ok = await client.get(f"/admin/conversas/global?filter_user_email={victim_email}")
+                    self.assertEqual(res_admin_ok.status_code, 200)
+                    admin_data = res_admin_ok.json()
+                    self.assertEqual(admin_data["total"], 3)
+                    admin_returned_sids = [c["session_id"] for c in admin_data["conversas"]]
+                    self.assertIn(victim_sid, admin_returned_sids)
+                    self.assertIn(sid_gen, admin_returned_sids)
+                    self.assertIn(sid_hr, admin_returned_sids)
+
+            finally:
+                b_main.banco = old_banco
+                b_main.app.dependency_overrides.clear()
+                await b.fechar()
 
         self.run_async(_test())
 
