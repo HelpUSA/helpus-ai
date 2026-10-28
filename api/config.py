@@ -44,7 +44,10 @@ CORS_ORIGINS = [
 
 
 AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower().strip() in ("1", "true", "yes", "on")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com")
+GOOGLE_CLIENT_ID_DEFAULT = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
+_raw_google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY = _raw_google_client_id is not None and bool(_raw_google_client_id.strip())
+GOOGLE_CLIENT_ID = (_raw_google_client_id if GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY else GOOGLE_CLIENT_ID_DEFAULT).strip()
 ADMIN_EMAILS = [email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "").split(",") if email.strip()]
 
 # Multi-provider fallback
@@ -117,17 +120,26 @@ def validar_politica_seguranca_ambiente(enforce: bool = False) -> dict:
 
     Em staging e producao:
     - AUTH_REQUIRED deve ser estritamente True.
-    - GOOGLE_CLIENT_ID deve ser configurado explicitamente via variavel de ambiente.
+    - GOOGLE_CLIENT_ID deve ser configurado explicitamente via variavel de ambiente (sem fallback implicito).
     - Em staging, GOOGLE_CLIENT_ID nao pode reutilizar a credencial padrao de producao.
     - Se enforce=True e houver erros, lanca RuntimeError abortando o startup.
     Em desenvolvimento:
-    - Tolera AUTH_REQUIRED=False para testes locais e suites automatizadas.
+    - Tolera AUTH_REQUIRED=False e fallback para desenvolvimento local e suites automatizadas.
     """
     env = (ENVIRONMENT or "development").lower().strip()
     erros = []
     avisos = []
     client_id = (GOOGLE_CLIENT_ID or "").strip()
     prod_default_client_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
+
+    # Determina se GOOGLE_CLIENT_ID foi explicitamente configurado pelo ambiente
+    raw_env_client_id = os.getenv("GOOGLE_CLIENT_ID")
+    env_has_explicit = raw_env_client_id is not None and bool(raw_env_client_id.strip())
+    is_explicit = (
+        env_has_explicit
+        or bool(globals().get("GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY", False))
+        or (bool(client_id) and client_id != prod_default_client_id)
+    )
 
     if env in ("production", "staging"):
         if not AUTH_REQUIRED:
@@ -137,6 +149,11 @@ def validar_politica_seguranca_ambiente(enforce: bool = False) -> dict:
             erros.append("GOOGLE_CLIENT_ID ausente. O ambiente protegido exige configuracao explicita de Client ID.")
         elif env == "staging" and client_id == prod_default_client_id:
             erros.append("GOOGLE_CLIENT_ID em staging nao pode reutilizar a credencial padrao de producao. Exigir Client ID dedicado.")
+        elif not is_explicit:
+            erros.append(
+                f"GOOGLE_CLIENT_ID nao foi configurado explicitamente via variavel de ambiente em {env}. "
+                "O uso de fallback implicito/hardcoded e terminantemente proibido em staging e producao."
+            )
 
         if not ADMIN_EMAILS:
             avisos.append("ADMIN_EMAILS vazio. Endpoints /admin/* operarao em fail-closed total (403).")
@@ -148,7 +165,7 @@ def validar_politica_seguranca_ambiente(enforce: bool = False) -> dict:
         "environment": env,
         "auth_required": bool(AUTH_REQUIRED),
         "google_client_id_configured": bool(client_id),
-        "google_client_id_explicit": bool(client_id and client_id != prod_default_client_id),
+        "google_client_id_explicit": bool(is_explicit),
         "admin_emails_count": len(ADMIN_EMAILS),
         "conforme": len(erros) == 0,
         "erros": erros,

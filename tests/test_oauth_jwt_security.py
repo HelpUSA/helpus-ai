@@ -30,9 +30,10 @@ Validações isoladas sem rede externa, sem bancos remotos e sem credenciais rea
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -572,6 +573,113 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                         asyncio.run(auth_backend.obter_admin_google("Bearer attacker.token.sig"))
                     self.assertEqual(ctx.exception.status_code, 403)
                     self.assertEqual(ctx.exception.detail.get("error"), "admin_forbidden")
+
+    # --- Testes de Configuração Explícita e Lifespan FastAPI Real (Ordem 087) ---
+
+    def test_startup_blocks_production_when_client_id_not_explicitly_configured(self):
+        """Ordem 087: Produção sem GOOGLE_CLIENT_ID configurado explicitamente no ambiente
+        (recorrendo apenas ao fallback de código) DEVE falhar fail-closed com RuntimeError."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "production"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", b_cfg.GOOGLE_CLIENT_ID_DEFAULT):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY", False):
+                        with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                            with self.assertRaises(RuntimeError) as ctx:
+                                b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                            self.assertIn("GOOGLE_CLIENT_ID nao foi configurado explicitamente", str(ctx.exception))
+
+    def test_startup_allows_production_when_client_id_is_explicitly_configured(self):
+        """Ordem 087: Produção com GOOGLE_CLIENT_ID explicitamente declarado via variável de ambiente é aceito."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "production"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": "812202824664-prod.apps.googleusercontent.com"}):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID", "812202824664-prod.apps.googleusercontent.com"):
+                        with patch.object(b_cfg, "ADMIN_EMAILS", ["admin@helpusbr.com"]):
+                            diag = b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                            self.assertTrue(diag["conforme"])
+                            self.assertTrue(diag["google_client_id_explicit"])
+
+    def test_startup_blocks_staging_when_client_id_not_explicitly_configured(self):
+        """Ordem 087: Staging sem GOOGLE_CLIENT_ID configurado explicitamente deve falhar fail-closed."""
+        import backend.config as b_cfg
+        with patch.object(b_cfg, "ENVIRONMENT", "staging"):
+            with patch.object(b_cfg, "AUTH_REQUIRED", True):
+                with patch.object(b_cfg, "GOOGLE_CLIENT_ID", b_cfg.GOOGLE_CLIENT_ID_DEFAULT):
+                    with patch.object(b_cfg, "GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY", False):
+                        with patch.dict("os.environ", {"ENVIRONMENT": "staging", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                            with self.assertRaises(RuntimeError) as ctx:
+                                b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                            self.assertIn("GOOGLE_CLIENT_ID em staging nao pode reutilizar a credencial padrao de producao", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_staging_when_auth_required_false_on_testclient(self):
+        """Ordem 087: Execução do ciclo de vida FastAPI real via TestClient aborta startup em staging se AUTH_REQUIRED=false."""
+        import backend.main as b_main
+        with patch.object(b_main.app_config, "ENVIRONMENT", "staging"):
+            with patch.object(b_main.app_config, "AUTH_REQUIRED", False):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(b_main.app):
+                                pass
+                        self.assertIn("AUTH_REQUIRED", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_staging_reusing_production_client_id_on_testclient(self):
+        """Ordem 087: Ciclo de vida real do FastAPI aborta startup em staging se reutilizar Client ID de produção."""
+        import backend.main as b_main
+        prod_id = "812202824664-pm1o5qt84f3dsi3al0s6419oc3utt82g.apps.googleusercontent.com"
+        with patch.object(b_main.app_config, "ENVIRONMENT", "staging"):
+            with patch.object(b_main.app_config, "AUTH_REQUIRED", True):
+                with patch.object(b_main.app_config, "GOOGLE_CLIENT_ID", prod_id):
+                    with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                        with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                            with self.assertRaises(RuntimeError) as ctx:
+                                with TestClient(b_main.app):
+                                    pass
+                            self.assertIn("reutilizar a credencial padrao de producao", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_production_without_explicit_client_id_on_testclient(self):
+        """Ordem 087: Ciclo de vida real do FastAPI aborta startup em produção se GOOGLE_CLIENT_ID não for explícito."""
+        import backend.main as b_main
+        with patch.object(b_main.app_config, "ENVIRONMENT", "production"):
+            with patch.object(b_main.app_config, "AUTH_REQUIRED", True):
+                with patch.object(b_main.app_config, "GOOGLE_CLIENT_ID", b_main.app_config.GOOGLE_CLIENT_ID_DEFAULT):
+                    with patch.object(b_main.app_config, "GOOGLE_CLIENT_ID_CONFIGURED_EXPLICITLY", False):
+                        with patch.dict("os.environ", {"ENVIRONMENT": "production", "AUTH_REQUIRED": "true", "GOOGLE_CLIENT_ID": ""}):
+                            with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                                with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                                    with self.assertRaises(RuntimeError) as ctx:
+                                        with TestClient(b_main.app):
+                                            pass
+                                    self.assertIn("GOOGLE_CLIENT_ID nao foi configurado explicitamente", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_development_runs_cleanly_on_testclient(self):
+        """Ordem 087: Ciclo de vida real do FastAPI inicia perfeitamente em modo de desenvolvimento local e responde requisições."""
+        import backend.main as b_main
+        with patch.object(b_main.app_config, "ENVIRONMENT", "development"):
+            with patch.object(b_main.app_config, "AUTH_REQUIRED", False):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with TestClient(b_main.app) as client:
+                            resp = client.get("/saude")
+                            self.assertEqual(resp.status_code, 200)
+                            self.assertEqual(resp.json().get("status"), "saudavel")
+
+    def test_fastapi_lifespan_lifecycle_mirror_api_main_on_testclient(self):
+        """Ordem 087: Espelho api/main.py também executa o ciclo de vida real com fail-closed idêntico."""
+        ROOT = Path(__file__).resolve().parents[1]
+        if str(ROOT / "api") not in sys.path:
+            sys.path.insert(0, str(ROOT / "api"))
+        import api.main as a_main
+        with patch.object(a_main.app_config, "ENVIRONMENT", "staging"):
+            with patch.object(a_main.app_config, "AUTH_REQUIRED", False):
+                with patch.object(a_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(a_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(a_main.app):
+                                pass
+                        self.assertIn("AUTH_REQUIRED", str(ctx.exception))
 
 
 if __name__ == "__main__":
