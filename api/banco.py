@@ -484,21 +484,144 @@ class BancoDados:
                         await conn.commit()
                         return True, None, owner_token
                     else:
+                        # Tenta inserir. Se houver disputa simultânea e outra conexão inserir primeiro,
+                        # ON CONFLICT DO NOTHING evita UniqueViolation fatal.
                         await cur.execute(
                             """
                             INSERT INTO turn_idempotency_ledger
                             (idempotency_key, owner_token, status, session_id, user_email, project_id, request_payload_hash)
-                            VALUES (%s, %s, 'in_progress', %s, %s, %s, %s);
+                            VALUES (%s, %s, 'in_progress', %s, %s, %s, %s)
+                            ON CONFLICT (idempotency_key) DO NOTHING
+                            RETURNING owner_token;
                             """,
                             (idempotency_key, owner_token, session_id, email_norm, proj_norm, request_payload_hash)
                         )
+                        inserted = await cur.fetchone()
+                        if inserted:
+                            await conn.commit()
+                            return True, None, owner_token
+
+                        # Disputa simultanea (race condition): outra conexao gravou primeiro
                         await conn.commit()
-                        return True, None, owner_token
+                        async with conn.cursor() as cur_race:
+                            await cur_race.execute(
+                                """
+                                SELECT owner_token, status, response_payload,
+                                       EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_heartbeat)) as heartbeat_age,
+                                       session_id, user_email, project_id, request_payload_hash
+                                FROM turn_idempotency_ledger
+                                WHERE idempotency_key = %s
+                                FOR UPDATE;
+                                """,
+                                (idempotency_key,)
+                            )
+                            race_row = await cur_race.fetchone()
+                            if race_row:
+                                r_owner, r_status, r_resp, r_age, r_sess, r_email, r_proj, r_hash = race_row
+                                r_email_norm = (r_email or "").strip().lower() if r_email else None
+                                r_proj_norm = r_proj or "general"
+                                if r_sess != session_id or r_email_norm != email_norm or r_proj_norm != proj_norm or r_hash != request_payload_hash:
+                                    raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro escopo ou hash divergente.")
+                                if r_status == "completed":
+                                    payload = r_resp if isinstance(r_resp, dict) else json.loads(r_resp or "{}")
+                                    return False, payload, None
+                                # Em progresso pelo vencedor da corrida: retorna 409 Conflict limpo sem erro 500
+                                return False, None, None
+                        return False, None, None
         except Exception as e:
+            # P0 RACE CONDITION: Trata UniqueViolation para re-consultar vencedor e evitar erro 500
+            if "unique" in str(e).lower() or "uniqueviolation" in type(e).__name__.lower():
+                try:
+                    reconcile_status, payload = await self.reconcile_idempotency_turn(
+                        idempotency_key=idempotency_key,
+                        user_email=email_norm,
+                        project_id=proj_norm,
+                        request_payload_hash=request_payload_hash
+                    )
+                    if reconcile_status == "KNOWN_COMMITTED":
+                        return False, payload, None
+                    return False, None, None
+                except Exception:
+                    pass
             _log_db_error("claim_turn_ledger", e)
             if getattr(self, "database_url", None) or os.getenv("DATABASE_URL"):
                 raise
             return True, None, owner_token
+
+    async def reconcile_idempotency_turn(
+        self,
+        idempotency_key: str,
+        user_email: Optional[str] = None,
+        project_id: Optional[str] = None,
+        request_payload_hash: Optional[str] = None,
+        lease_seconds: float = 15.0
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclo 028).
+        
+        Retorna uma tupla (classification, cached_payload):
+        - 'KNOWN_COMMITTED': Turno gravado e concluido no PostgreSQL com payload disponivel. Seguro para replay.
+        - 'UNKNOWN': Turno em andamento dentro do periodo de lease. Conexao caiu ou commit em curso. NUNCA classificar como abort!
+        - 'LEASE_EXPIRED_PENDING_TAKEOVER': Turno em andamento com lease expirada sem conclusao.
+        - 'KNOWN_ABORTED': Nenhum registro de ledger existente para a chave. Abort confirmado.
+        """
+        if not idempotency_key:
+            return "KNOWN_ABORTED", None
+
+        email_norm = (user_email or "").strip().lower() if user_email else None
+        proj_norm = project_id or "general"
+
+        if not self.pool:
+            entry = self._ledger_memoria.get(idempotency_key)
+            if not entry:
+                return "KNOWN_ABORTED", None
+            status = entry.get("status")
+            if status == "completed":
+                return "KNOWN_COMMITTED", entry.get("response_payload")
+            age = time.time() - entry.get("last_heartbeat", entry.get("created_at", time.time()))
+            if age < lease_seconds:
+                return "UNKNOWN", None
+            return "LEASE_EXPIRED_PENDING_TAKEOVER", None
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT status, response_payload,
+                               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_heartbeat)) as heartbeat_age,
+                               session_id, user_email, project_id, request_payload_hash
+                        FROM turn_idempotency_ledger
+                        WHERE idempotency_key = %s;
+                        """,
+                        (idempotency_key,)
+                    )
+                    row = await cur.fetchone()
+                    if not row:
+                        return "KNOWN_ABORTED", None
+                    status, resp_payload, heartbeat_age, db_sess, db_email, db_proj, db_hash = row
+                    
+                    db_email_norm = (db_email or "").strip().lower() if db_email else None
+                    db_proj_norm = db_proj or "general"
+                    if user_email and db_email_norm != email_norm:
+                        raise PermissionError("Escopo de usuario divergente na reconciliacao.")
+                    if project_id and db_proj_norm != proj_norm:
+                        raise PermissionError("Escopo de projeto divergente na reconciliacao.")
+                    if request_payload_hash and db_hash != request_payload_hash:
+                        raise PermissionError("Hash de payload divergente na reconciliacao.")
+
+                    if status == "completed":
+                        payload = resp_payload if isinstance(resp_payload, dict) else json.loads(resp_payload or "{}")
+                        return "KNOWN_COMMITTED", payload
+                    if status == "in_progress":
+                        if heartbeat_age is not None and heartbeat_age < lease_seconds:
+                            return "UNKNOWN", None
+                        return "LEASE_EXPIRED_PENDING_TAKEOVER", None
+                    return "UNKNOWN", None
+        except Exception as e:
+            _log_db_error("reconcile_idempotency_turn", e)
+            if os.getenv("DATABASE_URL") or getattr(self, "database_url", None):
+                raise
+            return "UNKNOWN", None
 
     async def heartbeat_turn_ledger(self, idempotency_key: str, owner_token: str) -> bool:
         """Atualiza last_heartbeat do turno em andamento."""
@@ -744,7 +867,21 @@ class BancoDados:
                             if not inserted:
                                 return False
 
-                        # 2.3 Atualizacao atomica do ledger para completed
+                        # 2.3 P0 FAULT INJECTION (Ciclo 028): Mecanismo estritamente controlado para testes
+                        # Jamais ativável em ambientes de deploy (produção, staging, Vercel, Railway).
+                        if getattr(self, "_test_fault_injection_post_insert", False):
+                            is_deploy = bool(
+                                os.getenv("VERCEL")
+                                or os.getenv("RAILWAY_ENVIRONMENT")
+                                or os.getenv("RAILWAY_PROJECT_ID")
+                                or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+                            )
+                            if is_deploy:
+                                raise RuntimeError("Violacao de seguranca: fault injection proibida em deploy.")
+                            if os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("HELPUS_REQUIRE_POSTGRES") == "1":
+                                raise RuntimeError("Simulacao de falha controlada pós-INSERT (P0 Fault Injection).")
+
+                        # 2.4 Atualizacao atomica do ledger para completed
                         await cur.execute(
                             """
                             UPDATE turn_idempotency_ledger

@@ -26,7 +26,7 @@ Em orquestradores de contêineres (como Kubernetes, Docker Swarm ou Railway com 
 
 ### Razões Técnicas:
 1. **Fencing em Memória Local**: Se uma requisição cliente for balanceada para a Réplica A e uma repetição for balanceada para a Réplica B, ambas poderiam iniciar inferência concorrente se não houver trava distribuída imediata.
-2. **Lease e CAS no PostgreSQL**: A Migration 005 introduziu `turn_idempotency_ledger` com `owner_token`, `lease_seconds` e `SELECT ... FOR UPDATE` para prover atomicidade transacional e fencing relacional no PostgreSQL.
+2. **Lease e CAS no PostgreSQL**: A Migration 004 introduziu `turn_idempotency_ledger` com `owner_token`, `lease_seconds` e `SELECT ... FOR UPDATE` para prover atomicidade transacional e fencing relacional no PostgreSQL. A Migration 005 vinculou `turn_idempotency_key` à tabela `conversas`.
 3. **Pré-requisito para Escala Horizontal**:
    - PostgreSQL centralizado de alta performance configurado com pool durável;
    - Todas as réplicas configuradas com `WORKERS=1` por processo;

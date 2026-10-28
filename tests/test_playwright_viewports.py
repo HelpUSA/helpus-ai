@@ -357,6 +357,9 @@ class PlaywrightViewportTests(unittest.TestCase):
         page.close()
 
     def test_playwright_conversation_rename_and_delete(self):
+        """TESTE E2E FRONTEND (MOCK HTTP NO NAVEGADOR):
+        Valida o fluxo completo de interação da interface para renomeação inline e exclusão de conversas,
+        comprovando a persistência no localStorage do navegador e atualização semântica do DOM."""
         page = self.browser.new_page(viewport={"width": 1280, "height": 800})
         # Inicializa localStorage com conversa local pré-existente
         page.add_init_script("""
@@ -369,7 +372,7 @@ class PlaywrightViewportTests(unittest.TestCase):
                 }
             ]));
         """)
-        # Mock de atualizacao de conversa
+        # Mock de endpoint PATCH /conversa (contrato frontend UI)
         page.route("**/conversa/**", lambda route: route.fulfill(
             status=200,
             content_type="application/json",
@@ -393,9 +396,11 @@ class PlaywrightViewportTests(unittest.TestCase):
         input_edit.fill("Conversa Renomeada com Sucesso")
         input_edit.press("Enter")
 
-        # 4. Verifica que o novo título foi atualizado no DOM
+        # 4. Verifica que o novo título foi atualizado no DOM e no localStorage
         page.wait_for_selector("text=Conversa Renomeada com Sucesso", timeout=5000)
         self.assertTrue(page.locator("text=Conversa Renomeada com Sucesso").first.is_visible())
+        loc_after_rename = page.evaluate("() => localStorage.getItem('helpus_conversas_locais')")
+        self.assertIn("Conversa Renomeada com Sucesso", loc_after_rename or "", "Novo título deve estar persistido no localStorage do navegador")
 
         # 5. Aciona exclusão da conversa (hover no container atualizado)
         item_renamed = page.locator("text=Conversa Renomeada com Sucesso").first
@@ -403,14 +408,18 @@ class PlaywrightViewportTests(unittest.TestCase):
         btn_delete = page.locator("button[title='Excluir']").first
         btn_delete.click()
 
-        # 6. Verifica que a conversa foi removida do DOM
+        # 6. Verifica que a conversa foi removida do DOM e do localStorage
         page.wait_for_selector("text=Conversa Renomeada com Sucesso", state="detached", timeout=5000)
+        loc_after_delete = page.evaluate("() => localStorage.getItem('helpus_conversas_locais')")
+        self.assertNotIn("Conversa Renomeada com Sucesso", loc_after_delete or "", "Conversa excluída deve ser removida do localStorage do navegador")
 
         shot_path = SCREENSHOTS_DIR / "viewport_conversation_rename_delete.png"
         page.screenshot(path=str(shot_path))
         page.close()
 
     def test_playwright_copy_link_and_load_history(self):
+        """TESTE E2E FRONTEND (MOCK HTTP NO NAVEGADOR):
+        Valida cópia de URL via Clipboard API do navegador e carregamento instantâneo do histórico."""
         context = self.browser.new_context(
             viewport={"width": 1280, "height": 800},
             permissions=["clipboard-read", "clipboard-write"]
@@ -432,7 +441,7 @@ class PlaywrightViewportTests(unittest.TestCase):
                 {{"role": "assistant", "content": "Resposta historica do assistente"}}
             ]));
         """)
-        # Mock do endpoint de histórico de mensagens para carregar histórico
+        # Mock do endpoint de histórico de mensagens (contrato frontend UI)
         hist_body = '{"session_id": "sess_pw_link_test", "titulo": "Conversa Link e Historico", "mensagens": [{"role": "user", "content": "Mensagem historica do usuario"}, {"role": "assistant", "content": "Resposta historica do assistente"}]}'
         page.route("**/historico/sess_pw_link_test", lambda route: route.fulfill(
             status=200,
@@ -454,10 +463,14 @@ class PlaywrightViewportTests(unittest.TestCase):
         self.assertTrue(btn_copy.is_visible(), "Botão Copiar link deve estar presente no item da conversa")
         btn_copy.click()
 
-        # 2. Clica na conversa para carregar o histórico
+        # 2. Valida leitura real da Clipboard API do navegador
+        clip_content = page.evaluate("() => navigator.clipboard ? navigator.clipboard.readText() : ''")
+        self.assertIn("sess_pw_link_test", clip_content, "Clipboard do navegador deve conter o session_id copiado")
+
+        # 3. Clica na conversa para carregar o histórico
         item.click()
 
-        # 3. Verifica renderização do histórico no corpo do chat
+        # 4. Verifica renderização do histórico no corpo do chat
         page.wait_for_selector("text=Resposta historica do assistente", timeout=6000)
         self.assertTrue(page.locator("text=Resposta historica do assistente").first.is_visible())
 
@@ -466,6 +479,9 @@ class PlaywrightViewportTests(unittest.TestCase):
         context.close()
 
     def test_playwright_persistence_failure_error_handling(self):
+        """TESTE E2E FRONTEND (MOCK HTTP NO NAVEGADOR):
+        Simula falha 500 do backend (fail-closed) e valida que o frontend renderiza mensagem de erro
+        amigável institucional com o botão 'Tentar novamente' visível e operável."""
         page = self.browser.new_page(viewport={"width": 1280, "height": 800})
         fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
         page.add_init_script(f"""
