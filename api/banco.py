@@ -38,17 +38,18 @@ def is_nominal_legacy_request(
     historical_response_payload: Optional[Dict[str, Any]] = None
 ) -> bool:
     """Verifica se os parametros da requisicao correspondem estritamente ao baseline nominal legado
-    E se ha metadados historicos suficientes para comprovar a identidade semantica completa (P0 - Ciclos 031/032).
+    E se ha proveniencia historica suficiente para comprovar TODOS os parametros semanticamente relevantes (P0 - Ciclos 031/032/033).
     
-    Regras Estritas (Zero Pressuposto de Equivalencia):
-    - Elimina sumariamente qualquer pressuposto de equivalencia entre modelos diferentes (ex.: gemini-2.0-flash != gemini-2.5-flash).
-    - Se a requisicao solicita um modelo, ele DEVE coincidir exatamente com o modelo comprovado nos metadados historicos.
-    - Se historical_response_payload for fornecido:
-      - O modelo historico registrado DEVE existir e ser comprovado. Ausencia de metadado de modelo invalida a equivalencia.
-      - O modelo solicitado (ou padrao efetivo 'gemini-2.0-flash') deve coincidir estritamente com o modelo historico comprovado.
-    - pesquisar_web DEVE ser True (baseline fixo legado).
-    - Nao pode haver anexos (has_image=False, has_file=False).
-    - project_id DEVE coincidir ('general' ou vazio).
+    Regras Estritas de Proveniencia e Tolerancia Zero a Pressupostos:
+    1. Zero Pressuposto de Equivalencia de Modelo: gemini-2.0-flash != gemini-2.5-flash != gemini-1.5-flash.
+    2. Prova de Pesquisa Web: O payload historico DEVE conter metadados comprovando o estado de web search
+       (chave 'pesquisar_web' ou 'web') e seu valor DEVE ser identico ao da requisicao.
+    3. Prova de Anexos: O payload historico DEVE conter comprovacao de ausencia/presenca de anexos
+       (chaves 'has_image'/'img' e 'has_file'/'file') e seus valores DEVEM ser identicos aos da requisicao.
+    4. Prova de Projeto: O payload historico DEVE conter o escopo de projeto (chave 'project_id' ou 'proj')
+       e coincidir estritamente com o projeto solicitado.
+    5. Se qualquer metadado de proveniencia estiver ausente, incompleto ou divergente, a funcao retorna False,
+       provocando LegacyReplayConflictError / HTTP 409 Conflict seguro, orientando nova client_request_id.
     """
     if has_image or has_file or (pesquisar_web is not True):
         return False
@@ -65,17 +66,62 @@ def is_nominal_legacy_request(
     if historical_response_payload is not None:
         if not isinstance(historical_response_payload, dict):
             return False
+
+        # 1. Prova de Modelo
         hist_model = (
             historical_response_payload.get("model_requested")
             or historical_response_payload.get("model_used")
             or ""
         ).strip().lower()
-        # Sem comprovacao explicita nos metadados historicos, o hash antigo da mensagem nao prova o modelo
-        if not hist_model:
+        if not hist_model or eff_model != hist_model:
             return False
-        # Modelos diferentes NUNCA sao considerados equivalentes
-        if eff_model != hist_model:
+
+        # 2. Prova de Pesquisa Web (P0 - Ciclo 033: Exigir proveniencia expressa no registro historico)
+        if "pesquisar_web" in historical_response_payload:
+            hist_web = bool(historical_response_payload.get("pesquisar_web"))
+        elif "web" in historical_response_payload:
+            hist_web = bool(historical_response_payload.get("web"))
+        else:
+            # Sem proveniencia documental de web search: rejeita reaproveitamento
             return False
+        if bool(pesquisar_web) != hist_web:
+            return False
+
+        # 3. Prova de Anexos de Imagem (P0 - Ciclo 033)
+        if "has_image" in historical_response_payload:
+            hist_img = bool(historical_response_payload.get("has_image"))
+        elif "has_img" in historical_response_payload:
+            hist_img = bool(historical_response_payload.get("has_img"))
+        elif "img" in historical_response_payload:
+            hist_img = bool(historical_response_payload.get("img"))
+        else:
+            # Sem proveniencia documental de imagem: rejeita reaproveitamento
+            return False
+        if bool(has_image) != hist_img:
+            return False
+
+        # 4. Prova de Anexos de Arquivo (P0 - Ciclo 033)
+        if "has_file" in historical_response_payload:
+            hist_file = bool(historical_response_payload.get("has_file"))
+        elif "file" in historical_response_payload:
+            hist_file = bool(historical_response_payload.get("file"))
+        else:
+            # Sem proveniencia documental de arquivo: rejeita reaproveitamento
+            return False
+        if bool(has_file) != hist_file:
+            return False
+
+        # 5. Prova de Projeto (P0 - Ciclo 033)
+        if "project_id" in historical_response_payload:
+            hist_proj = str(historical_response_payload.get("project_id") or "general").strip()
+        elif "proj" in historical_response_payload:
+            hist_proj = str(historical_response_payload.get("proj") or "general").strip()
+        else:
+            return False
+        req_proj = (project_id or "general").strip()
+        if (hist_proj or "general") != (req_proj or "general"):
+            return False
+
         return True
 
     # Sem inspecao de payload historico (pre-check estatico):
@@ -108,6 +154,12 @@ class BancoDados:
     def __init__(self, database_url: str = None):
         self.pool = None
         self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
+        # P0 Memoria de Testes (Ciclo 033): buffers de memoria isolados por instancia (zero vazamento de classe)
+        self._sessoes_memoria: Dict[str, Optional[str]] = {}
+        self._projetos_memoria: Dict[str, Optional[str]] = {}
+        self._audit_log_memoria: List[Dict] = []
+        self._ledger_memoria: Dict[str, Dict[str, Any]] = {}
+        self._conversas_memoria: List[Dict] = []
 
     async def _garantir_pool(self) -> bool:
         db_url = self.database_url if self.database_url is not None else os.getenv("DATABASE_URL")
@@ -408,12 +460,6 @@ class BancoDados:
 
                 await conn.commit()
 
-    _sessoes_memoria: Dict[str, Optional[str]] = {}
-    _projetos_memoria: Dict[str, Optional[str]] = {}
-    _audit_log_memoria: List[Dict] = []
-    _ledger_memoria: Dict[str, Dict[str, Any]] = {}
-    _conversas_memoria: List[Dict] = []
-
     async def claim_turn_ledger(
         self,
         idempotency_key: str,
@@ -539,6 +585,8 @@ class BancoDados:
                         if db_email_norm != email_norm:
                             raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro usuario.")
                         if db_proj_norm != proj_norm:
+                            if legacy_payload_hash and db_hash == legacy_payload_hash:
+                                raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
                             raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                         if request_payload_hash and db_hash != request_payload_hash:
                             if legacy_payload_hash and db_hash == legacy_payload_hash:
@@ -786,6 +834,8 @@ class BancoDados:
                     if user_email and db_email_norm != email_norm:
                         raise PermissionError("Escopo de usuario divergente na reconciliacao.")
                     if project_id and db_proj_norm != proj_norm:
+                        if legacy_payload_hash and db_hash == legacy_payload_hash:
+                            raise LegacyReplayConflictError("Conflito de integridade com registro historico: metadados insuficientes ou modelo/parametros divergentes para reaproveitamento seguro. Crie uma nova client_request_id para esta requisicao.")
                         raise PermissionError("Escopo de projeto divergente na reconciliacao.")
                     if request_payload_hash and db_hash != request_payload_hash:
                         if legacy_payload_hash and db_hash == legacy_payload_hash:
@@ -973,10 +1023,13 @@ class BancoDados:
             "resposta": response_payload.get("resposta", content) if response_payload else content,
             "session_id": session_id,
             "project_id": proj_norm,
-            "model_requested": response_payload.get("model_requested") if response_payload else None,
-            "model_used": response_payload.get("model_used") if response_payload else None,
+            "model_requested": response_payload.get("model_requested") if response_payload else requested_model,
+            "model_used": response_payload.get("model_used") if response_payload else requested_model,
             "provider_used": response_payload.get("provider_used") if response_payload else None,
             "fallback_reason": response_payload.get("fallback_reason") if response_payload else None,
+            "pesquisar_web": bool(pesquisar_web),
+            "has_image": bool(has_image),
+            "has_file": bool(has_file),
             "cached": True
         }
 
@@ -1407,6 +1460,7 @@ class BancoDados:
             is_deploy = bool(
                 os.getenv("VERCEL")
                 or os.getenv("RAILWAY_ENVIRONMENT")
+                or os.getenv("RAILWAY_PROJECT_ID")
                 or os.getenv("RENDER")
                 or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
             )
@@ -1451,10 +1505,29 @@ class BancoDados:
         session_id: str,
         limite: int = 100,
         user_email: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> List[Dict]:
         if not await self._garantir_pool() or self.pool is None:
-            if (os.getenv("HELPUS_TEST_MODE") == "1" or os.getenv("ENVIRONMENT") == "test") and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
-                msgs = [m for m in self._conversas_memoria if m["session_id"] == session_id]
+            is_deploy = bool(
+                os.getenv("VERCEL")
+                or os.getenv("RAILWAY_ENVIRONMENT")
+                or os.getenv("RAILWAY_PROJECT_ID")
+                or os.getenv("RENDER")
+                or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+            )
+            # P0 Memoria de Testes (Ciclo 033): Exige HELPUS_TEST_MODE=1 e ausencia de deploy; filtra por sessao, usuario e projeto
+            if os.getenv("HELPUS_TEST_MODE") == "1" and not is_deploy and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
+                email_norm = (user_email or "").strip().lower() if user_email else None
+                proj_norm = (project_id or "general").strip() if project_id else None
+                msgs = []
+                for m in self._conversas_memoria:
+                    if m.get("session_id") != session_id:
+                        continue
+                    if email_norm and m.get("user_email") and m.get("user_email") != email_norm:
+                        continue
+                    if proj_norm and m.get("project_id") and m.get("project_id") != proj_norm:
+                        continue
+                    msgs.append({"role": m.get("role"), "content": m.get("content")})
                 return msgs[-limite:]
             return []
 
@@ -1498,7 +1571,35 @@ class BancoDados:
             return []
 
     async def listar_conversas_usuario(self, user_email: str, limite: int = 50, project_id: Optional[str] = None) -> List[Dict]:
-        if not await self._garantir_pool():
+        if not await self._garantir_pool() or self.pool is None:
+            is_deploy = bool(
+                os.getenv("VERCEL")
+                or os.getenv("RAILWAY_ENVIRONMENT")
+                or os.getenv("RAILWAY_PROJECT_ID")
+                or os.getenv("RENDER")
+                or (os.getenv("ENVIRONMENT") or "").strip().lower() in ("production", "staging", "prod")
+            )
+            # P0 Memoria de Testes (Ciclo 033): Exige HELPUS_TEST_MODE=1 e isolamento estrito de usuario e projeto
+            if os.getenv("HELPUS_TEST_MODE") == "1" and not is_deploy and os.getenv("HELPUS_REQUIRE_POSTGRES") != "1":
+                if not user_email or not user_email.strip():
+                    return []
+                email_norm = user_email.strip().lower()
+                proj_norm = (project_id or "general").strip() if project_id and project_id not in ("all", "*") else None
+                sessoes_vistas = {}
+                for m in self._conversas_memoria:
+                    if (m.get("user_email") or "").strip().lower() != email_norm:
+                        continue
+                    if proj_norm and (m.get("project_id") or "general").strip() != proj_norm:
+                        continue
+                    sid = m.get("session_id")
+                    if sid and sid not in sessoes_vistas:
+                        sessoes_vistas[sid] = {
+                            "session_id": sid,
+                            "title": m.get("title") or m.get("content")[:80],
+                            "created_at": None,
+                            "project_id": m.get("project_id") or "general",
+                        }
+                return list(sessoes_vistas.values())[:limite]
             return []
 
         if not user_email or not user_email.strip():

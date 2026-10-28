@@ -770,8 +770,9 @@ export default function HelpUSGeminiApp() {
 
               try {
                 const parsed = JSON.parse(dataStr)
-                if (parsed.error) {
-                  throw new Error(parsed.error)
+                if (parsed.error || parsed.error_code === 'PERSISTENCE_FAILED') {
+                  const errMessage = parsed.error || 'PERSISTENCE_FAILED: Falha ao persistir resposta no banco de dados.'
+                  throw new Error(errMessage)
                 }
                 const chunkText = parsed.content ?? parsed.text ?? parsed.chunk ?? ''
                 if (chunkText) {

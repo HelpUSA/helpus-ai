@@ -1396,6 +1396,10 @@ asyncio.run(main())
                         "resposta": legacy_secret,
                         "model_requested": "gemini-2.0-flash",
                         "model_used": "gemini-2.0-flash",
+                        "pesquisar_web": True,
+                        "has_image": False,
+                        "has_file": False,
+                        "project_id": "general",
                         "cached": True
                     }
                 )
@@ -1421,7 +1425,9 @@ asyncio.run(main())
                     is_nominal_legacy_eligible=True,
                     require_strict_scope=True,
                     requested_model="gemini-2.0-flash",
-                    pesquisar_web=True
+                    pesquisar_web=True,
+                    has_image=False,
+                    has_file=False
                 )
                 self.assertEqual(st_leg_ok, "KNOWN_COMMITTED")
                 self.assertEqual(p_leg_ok["resposta"], legacy_secret)
@@ -1449,11 +1455,123 @@ asyncio.run(main())
                         is_nominal_legacy_eligible=True,
                         require_strict_scope=True,
                         requested_model="gemini-2.5-flash",
-                        pesquisar_web=True
+                        pesquisar_web=True,
+                        has_image=False,
+                        has_file=False
                     )
                 self.assertIn("Crie uma nova client_request_id", str(ctx_alt_model.exception))
 
-                # 3c. Comprova que a resposta historica permanece intacta e nao foi modificada ou descartada
+                # 3c. Requisicao Nova com divergencia de PESQUISA WEB (pesquisar_web=False):
+                with self.assertRaises(LegacyReplayConflictError) as ctx_web:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=legacy_key,
+                        user_email=user_alpha,
+                        project_id="general",
+                        session_id=legacy_sess,
+                        request_payload_hash=b_main._calcular_fingerprint_requisicao(
+                            b_main.MensagemRequest(
+                                mensagem=legacy_msg,
+                                session_id=legacy_sess,
+                                client_request_id=legacy_req_id,
+                                model="gemini-2.0-flash",
+                                pesquisar_web=False,
+                                project_id="general"
+                            )
+                        ),
+                        legacy_payload_hash=pure_legacy_hash,
+                        is_nominal_legacy_eligible=True,
+                        require_strict_scope=True,
+                        requested_model="gemini-2.0-flash",
+                        pesquisar_web=False,
+                        has_image=False,
+                        has_file=False
+                    )
+                self.assertIn("Crie uma nova client_request_id", str(ctx_web.exception))
+
+                # 3d. Requisicao Nova com divergencia de ANEXO DE IMAGEM:
+                with self.assertRaises(LegacyReplayConflictError) as ctx_img:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=legacy_key,
+                        user_email=user_alpha,
+                        project_id="general",
+                        session_id=legacy_sess,
+                        request_payload_hash=b_main._calcular_fingerprint_requisicao(
+                            b_main.MensagemRequest(
+                                mensagem=legacy_msg,
+                                session_id=legacy_sess,
+                                client_request_id=legacy_req_id,
+                                model="gemini-2.0-flash",
+                                pesquisar_web=True,
+                                image_base64="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+                                project_id="general"
+                            )
+                        ),
+                        legacy_payload_hash=pure_legacy_hash,
+                        is_nominal_legacy_eligible=True,
+                        require_strict_scope=True,
+                        requested_model="gemini-2.0-flash",
+                        pesquisar_web=True,
+                        has_image=True,
+                        has_file=False
+                    )
+                self.assertIn("Crie uma nova client_request_id", str(ctx_img.exception))
+
+                # 3e. Requisicao Nova com divergencia de ANEXO DE ARQUIVO:
+                with self.assertRaises(LegacyReplayConflictError) as ctx_file:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=legacy_key,
+                        user_email=user_alpha,
+                        project_id="general",
+                        session_id=legacy_sess,
+                        request_payload_hash=b_main._calcular_fingerprint_requisicao(
+                            b_main.MensagemRequest(
+                                mensagem=legacy_msg,
+                                session_id=legacy_sess,
+                                client_request_id=legacy_req_id,
+                                model="gemini-2.0-flash",
+                                pesquisar_web=True,
+                                file_name="relatorio.pdf",
+                                project_id="general"
+                            )
+                        ),
+                        legacy_payload_hash=pure_legacy_hash,
+                        is_nominal_legacy_eligible=True,
+                        require_strict_scope=True,
+                        requested_model="gemini-2.0-flash",
+                        pesquisar_web=True,
+                        has_image=False,
+                        has_file=True
+                    )
+                self.assertIn("Crie uma nova client_request_id", str(ctx_file.exception))
+
+                # 3f. Requisicao Nova com divergencia de PROJETO:
+                with self.assertRaises(LegacyReplayConflictError) as ctx_proj:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=legacy_key,
+                        user_email=user_alpha,
+                        project_id="tenant_finance",
+                        session_id=legacy_sess,
+                        request_payload_hash=b_main._calcular_fingerprint_requisicao(
+                            b_main.MensagemRequest(
+                                mensagem=legacy_msg,
+                                session_id=legacy_sess,
+                                client_request_id=legacy_req_id,
+                                model="gemini-2.0-flash",
+                                pesquisar_web=True,
+                                project_id="tenant_finance"
+                            )
+                        ),
+                        legacy_payload_hash=pure_legacy_hash,
+                        is_nominal_legacy_eligible=True,
+                        require_strict_scope=True,
+                        requested_model="gemini-2.0-flash",
+                        pesquisar_web=True,
+                        has_image=False,
+                        has_file=False
+                    )
+                self.assertIn("Crie uma nova client_request_id", str(ctx_proj.exception))
+
+                # 3g. Comprova que a resposta historica permanece intacta no banco em todos os casos de conflito
                 async with b.pool.connection() as conn:
                     async with conn.cursor() as cur:
                         await cur.execute("SELECT status, response_payload->>'resposta' FROM turn_idempotency_ledger WHERE idempotency_key = %s;", (legacy_key,))
@@ -1461,7 +1579,7 @@ asyncio.run(main())
                         self.assertEqual(row_intact[0], "completed")
                         self.assertEqual(row_intact[1], legacy_secret)
 
-                # 3d. Requisicao Nova com parametro NAO-NOMINAL (ex.: hash divergente de prompt):
+                # 3h. Requisicao Nova com parametro NAO-NOMINAL (ex.: hash divergente de prompt):
                 with self.assertRaises(PermissionError) as ctx_leg_block:
                     await b.reconcile_idempotency_turn(
                         idempotency_key=legacy_key,
@@ -1738,6 +1856,98 @@ asyncio.run(main())
                 b_main.banco = old_banco
                 b_main.app.dependency_overrides.clear()
                 await b.fechar()
+
+        self.run_async(_test())
+
+    def test_memory_conversas_instance_isolation_and_scope_filtering(self):
+        """P0 Memória de Testes (Ciclo 033):
+        1. Comprova que _conversas_memoria e buffers de memoria sao atributos de instancia (zero vazamento de classe).
+        2. Valida filtro estrito de session_id, user_email e project_id nas leituras de memoria.
+        3. Valida enforcamento fail-closed: sem HELPUS_TEST_MODE=1 ou em deploy, levanta RuntimeError."""
+        from backend.banco import BancoDados
+
+        orig_test_mode = os.environ.get("HELPUS_TEST_MODE")
+        orig_env = os.environ.get("ENVIRONMENT")
+        orig_req_pg = os.environ.get("HELPUS_REQUIRE_POSTGRES")
+        orig_db_url = os.environ.get("DATABASE_URL")
+
+        async def _test():
+            try:
+                # 1. Ativa HELPUS_TEST_MODE=1, desativa DATABASE_URL e HELPUS_REQUIRE_POSTGRES para teste de memoria isolado
+                os.environ["HELPUS_TEST_MODE"] = "1"
+                os.environ.pop("DATABASE_URL", None)
+                os.environ.pop("HELPUS_REQUIRE_POSTGRES", None)
+                os.environ.pop("ENVIRONMENT", None)
+
+                b1 = BancoDados()
+                b2 = BancoDados()
+                b1.database_url = ""
+                b2.database_url = ""
+                b1.pool = None
+                b2.pool = None
+
+                # Comprova isolamento de instancia: escrita em b1 nao afeta b2
+                ok_b1 = await b1.salvar_mensagem("sess_inst_1", "user", "Ola b1", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertTrue(ok_b1)
+                self.assertEqual(len(b1._conversas_memoria), 1)
+                self.assertEqual(len(b2._conversas_memoria), 0, "Isolamento de instancia violado: b2 vazou memoria de b1")
+
+                # Adiciona mensagens em b1 para diferentes sessoes, usuarios e projetos
+                await b1.salvar_mensagem("sess_inst_1", "assistant", "Resp b1 alpha", user_email="alpha@helpus.com", project_id="proj_a")
+                await b1.salvar_mensagem("sess_inst_2", "user", "Ola b1 beta", user_email="beta@helpus.com", project_id="proj_b")
+                await b1.salvar_mensagem("sess_inst_2", "assistant", "Resp b1 beta", user_email="beta@helpus.com", project_id="proj_b")
+
+                # Leitura com filtro de session_id, user_email e project_id
+                msgs_alpha = await b1.carregar_mensagens("sess_inst_1", user_email="alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(msgs_alpha), 2)
+                self.assertEqual(msgs_alpha[0]["content"], "Ola b1")
+                self.assertEqual(msgs_alpha[1]["content"], "Resp b1 alpha")
+
+                # Cross-user isolation: beta nao pode ler a sessao de alpha
+                msgs_leak = await b1.carregar_mensagens("sess_inst_1", user_email="beta@helpus.com", project_id="proj_a")
+                self.assertEqual(len(msgs_leak), 0, "Vazamento cross-user em carregar_mensagens")
+
+                # Cross-project isolation: proj_b nao pode ler a sessao de proj_a
+                msgs_proj_leak = await b1.carregar_mensagens("sess_inst_1", user_email="alpha@helpus.com", project_id="proj_b")
+                self.assertEqual(len(msgs_proj_leak), 0, "Vazamento cross-project em carregar_mensagens")
+
+                # Listar conversas por usuario e projeto
+                convs_alpha = await b1.listar_conversas_usuario("alpha@helpus.com", project_id="proj_a")
+                self.assertEqual(len(convs_alpha), 1)
+                self.assertEqual(convs_alpha[0]["session_id"], "sess_inst_1")
+
+                convs_beta = await b1.listar_conversas_usuario("beta@helpus.com", project_id="proj_b")
+                self.assertEqual(len(convs_beta), 1)
+                self.assertEqual(convs_beta[0]["session_id"], "sess_inst_2")
+
+                # 2. Enforcamento Fail-Closed sem HELPUS_TEST_MODE
+                os.environ.pop("HELPUS_TEST_MODE", None)
+                with self.assertRaises(RuntimeError):
+                    await b1.salvar_mensagem("sess_fail", "user", "Nao deve salvar sem HELPUS_TEST_MODE")
+
+                # 3. Enforcamento Fail-Closed em deploy (ENVIRONMENT=production)
+                os.environ["HELPUS_TEST_MODE"] = "1"
+                os.environ["ENVIRONMENT"] = "production"
+                with self.assertRaises(RuntimeError):
+                    await b1.salvar_mensagem("sess_fail_prod", "user", "Nao deve salvar em producao sem banco")
+
+            finally:
+                if orig_test_mode is not None:
+                    os.environ["HELPUS_TEST_MODE"] = orig_test_mode
+                else:
+                    os.environ.pop("HELPUS_TEST_MODE", None)
+                if orig_env is not None:
+                    os.environ["ENVIRONMENT"] = orig_env
+                else:
+                    os.environ.pop("ENVIRONMENT", None)
+                if orig_req_pg is not None:
+                    os.environ["HELPUS_REQUIRE_POSTGRES"] = orig_req_pg
+                else:
+                    os.environ.pop("HELPUS_REQUIRE_POSTGRES", None)
+                if orig_db_url is not None:
+                    os.environ["DATABASE_URL"] = orig_db_url
+                else:
+                    os.environ.pop("DATABASE_URL", None)
 
         self.run_async(_test())
 

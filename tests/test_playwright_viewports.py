@@ -518,6 +518,56 @@ class PlaywrightViewportTests(unittest.TestCase):
         page.screenshot(path=str(shot_path))
         page.close()
 
+    def test_playwright_sse_persistence_failed_displays_error_and_never_done(self):
+        """P1 CLIENTE SSE (Ciclo 033):
+        Valida que o evento SSE 'PERSISTENCE_FAILED' seguido do terminador de transporte '[DONE]'
+        apresenta erro institucional amigavel ao usuario ('Falha ao persistir a resposta com seguranca'),
+        exibe o botao 'Tentar novamente', NUNCA exibe a resposta como concluida e trata '[DONE]' apenas
+        como encerramento de conexao."""
+        page = self.browser.new_page(viewport={"width": 1280, "height": 800})
+        fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
+        page.add_init_script(f"""
+            localStorage.setItem('helpus_google_token', '{fake_jwt}');
+        """)
+
+        # Simula stream SSE com pedaco parcial, evento PERSISTENCE_FAILED e terminador [DONE]
+        sse_body = (
+            "data: {\"content\": \"Pedaco parcial de resposta antes da falha. \", \"done\": false}\n\n"
+            "data: {\"error\": \"Falha ao persistir resposta no banco de dados.\", \"error_code\": \"PERSISTENCE_FAILED\"}\n\n"
+            "data: [DONE]\n\n"
+        )
+        page.route("**/chat/stream", lambda route: route.fulfill(
+            status=200,
+            content_type="text/event-stream; charset=utf-8",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+            body=sse_body
+        ))
+        page.goto(self.base_url, wait_until="networkidle")
+
+        textarea = page.locator("textarea").first
+        self.assertTrue(textarea.is_visible())
+        textarea.fill("Pergunta testando evento PERSISTENCE_FAILED")
+        btn_enviar = page.locator("button[title='Enviar']").first
+        if btn_enviar.is_visible():
+            btn_enviar.click()
+        else:
+            page.keyboard.press("Enter")
+
+        # 1. Verifica exibicao da mensagem de erro de persistencia ao usuario
+        page.wait_for_selector("text=Falha ao persistir a resposta com segurança", timeout=8000)
+        self.assertTrue(page.locator("text=Falha ao persistir a resposta com segurança").first.is_visible())
+
+        # 2. Verifica presenca do botao Tentar novamente
+        page.wait_for_selector("text=Tentar novamente", timeout=6000)
+        self.assertTrue(page.locator("text=Tentar novamente").first.is_visible())
+
+        # 3. Comprova que a resposta NUNCA e exibida como concluida
+        self.assertFalse(page.locator("text=Pedaco parcial de resposta antes da falha").is_visible())
+
+        shot_path = SCREENSHOTS_DIR / "viewport_sse_persistence_failed_ui.png"
+        page.screenshot(path=str(shot_path))
+        page.close()
+
     def test_playwright_scroll_to_bottom_floating_button(self):
         page = self.browser.new_page(viewport={"width": 1280, "height": 800})
         fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ICJ0ZXN0ZXJAaGVscHVzYnIuY29tIiwgIm5hbWUiOiAiSGVscFVTIFRlc3RlciJ9.signature"
