@@ -25,6 +25,26 @@ AUDIT_ALLOWED_DETAIL_KEYS = {
 }
 FORBIDDEN_DETAIL_SUBSTRINGS = {"key", "token", "secret", "password", "auth", "credential", "bearer", "private"}
 
+def is_nominal_legacy_request(
+    model: Optional[str] = None,
+    pesquisar_web: bool = True,
+    has_image: bool = False,
+    has_file: bool = False,
+    project_id: Optional[str] = "general"
+) -> bool:
+    """Verifica se os parametros da requisicao correspondem estritamente ao baseline nominal legado (P0 - Ciclo 031).
+    Um turno legado gravado no Ciclo 029 ou anterior assumia:
+    - modelo nominal padrao (vazio, gemini-2.0-flash, gemini-2.5-flash, gemini-1.5-flash)
+    - pesquisar_web == True
+    - sem anexos (imagem base64 ou url, arquivo)
+    - projeto padrao 'general' (ou vazio)
+    
+    Se qualquer parametro semantico divergir, o turno NAO pode ser reusado via legacy_payload_hash."""
+    eff_model = (model or "").strip().lower()
+    is_default_model = eff_model in ("", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash")
+    is_default_proj = (project_id or "general").strip() in ("", "general")
+    return is_default_model and (pesquisar_web is True) and (not has_image) and (not has_file) and is_default_proj
+
 def sanitizar_detalhes_auditoria(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Sanitiza os detalhes de auditoria por allowlist estrita e mascara possiveis credenciais."""
     if not details or not isinstance(details, dict):
@@ -366,7 +386,8 @@ class BancoDados:
         request_payload_hash: str,
         is_retry: bool = False,
         lease_seconds: float = 15.0,
-        legacy_payload_hash: Optional[str] = None
+        legacy_payload_hash: Optional[str] = None,
+        is_nominal_legacy_eligible: bool = False
     ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         """Reivindica a execucao atomica do turno no ledger persistente ou memoria.
         
@@ -403,7 +424,7 @@ class BancoDados:
                 if db_proj != proj_norm:
                     raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                 if request_payload_hash and db_hash != request_payload_hash:
-                    is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                    is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
                     if not is_legacy:
                         raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
 
@@ -467,7 +488,7 @@ class BancoDados:
                         if db_proj_norm != proj_norm:
                             raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                         if request_payload_hash and db_hash != request_payload_hash:
-                            is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                            is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
                             if not is_legacy:
                                 raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
 
@@ -544,7 +565,7 @@ class BancoDados:
                                 if r_proj_norm != proj_norm:
                                     raise PermissionError("Conflito de isolamento: chave de idempotencia pertence a outro projeto.")
                                 if request_payload_hash and r_hash != request_payload_hash:
-                                    is_legacy = bool(legacy_payload_hash and r_hash == legacy_payload_hash)
+                                    is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and r_hash == legacy_payload_hash)
                                     if not is_legacy:
                                         raise PermissionError("Conflito de isolamento: hash de requisicao divergente.")
                                 if r_status == "completed":
@@ -583,9 +604,10 @@ class BancoDados:
         lease_seconds: float = 15.0,
         session_id: Optional[str] = None,
         legacy_payload_hash: Optional[str] = None,
-        require_strict_scope: bool = False
+        require_strict_scope: bool = False,
+        is_nominal_legacy_eligible: bool = False
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029/030).
+        """Reconciliacao read-only do estado de um turno por idempotency_key antes de nova inferencia (P0 - Ciclos 028/029/030/031).
         
         Retorna uma tupla (classification, cached_payload):
         - 'KNOWN_COMMITTED': Turno gravado e concluido no PostgreSQL com payload disponivel. Seguro para replay.
@@ -594,8 +616,8 @@ class BancoDados:
         - 'NO_PRIOR_CLAIM': Nenhum registro de ledger existente para a chave local. Ausencia de registro nao prova abort de efeitos externos.
         """
         if require_strict_scope:
-            if not idempotency_key or not session_id or not request_payload_hash:
-                raise ValueError("Escopo completo obrigatorio para reconciliacao de endpoint (idempotency_key, session_id, request_payload_hash).")
+            if not idempotency_key or not session_id or not request_payload_hash or not user_email or not project_id:
+                raise ValueError("Escopo completo obrigatorio para reconciliacao de endpoint (idempotency_key, session_id, request_payload_hash, user_email, project_id).")
 
         if not idempotency_key:
             return "NO_PRIOR_CLAIM", None
@@ -614,9 +636,9 @@ class BancoDados:
             if project_id and (entry.get("project_id") or "general") != proj_norm:
                 raise PermissionError("Escopo de projeto divergente na reconciliacao.")
             if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
-                is_legacy = bool(legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
+                is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
                 if not is_legacy:
-                    raise PermissionError("Hash de payload divergente na reconciliacao.")
+                    raise PermissionError("Hash de payload divergente na reconciliacao: parametros semanticos nao compativeis com registro legado.")
 
             status = entry.get("status")
             if status == "completed":
@@ -677,9 +699,9 @@ class BancoDados:
                     if project_id and db_proj_norm != proj_norm:
                         raise PermissionError("Escopo de projeto divergente na reconciliacao.")
                     if request_payload_hash and db_hash != request_payload_hash:
-                        is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                        is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
                         if not is_legacy:
-                            raise PermissionError("Hash de payload divergente na reconciliacao.")
+                            raise PermissionError("Hash de payload divergente na reconciliacao: parametros semanticos nao compativeis com registro legado.")
 
                     if status == "completed":
                         if isinstance(resp_payload, dict):
@@ -830,7 +852,8 @@ class BancoDados:
         project_id: Optional[str] = None,
         request_payload_hash: Optional[str] = None,
         response_payload: Optional[Dict[str, Any]] = None,
-        legacy_payload_hash: Optional[str] = None
+        legacy_payload_hash: Optional[str] = None,
+        is_nominal_legacy_eligible: bool = False
     ) -> bool:
         """Executa atomicamente a validacao de CAS, persistencia duravel e conclusao do ledger (P0 - Ciclo 024)."""
         if not session_id or not content or not idempotency_key or not owner_token:
@@ -873,7 +896,7 @@ class BancoDados:
                 if entry.get("session_id") != session_id:
                     return False
                 if request_payload_hash and entry.get("request_payload_hash") != request_payload_hash:
-                    is_legacy = bool(legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
+                    is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and entry.get("request_payload_hash") == legacy_payload_hash)
                     if not is_legacy:
                         return False
                 if entry.get("user_email") != email_norm:
@@ -923,7 +946,7 @@ class BancoDados:
                         if db_owner != owner_token or status != "in_progress" or db_sess != session_id:
                             return False
                         if request_payload_hash and db_hash != request_payload_hash:
-                            is_legacy = bool(legacy_payload_hash and db_hash == legacy_payload_hash)
+                            is_legacy = bool(is_nominal_legacy_eligible and legacy_payload_hash and db_hash == legacy_payload_hash)
                             if not is_legacy:
                                 return False
                         if (db_email or "").strip().lower() != (email_norm or ""):

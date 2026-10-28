@@ -38,6 +38,10 @@ def _check_ephemeral_pg_available() -> bool:
         return False
 
 PG_AVAILABLE = _check_ephemeral_pg_available()
+if PG_AVAILABLE:
+    if not os.getenv("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = EPHEMERAL_PG_URL
+    os.environ["HELPUS_REQUIRE_POSTGRES"] = "1"
 
 
 class RealPostgresqlAtomicTurnTests(unittest.TestCase):
@@ -920,23 +924,35 @@ asyncio.run(main())
         self.assertEqual(legacy_h, hashlib.sha256("Olá HelpUS".encode("utf-8")).hexdigest())
 
     def test_strict_scope_contract_validation(self):
-        """P1 Contrato de Reconciliação (Ciclo 030): Exige escopo completo para reconciliação de endpoints."""
+        """P1 Contrato de Reconciliação (Ciclos 030/031): Exige escopo completo (chave, sessao, hash, usuario, projeto)."""
         from backend.banco import BancoDados
         b = BancoDados()
 
         async def _test():
-            # Falha se faltar qualquer um dos campos estritos
+            # 1. Falha se faltar hash
             with self.assertRaises(ValueError) as ctx1:
-                await b.reconcile_idempotency_turn("key1", session_id="s1", request_payload_hash="", require_strict_scope=True)
+                await b.reconcile_idempotency_turn("key1", session_id="s1", request_payload_hash="", user_email="u@test.com", project_id="general", require_strict_scope=True)
             self.assertIn("Escopo completo obrigatorio", str(ctx1.exception))
 
+            # 2. Falha se faltar session_id
             with self.assertRaises(ValueError) as ctx2:
-                await b.reconcile_idempotency_turn("key1", session_id="", request_payload_hash="hash1", require_strict_scope=True)
+                await b.reconcile_idempotency_turn("key1", session_id="", request_payload_hash="hash1", user_email="u@test.com", project_id="general", require_strict_scope=True)
             self.assertIn("Escopo completo obrigatorio", str(ctx2.exception))
 
+            # 3. Falha se faltar idempotency_key
             with self.assertRaises(ValueError) as ctx3:
-                await b.reconcile_idempotency_turn("", session_id="s1", request_payload_hash="hash1", require_strict_scope=True)
+                await b.reconcile_idempotency_turn("", session_id="s1", request_payload_hash="hash1", user_email="u@test.com", project_id="general", require_strict_scope=True)
             self.assertIn("Escopo completo obrigatorio", str(ctx3.exception))
+
+            # 4. Falha se faltar user_email (P0 Identidade - Ciclo 031)
+            with self.assertRaises(ValueError) as ctx4:
+                await b.reconcile_idempotency_turn("key1", session_id="s1", request_payload_hash="hash1", user_email="", project_id="general", require_strict_scope=True)
+            self.assertIn("Escopo completo obrigatorio", str(ctx4.exception))
+
+            # 5. Falha se faltar project_id (P0 Identidade - Ciclo 031)
+            with self.assertRaises(ValueError) as ctx5:
+                await b.reconcile_idempotency_turn("key1", session_id="s1", request_payload_hash="hash1", user_email="u@test.com", project_id="", require_strict_scope=True)
+            self.assertIn("Escopo completo obrigatorio", str(ctx5.exception))
 
         self.run_async(_test())
 
@@ -1191,8 +1207,8 @@ asyncio.run(main())
                 req_hash = hashlib.sha256(msg.encode("utf-8")).hexdigest()
 
                 # Ambos os workers executam reconciliação prévia em paralelo
-                st1, p1 = await b.reconcile_idempotency_turn(key, user_email=user_email, session_id=sess_id, request_payload_hash=req_hash, require_strict_scope=True)
-                st2, p2 = await b.reconcile_idempotency_turn(key, user_email=user_email, session_id=sess_id, request_payload_hash=req_hash, require_strict_scope=True)
+                st1, p1 = await b.reconcile_idempotency_turn(key, user_email=user_email, session_id=sess_id, project_id="general", request_payload_hash=req_hash, require_strict_scope=True)
+                st2, p2 = await b.reconcile_idempotency_turn(key, user_email=user_email, session_id=sess_id, project_id="general", request_payload_hash=req_hash, require_strict_scope=True)
 
                 self.assertEqual(st1, "NO_PRIOR_CLAIM")
                 self.assertEqual(st2, "NO_PRIOR_CLAIM")
@@ -1228,6 +1244,289 @@ asyncio.run(main())
                 self.assertIsNotNone(winners[0][3], "Vencedor deve ter owner_token válido")
 
             finally:
+                await b.fechar()
+
+        self.run_async(_test())
+
+    # =========================================================================
+    # CICLO 031 - ADVERSARIAL SUITE, LEGACY BOUNDARY & FAIL-CLOSED NO-KEY
+    # =========================================================================
+    def test_real_postgresql_adversarial_fingerprint_divergences_and_legacy_boundary(self):
+        """P0 Testes Adversariais & Limite Legado (Ciclo 031):
+        Mesmo client_request_id e mesma mensagem, alterando individualmente:
+        - model, pesquisar_web, image_base64, image_url, file_name, project_id.
+        Comprova rejeicao estrita (PermissionError / 403), zero replay incorreto e zero vazamento de tenant.
+        Valida que registros legados so autorizam replay quando o baseline e estritamente nominal."""
+        self._require_pg()
+        from backend.banco import BancoDados, is_nominal_legacy_request
+        import backend.main as b_main
+
+        async def _test():
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            try:
+                base_sess = f"sess_adv_{uuid.uuid4().hex[:8]}"
+                base_req_id = f"req_adv_{uuid.uuid4().hex[:8]}"
+                base_msg = "Pergunta auditada de seguranca adversarial"
+                user_alpha = "alpha_adv@helpus.com"
+                idemp_key = b_main._gerar_chave_idempotencia(user_alpha, base_sess, base_req_id, base_msg)
+
+                # 1. Cria requisicao nominal canonica baseline
+                base_req = b_main.MensagemRequest(
+                    mensagem=base_msg,
+                    session_id=base_sess,
+                    client_request_id=base_req_id,
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    project_id="general"
+                )
+                canon_hash = b_main._calcular_fingerprint_requisicao(base_req)
+
+                # Worker 1 reivindica e conclui o turno nominal no PostgreSQL 18
+                claimed, _, token = await b.claim_turn_ledger(
+                    idempotency_key=idemp_key,
+                    owner_token=str(uuid.uuid4()),
+                    session_id=base_sess,
+                    user_email=user_alpha,
+                    project_id="general",
+                    request_payload_hash=canon_hash
+                )
+                self.assertTrue(claimed)
+
+                secret_ans = "RESPOSTA_CONFIDENCIAL_CANONICA_PARIS"
+                saved = await b.persist_and_complete_turn(
+                    session_id=base_sess,
+                    content=secret_ans,
+                    idempotency_key=idemp_key,
+                    owner_token=token,
+                    user_email=user_alpha,
+                    project_id="general",
+                    request_payload_hash=canon_hash,
+                    response_payload={"resposta": secret_ans, "cached": True}
+                )
+                self.assertTrue(saved)
+
+                # Requisicao idêntica: reconcilia e autoriza replay
+                st_ok, p_ok = await b.reconcile_idempotency_turn(
+                    idempotency_key=idemp_key,
+                    user_email=user_alpha,
+                    project_id="general",
+                    session_id=base_sess,
+                    request_payload_hash=canon_hash,
+                    require_strict_scope=True
+                )
+                self.assertEqual(st_ok, "KNOWN_COMMITTED")
+                self.assertEqual(p_ok["resposta"], secret_ans)
+
+                # 2. Adversarial Divergence: mesmo client_request_id e mesma mensagem, alterando campos individualmente
+                adversarial_cases = [
+                    ("model_alterado", b_main.MensagemRequest(
+                        mensagem=base_msg, session_id=base_sess, client_request_id=base_req_id,
+                        model="gpt-4o", pesquisar_web=True, project_id="general"
+                    ), "payload"),
+                    ("web_desativada", b_main.MensagemRequest(
+                        mensagem=base_msg, session_id=base_sess, client_request_id=base_req_id,
+                        model="gemini-2.0-flash", pesquisar_web=False, project_id="general"
+                    ), "payload"),
+                    ("image_b64_injetada", b_main.MensagemRequest(
+                        mensagem=base_msg, session_id=base_sess, client_request_id=base_req_id,
+                        model="gemini-2.0-flash", pesquisar_web=True, project_id="general",
+                        image_base64="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                    ), "payload"),
+                    ("image_url_injetada", b_main.MensagemRequest(
+                        mensagem=base_msg, session_id=base_sess, client_request_id=base_req_id,
+                        model="gemini-2.0-flash", pesquisar_web=True, project_id="general",
+                        image_url="https://trusted.helpus.com/malicious.png"
+                    ), "payload"),
+                    ("file_name_injetado", b_main.MensagemRequest(
+                        mensagem=base_msg, session_id=base_sess, client_request_id=base_req_id,
+                        model="gemini-2.0-flash", pesquisar_web=True, project_id="general",
+                        file_name="relatorio_financeiro.pdf"
+                    ), "payload"),
+                    ("project_id_divergente", b_main.MensagemRequest(
+                        mensagem=base_msg, session_id=base_sess, client_request_id=base_req_id,
+                        model="gemini-2.0-flash", pesquisar_web=True, project_id="tenant_finance"
+                    ), "projeto"),
+                ]
+
+                for case_name, req_adv, expected_substr in adversarial_cases:
+                    adv_hash = b_main._calcular_fingerprint_requisicao(req_adv)
+                    adv_proj = req_adv.project_id or "general"
+                    with self.assertRaises(PermissionError, msg=f"Falha ao bloquear {case_name}") as ctx_adv:
+                        await b.reconcile_idempotency_turn(
+                            idempotency_key=idemp_key,
+                            user_email=user_alpha,
+                            project_id=adv_proj,
+                            session_id=base_sess,
+                            request_payload_hash=adv_hash,
+                            require_strict_scope=True
+                        )
+                    self.assertIn(expected_substr, str(ctx_adv.exception).lower())
+                    self.assertNotIn(secret_ans, str(ctx_adv.exception), f"Vazamento de payload em {case_name}")
+
+                # 3. Teste de Registro Legado e Fronteira Nominal Estrita
+                legacy_sess = f"sess_legacy_{uuid.uuid4().hex[:8]}"
+                legacy_req_id = f"req_legacy_{uuid.uuid4().hex[:8]}"
+                legacy_msg = "Pergunta armazenada em versao anterior legado"
+                legacy_key = b_main._gerar_chave_idempotencia(user_alpha, legacy_sess, legacy_req_id, legacy_msg)
+                pure_legacy_hash = hashlib.sha256(legacy_msg.encode("utf-8")).hexdigest()
+
+                # Simula turno persistido antes do Ciclo 030 (hash baseado puramente na mensagem)
+                claimed_leg, _, tok_leg = await b.claim_turn_ledger(
+                    idempotency_key=legacy_key,
+                    owner_token=str(uuid.uuid4()),
+                    session_id=legacy_sess,
+                    user_email=user_alpha,
+                    project_id="general",
+                    request_payload_hash=pure_legacy_hash
+                )
+                self.assertTrue(claimed_leg)
+                legacy_secret = "RESPOSTA_LEGADA_HOMOLOGADA"
+                saved_leg = await b.persist_and_complete_turn(
+                    session_id=legacy_sess,
+                    content=legacy_secret,
+                    idempotency_key=legacy_key,
+                    owner_token=tok_leg,
+                    user_email=user_alpha,
+                    project_id="general",
+                    request_payload_hash=pure_legacy_hash,
+                    response_payload={"resposta": legacy_secret, "cached": True}
+                )
+                self.assertTrue(saved_leg)
+
+                # 3a. Requisicao Nova com parametros NOMINAIS PADRAO: replay permitido via compatibilidade segura
+                nominal_new_req = b_main.MensagemRequest(
+                    mensagem=legacy_msg,
+                    session_id=legacy_sess,
+                    client_request_id=legacy_req_id,
+                    model="gemini-2.0-flash",
+                    pesquisar_web=True,
+                    project_id="general"
+                )
+                new_canon_hash = b_main._calcular_fingerprint_requisicao(nominal_new_req)
+                st_leg_ok, p_leg_ok = await b.reconcile_idempotency_turn(
+                    idempotency_key=legacy_key,
+                    user_email=user_alpha,
+                    project_id="general",
+                    session_id=legacy_sess,
+                    request_payload_hash=new_canon_hash,
+                    legacy_payload_hash=pure_legacy_hash,
+                    is_nominal_legacy_eligible=True,
+                    require_strict_scope=True
+                )
+                self.assertEqual(st_leg_ok, "KNOWN_COMMITTED")
+                self.assertEqual(p_leg_ok["resposta"], legacy_secret)
+
+                # 3b. Requisicao Nova com parametro NAO-NOMINAL:
+                # O hash puro bate com a mensagem, MAS is_nominal_legacy_eligible e False!
+                # DEVE REJEITAR CATEGORICAMENTE (sem autorizar replay incorreto)!
+                with self.assertRaises(PermissionError) as ctx_leg_block:
+                    await b.reconcile_idempotency_turn(
+                        idempotency_key=legacy_key,
+                        user_email=user_alpha,
+                        project_id="general",
+                        session_id=legacy_sess,
+                        request_payload_hash="hash_divergente_gpt4o",
+                        legacy_payload_hash=pure_legacy_hash,
+                        is_nominal_legacy_eligible=False,
+                        require_strict_scope=True
+                    )
+                self.assertIn("parametros semanticos nao compativeis com registro legado", str(ctx_leg_block.exception))
+
+            finally:
+                await b.fechar()
+
+        self.run_async(_test())
+
+    def test_real_postgresql_endpoints_without_client_request_id_and_failure_handling(self):
+        """P1 HTTP /chat e /chat/stream sem client_request_id e Enforçamento Fail-Closed (Ciclo 031):
+        1. /chat sem client_request_id: sucesso 200, gravacao normal em conversas.
+        2. /chat sem client_request_id com falha de persistencia: falha closed com HTTP 503 (zero 200).
+        3. /chat/stream sem client_request_id: sucesso com done:true, gravacao em conversas.
+        4. /chat/stream sem client_request_id com falha de persistencia: emite PERSISTENCE_FAILED e NAO emite done:true."""
+        self._require_pg()
+        import httpx
+        import backend.main as b_main
+        from backend.banco import BancoDados
+        from auth import obter_usuario_google
+
+        async def _test():
+            os.environ['DATABASE_URL'] = EPHEMERAL_PG_URL
+            b = BancoDados(EPHEMERAL_PG_URL)
+            await b.conectar()
+            old_banco = b_main.banco
+            b_main.banco = b
+
+            class MockCerebroAll:
+                def __init__(self):
+                    self.nome_modelo = "gemini-2.0-flash"
+                    self.provider = "mock"
+                    self.last_provider_used = "mock"
+                    self.last_fallback_reason = None
+
+                async def pensar(self, pergunta, **kwargs):
+                    return f"Resposta sem chave: {pergunta}", 25, 0.05
+
+                async def pensar_stream(self, pergunta, **kwargs):
+                    yield "Chunk stream sem chave. "
+                    yield f"Resposta para {pergunta}"
+
+            mock_ai = MockCerebroAll()
+            old_get = b_main.get_cerebro
+            b_main.get_cerebro = lambda: mock_ai
+
+            user_email = "nokey_user@helpus.com"
+            b_main.app.dependency_overrides[obter_usuario_google] = lambda: {"email": user_email, "name": "NoKey", "role": "user"}
+
+            transport = httpx.ASGITransport(app=b_main.app)
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    # 1. /chat sem client_request_id -> 200 OK e grava no PostgreSQL
+                    sess_chat = f"sess_nokey_chat_{uuid.uuid4().hex[:8]}"
+                    r1 = await client.post("/chat", json={"mensagem": "Pergunta chat sem chave", "session_id": sess_chat})
+                    self.assertEqual(r1.status_code, 200)
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("SELECT COUNT(*) FROM conversas WHERE session_id = %s AND role = 'assistant';", (sess_chat,))
+                            self.assertEqual((await cur.fetchone())[0], 1)
+
+                    # 2. /chat sem client_request_id com falha de persistencia -> 503 Service Unavailable (Fail-Closed)
+                    sess_chat_fail = f"sess_nokey_fail_{uuid.uuid4().hex[:8]}"
+                    old_salvar = b.salvar_mensagem
+                    async def _failing_salvar(*args, **kwargs):
+                        return False
+                    b.salvar_mensagem = _failing_salvar
+                    r2 = await client.post("/chat", json={"mensagem": "Pergunta que falhara salvar", "session_id": sess_chat_fail})
+                    self.assertEqual(r2.status_code, 503, "Falha de persistencia sem client_request_id deve retornar 503")
+                    b.salvar_mensagem = old_salvar
+
+                    # 3. /chat/stream sem client_request_id -> 200 OK, done:true, gravado em conversas
+                    sess_stream = f"sess_nokey_stream_{uuid.uuid4().hex[:8]}"
+                    async with client.stream("POST", "/chat/stream", json={"mensagem": "Pergunta stream sem chave", "session_id": sess_stream}) as s1:
+                        self.assertEqual(s1.status_code, 200)
+                        body1 = (await s1.aread()).decode("utf-8")
+                        self.assertIn('"done": true', body1)
+                        self.assertIn("[DONE]", body1)
+                    async with b.pool.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute("SELECT COUNT(*) FROM conversas WHERE session_id = %s AND role = 'assistant';", (sess_stream,))
+                            self.assertEqual((await cur.fetchone())[0], 1)
+
+                    # 4. /chat/stream sem client_request_id com falha de persistencia -> emite erro PERSISTENCE_FAILED e NAO emite done:true
+                    sess_stream_fail = f"sess_nokey_sfail_{uuid.uuid4().hex[:8]}"
+                    b.salvar_mensagem = _failing_salvar
+                    async with client.stream("POST", "/chat/stream", json={"mensagem": "Stream que falhara salvar", "session_id": sess_stream_fail}) as s2:
+                        self.assertEqual(s2.status_code, 200)
+                        body2 = (await s2.aread()).decode("utf-8")
+                        self.assertIn('"PERSISTENCE_FAILED"', body2)
+                        self.assertNotIn('"done": true', body2, "NAO deve enviar done:true quando persistencia falha")
+                        self.assertIn("[DONE]", body2)
+                    b.salvar_mensagem = old_salvar
+
+            finally:
+                b_main.get_cerebro = old_get
+                b_main.banco = old_banco
+                b_main.app.dependency_overrides.clear()
                 await b.fechar()
 
         self.run_async(_test())
