@@ -889,6 +889,75 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                                         self.assertEqual(resp.status_code, 200)
                                         self.assertEqual(resp.json().get("status"), "saudavel")
 
+    # --- Testes de Fechamento do Gate e Alinhamento de Credenciais (Ordem 090) ---
+
+    def test_deploy_context_blocks_missing_env_even_with_staging_in_module_memory(self):
+        """Ordem 090: VERCEL=1 com ENVIRONMENT ausente no lookup DEVE abortar com erro,
+        mesmo que o atributo b_cfg.ENVIRONMENT em memória tenha 'staging'."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"VERCEL": "1"}, clear=True):
+            # Injeta em memória no módulo, simulando atributo em cache
+            with patch.object(b_cfg, "ENVIRONMENT", "staging"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy cloud", str(ctx.exception))
+
+    def test_deploy_context_blocks_missing_env_even_with_prod_in_module_memory(self):
+        """Ordem 090: VERCEL=1 com ENVIRONMENT ausente no lookup DEVE abortar com erro,
+        mesmo que o atributo b_cfg.ENVIRONMENT em memória tenha 'production' ou 'prod'."""
+        import backend.config as b_cfg
+        with patch.dict("os.environ", {"VERCEL": "1", "ENVIRONMENT": ""}, clear=True):
+            with patch.object(b_cfg, "ENVIRONMENT", "production"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    b_cfg.validar_politica_seguranca_ambiente(enforce=True)
+                self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy cloud", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_deploy_missing_env_despite_module_staging_on_testclient(self):
+        """Ordem 090: Ciclo de vida real via TestClient aborta se deploy cloud omitir ENVIRONMENT,
+        mesmo que o app_config em memória tenha sido patcheado com 'staging'."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"VERCEL": "1"}, clear=True):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "staging"):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(b_main.app):
+                                pass
+                        self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy cloud", str(ctx.exception))
+
+    def test_fastapi_lifespan_lifecycle_blocks_deploy_missing_env_despite_module_prod_on_testclient(self):
+        """Ordem 090: Ciclo de vida real via TestClient aborta se deploy cloud omitir ENVIRONMENT,
+        mesmo que o app_config em memória tenha sido patcheado com 'prod'."""
+        import backend.main as b_main
+        with patch.dict("os.environ", {"VERCEL": "1", "ENVIRONMENT": "   "}, clear=True):
+            with patch.object(b_main.app_config, "ENVIRONMENT", "prod"):
+                with patch.object(b_main.banco, "conectar", new_callable=AsyncMock):
+                    with patch.object(b_main.banco, "criar_tabelas", new_callable=AsyncMock):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            with TestClient(b_main.app):
+                                pass
+                        self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy cloud", str(ctx.exception))
+
+    def test_auth_verificar_google_id_token_strictly_uses_os_environ_client_id(self):
+        """Ordem 090: Confirma que verificar_google_id_token utiliza estritamente o GOOGLE_CLIENT_ID
+        configurado na variável de ambiente do SO, garantindo alinhamento total entre startup e request."""
+        expected_client_id = "staging-client-from-os-environ.apps.googleusercontent.com"
+        token = "dummy.token.here"
+        mock_payload = {
+            "iss": "https://accounts.google.com",
+            "sub": "user_123",
+            "email": "user@helpusbr.com",
+            "email_verified": True,
+        }
+        with patch.dict("os.environ", {"GOOGLE_CLIENT_ID": expected_client_id}):
+            with patch("google.oauth2.id_token.verify_oauth2_token", return_value=mock_payload) as mock_verify:
+                profile = auth_backend.verificar_google_id_token(token)
+                self.assertEqual(profile["email"], "user@helpusbr.com")
+                # Confirma que verify_oauth2_token recebeu exatamente o Client ID da variável de ambiente
+                mock_verify.assert_called_once()
+                args, kwargs = mock_verify.call_args
+                self.assertEqual(args[2], expected_client_id)
+
 
 if __name__ == "__main__":
     unittest.main()

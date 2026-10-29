@@ -175,15 +175,13 @@ def validar_politica_seguranca_ambiente(enforce: bool = False, env_source: Optio
         env_from_module = ""
 
     if in_deploy:
-        # Contexto de Deploy: proibido defaulting silencioso para development
+        # Contexto de Deploy: proibido defaulting silencioso para development ou recuperacao via memoria
         if raw_env_lookup is None or not str(raw_env_lookup).strip():
-            raw_env_name = env_from_module if env_from_module and env_from_module.lower().strip() in PROTECTED_ENVIRONMENTS else ""
-            if not raw_env_name:
-                erros.append(
-                    "ENVIRONMENT ausente ou vazio em contexto de deploy cloud. "
-                    "Deploy exige declaracao explicita de ambiente protegido homologado (production, prod, staging, stage)."
-                )
-                raw_env_name = "unspecified_deploy"
+            erros.append(
+                "ENVIRONMENT ausente ou vazio em contexto de deploy cloud. "
+                "Deploy exige declaracao explicita de ambiente protegido homologado (production, prod, staging, stage)."
+            )
+            raw_env_name = "unspecified_deploy"
         else:
             raw_env_name = str(raw_env_lookup).strip()
 

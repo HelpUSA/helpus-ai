@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 from typing import Optional, Dict, Any
 
 from fastapi import Header, HTTPException
@@ -13,7 +14,12 @@ def verificar_google_id_token(token: str) -> Dict[str, Any]:
             detail={"error": "missing_google_token", "message": "Token ausente ou invalido. Faca login novamente."},
         )
 
-    client_id = (GOOGLE_CLIENT_ID or "").strip()
+    # Alinhamento estrito com o startup: prioriza a variavel de ambiente do SO (fonte unica em deploy)
+    env_id = os.getenv("GOOGLE_CLIENT_ID")
+    if env_id is not None and env_id.strip():
+        client_id = env_id.strip()
+    else:
+        client_id = (GOOGLE_CLIENT_ID or "").strip()
     if not client_id:
         raise HTTPException(
             status_code=500,
