@@ -958,6 +958,24 @@ class TestOAuthJwtSecurity(unittest.TestCase):
                 args, kwargs = mock_verify.call_args
                 self.assertEqual(args[2], expected_client_id)
 
+    def test_cold_start_module_import_fails_closed_in_deploy_context(self):
+        """Ordem 091: Confirma que se o entrypoint Vercel for importado em deploy sem variáveis válidas,
+        a validação fail-closed é disparada imediatamente, mesmo antes de despachar eventos ASGI."""
+        import subprocess
+        import os
+        # Executa um subprocesso Python simulando importação no cold-start da Vercel
+        cmd = [
+            sys.executable,
+            "-c",
+            "import sys; sys.path.insert(0, 'backend'); import main"
+        ]
+        env = dict(os.environ)
+        env["VERCEL"] = "1"
+        env["ENVIRONMENT"] = ""  # Omitido em deploy
+        proc = subprocess.run(cmd, env=env, cwd=str(ROOT), capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("ENVIRONMENT ausente ou vazio em contexto de deploy cloud", proc.stderr + proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

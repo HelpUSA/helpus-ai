@@ -2643,3 +2643,10 @@ async def gerar_proposta_comercial(request: PropostaRequest):
         "valor_estimado": request.valor_estimado,
         "html_content": html_proposta
     }
+
+
+# Ordem 091: Em ambientes de deploy cloud/serverless (Vercel, Railway, etc.), executa
+# validacao fail-closed antecipada no module-load, garantindo protecao mesmo em runtimes
+# que nao despacham o evento ASGI lifespan no cold-start
+if any(k in os.environ for k in getattr(app_config, "DEPLOY_INDICATOR_VARS", ())):
+    app_config.validar_politica_seguranca_ambiente(enforce=True)
